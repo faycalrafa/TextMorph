@@ -1,0 +1,108 @@
+package com.textmorph.app.data.repository
+
+import android.content.Context
+import androidx.core.util.AtomicFile
+import com.textmorph.app.data.model.AppSettings
+import com.textmorph.app.data.model.EngineType
+import com.textmorph.app.theme.ThemeMode
+import com.textmorph.app.util.AppLogger
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
+import java.io.File
+
+class SettingsRepository(private val context: Context) {
+
+    private val mutex = Mutex()
+    private val TAG = "SettingsRepository"
+    private val json = Json { ignoreUnknownKeys = true; prettyPrint = true }
+
+    private val settingsFile: File
+        get() = File(context.filesDir, "app_settings_v1.json")
+
+    private val _settingsState = MutableStateFlow(AppSettings())
+    val settingsState: StateFlow<AppSettings> = _settingsState.asStateFlow()
+
+    init {
+        loadSettings()
+    }
+
+    private fun loadSettings() {
+        try {
+            if (settingsFile.exists()) {
+                val content = settingsFile.readText()
+                val parsed = json.decodeFromString<AppSettings>(content)
+                _settingsState.value = parsed
+                AppLogger.d(TAG, "Settings loaded successfully from disk.")
+            } else {
+                val defaults = AppSettings()
+                _settingsState.value = defaults
+                saveSettingsToDisk(defaults)
+                AppLogger.d(TAG, "Created default settings file.")
+            }
+        } catch (e: Exception) {
+            AppLogger.e(TAG, "Error loading settings, fallback to defaults: ${e.message}", e)
+            _settingsState.value = AppSettings()
+        }
+    }
+
+    suspend fun updateSettings(transform: (AppSettings) -> AppSettings) = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            val updated = transform(_settingsState.value)
+            _settingsState.value = updated
+            saveSettingsToDisk(updated)
+            AppLogger.i(TAG, "Settings updated and saved to disk.")
+        }
+    }
+
+    suspend fun setTheme(mode: ThemeMode) = updateSettings { it.copy(theme = mode) }
+
+    suspend fun setEngine(engine: EngineType) = updateSettings { it.copy(selectedEngine = engine) }
+
+    suspend fun setActiveModel(name: String, path: String?) = updateSettings {
+        it.copy(activeModelName = name, activeModelPath = path)
+    }
+
+    suspend fun setLocalServer(enabled: Boolean, port: Int = 8080, token: String = "") = updateSettings {
+        it.copy(localServerEnabled = enabled, localServerPort = port, localServerBearerToken = token)
+    }
+
+    suspend fun setFloatingToolbarEnabled(enabled: Boolean) = updateSettings {
+        it.copy(floatingToolbarEnabled = enabled)
+    }
+
+    suspend fun setAutoSuggestReplies(enabled: Boolean) = updateSettings {
+        it.copy(autoSuggestReplies = enabled)
+    }
+
+    suspend fun setCloudConfig(baseUrl: String, apiKey: String, modelId: String) = updateSettings {
+        it.copy(cloudBaseUrl = baseUrl, cloudApiKey = apiKey, cloudModelId = modelId)
+    }
+
+    suspend fun setProminentDisclosureShown(shown: Boolean = true) = updateSettings {
+        it.copy(hasShownProminentDisclosure = shown)
+    }
+
+    private fun saveSettingsToDisk(settings: AppSettings) {
+        try {
+            val atomicFile = AtomicFile(settingsFile)
+            val content = json.encodeToString(settings)
+            val stream = atomicFile.startWrite()
+            try {
+                stream.write(content.toByteArray(Charsets.UTF_8))
+                atomicFile.finishWrite(stream)
+            } catch (writeEx: Exception) {
+                atomicFile.failWrite(stream)
+                throw writeEx
+            }
+        } catch (e: Exception) {
+            AppLogger.e(TAG, "Failed to write settings to disk: ${e.message}", e)
+        }
+    }
+}

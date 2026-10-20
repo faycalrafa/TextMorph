@@ -4,44 +4,61 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
+import com.textmorph.app.data.repository.ModelStorageRepository
+import com.textmorph.app.data.repository.PromptRepository
+import com.textmorph.app.data.repository.SettingsRepository
+import com.textmorph.app.data.repository.UpdateRepository
+import com.textmorph.app.service.LlmForegroundService
 import com.textmorph.app.theme.TextMorphTheme
+import com.textmorph.app.ui.dashboard.DashboardScreen
 import com.textmorph.app.util.AppLogger
 
 class MainActivity : ComponentActivity() {
+
+    private val TAG = "MainActivity"
+    private lateinit var promptRepository: PromptRepository
+    private lateinit var settingsRepository: SettingsRepository
+    private lateinit var modelRepository: ModelStorageRepository
+    private lateinit var updateRepository: UpdateRepository
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        AppLogger.i("MainActivity", "MainActivity created.")
+        AppLogger.i(TAG, "MainActivity onCreate starting.")
+
+        // Initialize Repositories
+        promptRepository = PromptRepository(applicationContext)
+        settingsRepository = SettingsRepository(applicationContext)
+        modelRepository = ModelStorageRepository(applicationContext)
+        updateRepository = UpdateRepository(applicationContext)
+
+        // Ensure LLM Foreground Service is running
+        try {
+            LlmForegroundService.startService(applicationContext)
+        } catch (e: Exception) {
+            AppLogger.e(TAG, "Failed to start LlmForegroundService: ${e.message}", e)
+        }
 
         setContent {
-            TextMorphTheme {
-                Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    Surface(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(innerPadding),
-                        color = MaterialTheme.colorScheme.background
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Text(
-                                text = "TextMorph AI Studio",
-                                style = MaterialTheme.typography.headlineSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onBackground
-                            )
-                        }
-                    }
+            val settings by settingsRepository.settingsState.collectAsState()
+
+            TextMorphTheme(themeMode = settings.theme) {
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = MaterialTheme.colorScheme.background
+                ) {
+                    DashboardScreen(
+                        promptRepository = promptRepository,
+                        settingsRepository = settingsRepository,
+                        modelRepository = modelRepository,
+                        updateRepository = updateRepository
+                    )
                 }
             }
         }

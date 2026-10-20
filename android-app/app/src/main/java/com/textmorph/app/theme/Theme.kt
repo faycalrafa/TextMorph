@@ -6,11 +6,11 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 
-enum class ThemeMode {
-    FOREST_CLAY, // Default
-    DARK_SLATE,
-    SEPIA,
-    LIGHT
+enum class ThemeMode(val displayName: String) {
+    FOREST_CLAY("Forest Clay"), // Default
+    DARK_SLATE("Charcoal Slate"),
+    SEPIA("Sepia Parchment"),
+    LIGHT("Clean Light")
 }
 
 private val ForestClayDarkColorScheme = darkColorScheme(
