@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">TextMorph</string>
+    <string name="accessibility_service_label">TextMorph Floating AI Assistant</string>
+    <string name="accessibility_service_description">Enables TextMorph to detect focused text fields, display the floating smart toolbar, provide AI text transformations, and suggest smart replies.</string>
+</resources>
