@@ -60,7 +60,6 @@ jobs:
 
       - name: Create GitHub Release and Upload APK
         uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           name: TextMorph ${{ env.RELEASE_TAG }} (Stable)
@@ -79,3 +78,6 @@ jobs:
             - **Floating AI & Vision Toolbar**: System-wide input overlay via Accessibility Service.
             - **Forest Clay Design System**: Deep woodland palette with full-width responsive dialogs.
             - **Localhost OpenAI Server**: Embedded Ktor HTTP server on `127.0.0.1:8080`.
+            - **In-App Update System**: Direct APK download and installation from GitHub releases.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
