@@ -153,4 +153,52 @@ class TextMorphUnitTests {
         val chunk2 = "<start_of_turn>model\nHello world<end_of_turn>"
         assertEquals("model\nHello world", sanitize(chunk2))
     }
+
+    @Test
+    fun testCatalogModelsHaveValidDownloadUrlsAndMetadata() {
+        val e2b = com.textmorph.app.data.repository.ModelStorageRepository.CATALOG_E2B
+        val e4b = com.textmorph.app.data.repository.ModelStorageRepository.CATALOG_E4B
+
+        assertNotNull(e2b.downloadUrl)
+        assertTrue(e2b.downloadUrl?.startsWith("https://huggingface.co/") == true)
+        assertTrue(e2b.downloadUrl?.endsWith("gemma-4-E2B-it.litertlm") == true)
+        assertTrue(e2b.sizeBytes > 2_000_000_000L)
+        assertTrue(e2b.isVisionCapable)
+
+        assertNotNull(e4b.downloadUrl)
+        assertTrue(e4b.downloadUrl?.startsWith("https://huggingface.co/") == true)
+        assertTrue(e4b.downloadUrl?.endsWith("gemma-4-E4B-it.litertlm") == true)
+        assertTrue(e4b.sizeBytes > 4_000_000_000L)
+        assertTrue(e4b.isVisionCapable)
+    }
+
+    @Test
+    fun testDownloadWorkerKeysAndConstants() {
+        assertEquals("model_id", com.textmorph.app.worker.DownloadWorker.KEY_MODEL_ID)
+        assertEquals("model_name", com.textmorph.app.worker.DownloadWorker.KEY_MODEL_NAME)
+        assertEquals("download_url", com.textmorph.app.worker.DownloadWorker.KEY_DOWNLOAD_URL)
+        assertEquals("progress_percent", com.textmorph.app.worker.DownloadWorker.KEY_PROGRESS_PERCENT)
+        assertEquals("received_bytes", com.textmorph.app.worker.DownloadWorker.KEY_RECEIVED_BYTES)
+        assertEquals("download_rate", com.textmorph.app.worker.DownloadWorker.KEY_DOWNLOAD_RATE)
+        assertEquals("remaining_ms", com.textmorph.app.worker.DownloadWorker.KEY_REMAINING_MS)
+    }
+
+    @Test
+    fun testSmartReplyCleaningAndLineExtraction() {
+        val rawLlmOutput = """
+            1. Sounds great, see you there!
+            - Let me double-check my schedule first.
+            • Sorry, I won't be able to make it today.
+        """.trimIndent()
+
+        val lines = rawLlmOutput.lines()
+            .map { it.trim().removePrefix("-").removePrefix("•").removePrefix("1.").removePrefix("2.").removePrefix("3.").trim().trim('"', '\'') }
+            .filter { it.length in 2..120 }
+            .take(3)
+
+        assertEquals(3, lines.size)
+        assertEquals("Sounds great, see you there!", lines[0])
+        assertEquals("Let me double-check my schedule first.", lines[1])
+        assertEquals("Sorry, I won't be able to make it today.", lines[2])
+    }
 }

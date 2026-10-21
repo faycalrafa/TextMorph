@@ -9,13 +9,13 @@ android {
     compileSdk = 36
     val appVersionName = providers.environmentVariable("APP_VERSION_NAME")
         .orElse(providers.gradleProperty("appVersionName"))
-        .getOrElse("1.7.0")
+        .getOrElse("1.8.0")
 
     defaultConfig {
         applicationId = "com.textmorph.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 9
+        versionCode = 10
         versionName = appVersionName
 
         ndk {
@@ -131,6 +131,9 @@ dependencies {
 
   // Google AI Edge LiteRT-LM native on-device runtime (ARM64 & x86_64 JNI)
   implementation(libs.litertlm.android)
+
+  // WorkManager for background model downloading
+  implementation(libs.androidx.work.runtime.ktx)
 
   // Testing
   testImplementation(libs.junit)

@@ -37,12 +37,14 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.QuestionAnswer
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -88,7 +90,8 @@ fun FloatingToolbarContent(
     onInsertText: (String) -> Unit,
     onRevertText: (String) -> Unit,
     onDragDelta: (Float, Float) -> Unit,
-    onTakeScreenshotContext: (() -> Unit)? = null,
+    onTakeScreenshotContext: (((ByteArray) -> Unit) -> Unit)? = null,
+    onExtractTranscript: (() -> String)? = null,
     onDismiss: () -> Unit,
     engineProvider: () -> LlmEngine
 ) {
@@ -98,6 +101,9 @@ fun FloatingToolbarContent(
     var state by remember { mutableStateOf(FloatingButtonState.IDLE) }
     var originalTextBeforeGeneration by remember { mutableStateOf("") }
     var activeJob by remember { mutableStateOf<Job?>(null) }
+
+    var smartReplies by remember { mutableStateOf<List<String>>(emptyList()) }
+    var isGeneratingReplies by remember { mutableStateOf(false) }
 
     // Laser Animation for GENERATING state
     val infiniteTransition = rememberInfiniteTransition(label = "laser")
@@ -175,6 +181,81 @@ fun FloatingToolbarContent(
         }
     }
 
+    fun startVisionGeneration(instruction: String) {
+        if (onTakeScreenshotContext == null) {
+            Toast.makeText(context, "Screenshot capture not available.", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        originalTextBeforeGeneration = getLiveInputText()
+        state = FloatingButtonState.GENERATING
+
+        onTakeScreenshotContext.invoke { imageBytes ->
+            activeJob?.cancel()
+            activeJob = scope.launch {
+                try {
+                    val engine = engineProvider()
+                    val liveText = originalTextBeforeGeneration.ifBlank { "Screen Multimodal Context" }
+                    val sb = StringBuilder()
+                    engine.generateStream(liveText, instruction, imageBytes).collect { token ->
+                        sb.append(token)
+                    }
+
+                    val finalOutput = sb.toString().trim()
+                    if (finalOutput.isNotEmpty()) {
+                        onInsertText(finalOutput)
+                        state = FloatingButtonState.REVERT_WINDOW
+                    } else {
+                        state = FloatingButtonState.IDLE
+                    }
+                } catch (e: Exception) {
+                    AppLogger.e("FloatingToolbar", "Vision inference error: ${e.message}", e)
+                    Toast.makeText(context, "Vision error: ${e.message}", Toast.LENGTH_SHORT).show()
+                    state = FloatingButtonState.IDLE
+                }
+            }
+        }
+    }
+
+    fun requestSmartReplies() {
+        val transcript = onExtractTranscript?.invoke()?.trim() ?: ""
+        val liveText = getLiveInputText().trim()
+        val contextPrompt = if (transcript.isNotEmpty()) {
+            "Conversation Transcript:\n$transcript"
+        } else if (liveText.isNotEmpty()) {
+            "Context message: $liveText"
+        } else {
+            "Context: General friendly mobile chat."
+        }
+
+        isGeneratingReplies = true
+        smartReplies = emptyList()
+
+        scope.launch {
+            try {
+                val engine = engineProvider()
+                val prompt = "You are an on-device smart reply assistant. Based on this conversation:\n$contextPrompt\n\nGenerate exactly 3 short, relevant, natural reply suggestions that 'Me' could send next.\nOutput ONLY the 3 suggestions, strictly one per line, with no bullets, no quotes, and no numbers."
+
+                val sb = StringBuilder()
+                engine.generateStream(prompt, "Output only 3 clean suggested replies, one per line.").collect { token ->
+                    sb.append(token)
+                }
+
+                val lines = sb.toString().lines()
+                    .map { it.trim().removePrefix("-").removePrefix("•").removePrefix("1.").removePrefix("2.").removePrefix("3.").trim().trim('"', '\'') }
+                    .filter { it.length in 2..120 }
+                    .take(3)
+
+                smartReplies = if (lines.isNotEmpty()) lines else listOf("Sounds great!", "Let me check and get back to you.", "Sorry, I won't be able to make it.")
+            } catch (e: Exception) {
+                AppLogger.e("FloatingToolbar", "Failed generating smart replies: ${e.message}", e)
+                Toast.makeText(context, "Could not generate replies: ${e.message}", Toast.LENGTH_SHORT).show()
+            } finally {
+                isGeneratingReplies = false
+            }
+        }
+    }
+
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.End
@@ -186,7 +267,7 @@ fun FloatingToolbarContent(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                 elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
                 modifier = Modifier
-                    .width(300.dp)
+                    .width(310.dp)
                     .padding(end = 8.dp)
             ) {
                 Column(
@@ -272,12 +353,88 @@ fun FloatingToolbarContent(
                                 label = { Text("${prompt.iconEmoji} ${prompt.title}", fontSize = 11.sp) }
                             )
                         }
+                    }
 
-                        if (onTakeScreenshotContext != null) {
+                    // Multimodal Vision Actions
+                    if (onTakeScreenshotContext != null) {
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        Text(
+                            text = "📷 Vision Actions",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
                             AssistChip(
-                                onClick = onTakeScreenshotContext,
-                                label = { Text("📷 Screen Context", fontSize = 11.sp) }
+                                onClick = {
+                                    startVisionGeneration("Describe what is shown on screen concisely.")
+                                },
+                                label = { Text("📷 Describe Screen", fontSize = 11.sp) }
                             )
+                            AssistChip(
+                                onClick = {
+                                    startVisionGeneration("Extract and format all visible text from screen.")
+                                },
+                                label = { Text("🔍 Extract Text", fontSize = 11.sp) }
+                            )
+                        }
+                    }
+
+                    // Smart Replies Section
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "💬 Smart Replies",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+
+                        if (isGeneratingReplies) {
+                            CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    if (smartReplies.isEmpty()) {
+                        Button(
+                            onClick = { requestSmartReplies() },
+                            enabled = !isGeneratingReplies,
+                            shape = RoundedCornerShape(8.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Default.QuestionAnswer, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(if (isGeneratingReplies) "Analyzing Chat..." else "Suggest Smart Replies", fontSize = 12.sp)
+                        }
+                    } else {
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            smartReplies.forEach { reply ->
+                                AssistChip(
+                                    onClick = {
+                                        originalTextBeforeGeneration = getLiveInputText()
+                                        onInsertText(reply)
+                                        state = FloatingButtonState.REVERT_WINDOW
+                                    },
+                                    label = { Text("“$reply”", fontSize = 11.sp, maxLines = 2) },
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
                         }
                     }
                 }

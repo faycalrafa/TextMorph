@@ -26,11 +26,15 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.FileOpen
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.SaveAlt
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material3.Button
@@ -43,6 +47,8 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.work.WorkInfo
+import com.textmorph.app.worker.DownloadWorker
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.SuggestionChip
@@ -238,76 +244,213 @@ fun ModelHubContent(
 
         items(availableModels, key = { it.id }) { model ->
             val isCurrentActive = sessionState.isLoaded && sessionState.modelName == model.name
+            ModelCardItem(
+                model = model,
+                isCurrentActive = isCurrentActive,
+                isLoadingEngine = loadingProgress.isLoading,
+                onActivate = {
+                    scope.launch {
+                        val uri = model.uriString?.let { Uri.parse(it) }
+                        settingsRepository.setActiveModel(model.name, model.path, model.uriString)
+                        liteRtEngine.initialize(model.path, model.name, uri, settings.preferredAccelerator)
+                        Toast.makeText(context, "Loading: ${model.name}...", Toast.LENGTH_SHORT).show()
+                    }
+                },
+                onDownload = {
+                    modelRepository.startDownload(model)
+                    Toast.makeText(context, "Download started for ${model.name}", Toast.LENGTH_SHORT).show()
+                },
+                onCancelDownload = {
+                    modelRepository.cancelDownload(model.id)
+                    Toast.makeText(context, "Download cancelled", Toast.LENGTH_SHORT).show()
+                },
+                onDelete = {
+                    scope.launch {
+                        val deleted = modelRepository.deleteModel(model)
+                        if (deleted) {
+                            Toast.makeText(context, "Deleted ${model.name}", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                },
+                onImportToPrivateStorage = {
+                    scope.launch {
+                        val imported = modelRepository.importToPrivateStorage(model)
+                        if (imported) {
+                            Toast.makeText(context, "Imported ${model.name} to private storage", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                },
+                onNavigateToChat = onNavigateToChat,
+                modelRepository = modelRepository
+            )
+        }
+    }
+}
 
-            Card(
+@Composable
+private fun ModelCardItem(
+    model: ModelInfo,
+    isCurrentActive: Boolean,
+    isLoadingEngine: Boolean,
+    onActivate: () -> Unit,
+    onDownload: () -> Unit,
+    onCancelDownload: () -> Unit,
+    onDelete: () -> Unit,
+    onImportToPrivateStorage: () -> Unit,
+    onNavigateToChat: () -> Unit,
+    modelRepository: ModelStorageRepository,
+    modifier: Modifier = Modifier
+) {
+    val workInfo by modelRepository.getDownloadWorkInfo(model.id).collectAsState(initial = null)
+    val isDownloading = workInfo?.state == WorkInfo.State.RUNNING || workInfo?.state == WorkInfo.State.ENQUEUED
+
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isCurrentActive) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = if (isCurrentActive) 4.dp else 1.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(14.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = if (isCurrentActive) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
-                ),
-                elevation = CardDefaults.cardElevation(defaultElevation = if (isCurrentActive) 4.dp else 1.dp)
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    text = model.name,
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                                if (isCurrentActive) {
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    SuggestionChip(
-                                        onClick = {},
-                                        label = { Text("Active", fontWeight = FontWeight.Bold) }
-                                    )
-                                }
-                            }
-                            Text(
-                                text = model.description,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = model.name,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        if (isCurrentActive) {
+                            Spacer(modifier = Modifier.width(8.dp))
+                            SuggestionChip(
+                                onClick = {},
+                                label = { Text("Active", fontWeight = FontWeight.Bold) }
                             )
                         }
                     }
+                    Text(
+                        text = model.description,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
 
-                    Spacer(modifier = Modifier.height(10.dp))
+                if (model.isDownloaded && model.path != null) {
+                    IconButton(onClick = onDelete) {
+                        Icon(
+                            imageVector = Icons.Default.Delete,
+                            contentDescription = "Delete Model",
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+            }
 
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Download Progress Bar & Speed / ETA
+            if (isDownloading) {
+                val progress = workInfo?.progress?.getInt(DownloadWorker.KEY_PROGRESS_PERCENT, 0) ?: 0
+                val receivedBytes = workInfo?.progress?.getLong(DownloadWorker.KEY_RECEIVED_BYTES, 0L) ?: 0L
+                val totalBytes = workInfo?.progress?.getLong(DownloadWorker.KEY_TOTAL_BYTES, model.sizeBytes) ?: model.sizeBytes
+                val rate = workInfo?.progress?.getLong(DownloadWorker.KEY_DOWNLOAD_RATE, 0L) ?: 0L
+                val remainingMs = workInfo?.progress?.getLong(DownloadWorker.KEY_REMAINING_MS, 0L) ?: 0L
+
+                val speedMb = rate / (1024.0 * 1024.0)
+                val etaSec = remainingMs / 1000
+
+                Column(modifier = Modifier.fillMaxWidth()) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = if (model.sizeBytes > 0) "${model.sizeBytes / (1024 * 1024)} MB" else "Catalog Entry",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.primary
+                            text = "$progress% • ${receivedBytes / (1024 * 1024)} / ${totalBytes / (1024 * 1024)} MB",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.Bold
                         )
+                        Text(
+                            text = "%.1f MB/s • %ds left".format(speedMb, etaSec),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    LinearProgressIndicator(
+                        progress = { progress / 100f },
+                        modifier = Modifier.fillMaxWidth().height(6.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+            }
+
+            // Bottom action row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = if (model.sizeBytes > 0) "${model.sizeBytes / (1024 * 1024)} MB" else "Catalog Entry",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary
+                )
+
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    if (isDownloading) {
+                        OutlinedButton(
+                            onClick = onCancelDownload,
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Icon(Icons.Default.Close, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Cancel")
+                        }
+                    } else if (!model.isDownloaded) {
+                        if (model.downloadUrl != null) {
+                            Button(
+                                onClick = onDownload,
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Download")
+                            }
+                        }
+                    } else {
+                        // Model is downloaded
+                        if (model.isExternalStorage) {
+                            OutlinedButton(
+                                onClick = onImportToPrivateStorage,
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Icon(Icons.Default.SaveAlt, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Import", fontSize = 12.sp)
+                            }
+                        }
 
                         if (!isCurrentActive) {
                             Button(
-                                onClick = {
-                                    scope.launch {
-                                        val uri = model.uriString?.let { Uri.parse(it) }
-                                        settingsRepository.setActiveModel(model.name, model.path, model.uriString)
-                                        liteRtEngine.initialize(model.path, model.name, uri, settings.preferredAccelerator)
-                                        Toast.makeText(context, "Loading: ${model.name}...", Toast.LENGTH_SHORT).show()
-                                    }
-                                },
-                                enabled = !loadingProgress.isLoading,
+                                onClick = onActivate,
+                                enabled = !isLoadingEngine,
                                 shape = RoundedCornerShape(8.dp)
                             ) {
-                                Text(if (loadingProgress.isLoading) "Loading..." else "Activate Model")
+                                Text(if (isLoadingEngine) "Loading..." else "Activate Model")
                             }
                         } else {
                             Button(
-                                onClick = { onNavigateToChat() },
+                                onClick = onNavigateToChat,
                                 shape = RoundedCornerShape(8.dp),
                                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                             ) {

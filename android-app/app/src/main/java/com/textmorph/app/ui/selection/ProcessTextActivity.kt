@@ -31,6 +31,18 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
+import androidx.compose.material.icons.filled.AddPhotoAlternate
+import androidx.compose.material.icons.filled.Image
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -154,11 +166,33 @@ private fun ProcessTextContent(
     onCancel: () -> Unit,
     engineProvider: () -> LlmEngine
 ) {
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var customInstruction by remember { mutableStateOf("") }
     var resultText by remember { mutableStateOf("") }
     var isGenerating by remember { mutableStateOf(false) }
     var streamJob by remember { mutableStateOf<Job?>(null) }
+
+    var selectedImageBytes by remember { mutableStateOf<ByteArray?>(null) }
+    var selectedImageBitmap by remember { mutableStateOf<Bitmap?>(null) }
+
+    val photoPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            try {
+                val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                if (bytes != null) {
+                    selectedImageBytes = bytes
+                    selectedImageBitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                    AppLogger.i("ProcessTextActivity", "Attached visual context: ${bytes.size} bytes")
+                }
+            } catch (e: Exception) {
+                AppLogger.e("ProcessTextActivity", "Failed reading selected image: ${e.message}", e)
+                Toast.makeText(context, "Could not load image: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
 
     fun executeInference(instruction: String) {
         streamJob?.cancel()
@@ -168,7 +202,12 @@ private fun ProcessTextContent(
 
         streamJob = scope.launch {
             try {
-                engine.generateStream(originalText, instruction).collect { token ->
+                val effectivePrompt = originalText.ifBlank { "Describe and analyze the attached image." }
+                engine.generateStream(
+                    prompt = effectivePrompt,
+                    systemInstruction = instruction,
+                    imageBytes = selectedImageBytes
+                ).collect { token ->
                     resultText += token
                 }
             } catch (e: Exception) {
@@ -258,6 +297,57 @@ private fun ProcessTextContent(
             }
         }
 
+        // Attached image preview
+        if (selectedImageBitmap != null) {
+            Spacer(modifier = Modifier.height(6.dp))
+            Card(
+                shape = RoundedCornerShape(10.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        modifier = Modifier.size(44.dp)
+                    ) {
+                        Image(
+                            bitmap = selectedImageBitmap!!.asImageBitmap(),
+                            contentDescription = "Attached Context",
+                            contentScale = ContentScale.Crop
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "📷 Visual Context Attached",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Text(
+                            text = "${(selectedImageBytes?.size ?: 0) / 1024} KB • Multimodal input ready",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    IconButton(
+                        onClick = {
+                            selectedImageBytes = null
+                            selectedImageBitmap = null
+                        },
+                        modifier = Modifier.size(24.dp)
+                    ) {
+                        Icon(Icons.Default.Close, contentDescription = "Remove Image", modifier = Modifier.size(16.dp))
+                    }
+                }
+            }
+        }
+
         Spacer(modifier = Modifier.height(10.dp))
 
         // Custom instruction input
@@ -268,19 +358,30 @@ private fun ProcessTextContent(
             OutlinedTextField(
                 value = customInstruction,
                 onValueChange = { customInstruction = it },
-                placeholder = { Text("Custom instruction (e.g. summarize in 2 sentences)...", fontSize = 12.sp) },
+                placeholder = { Text("Custom instruction (e.g. summarize, describe image)...", fontSize = 12.sp) },
                 modifier = Modifier.weight(1f),
                 singleLine = true,
                 shape = RoundedCornerShape(10.dp)
             )
-            Spacer(modifier = Modifier.width(8.dp))
+            Spacer(modifier = Modifier.width(4.dp))
             IconButton(
                 onClick = {
-                    if (customInstruction.isNotBlank()) {
-                        executeInference(customInstruction)
+                    photoPickerLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                }
+            ) {
+                Icon(
+                    imageVector = Icons.Default.AddPhotoAlternate,
+                    contentDescription = "Attach Image",
+                    tint = if (selectedImageBytes != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            IconButton(
+                onClick = {
+                    if (customInstruction.isNotBlank() || selectedImageBytes != null) {
+                        executeInference(customInstruction.ifBlank { "Describe and explain this image." })
                     }
                 },
-                enabled = customInstruction.isNotBlank() && !isGenerating
+                enabled = (customInstruction.isNotBlank() || selectedImageBytes != null) && !isGenerating
             ) {
                 Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Run", tint = MaterialTheme.colorScheme.primary)
             }

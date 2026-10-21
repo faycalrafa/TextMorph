@@ -7,14 +7,24 @@ import android.os.Build
 import android.os.Environment
 import android.os.ParcelFileDescriptor
 import android.provider.OpenableColumns
+import androidx.work.Data
+import androidx.work.ExistingWorkPolicy
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkInfo
+import androidx.work.WorkManager
 import com.textmorph.app.data.model.ModelInfo
 import com.textmorph.app.util.AppLogger
+import com.textmorph.app.worker.DownloadWorker
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.FileInputStream
+import java.io.FileOutputStream
 
 class ModelStorageRepository(private val context: Context) {
 
@@ -43,7 +53,8 @@ class ModelStorageRepository(private val context: Context) {
             isDownloaded = false,
             isBuiltInCatalog = true,
             isVisionCapable = true,
-            description = "Lightweight on-device multimodal Gemma 4 model. Ideal for 6GB–8GB RAM devices."
+            description = "Lightweight on-device multimodal Gemma 4 model. Ideal for 6GB–8GB RAM devices.",
+            downloadUrl = "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it.litertlm"
         )
 
         val CATALOG_E4B = ModelInfo(
@@ -53,7 +64,8 @@ class ModelStorageRepository(private val context: Context) {
             isDownloaded = false,
             isBuiltInCatalog = true,
             isVisionCapable = true,
-            description = "High-capability multimodal Gemma 4 model. Recommended for 8GB–12GB+ RAM devices."
+            description = "High-capability multimodal Gemma 4 model. Recommended for 8GB–12GB+ RAM devices.",
+            downloadUrl = "https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm/resolve/main/gemma-4-E4B-it.litertlm"
         )
     }
 
@@ -224,6 +236,121 @@ class ModelStorageRepository(private val context: Context) {
         } catch (e: Exception) {
             AppLogger.e(TAG, "Failed to register SAF model URI: ${e.message}", e)
             null
+        }
+    }
+
+    /**
+     * Enqueues a background WorkManager download task for a catalog model or custom URL.
+     */
+    fun startDownload(modelInfo: ModelInfo, customUrl: String? = null, saveToDownloads: Boolean = false) {
+        val url = customUrl ?: modelInfo.downloadUrl
+        if (url.isNullOrBlank()) {
+            AppLogger.e(TAG, "Cannot start download: URL is missing for model ${modelInfo.name}")
+            return
+        }
+
+        val workData = Data.Builder()
+            .putString(DownloadWorker.KEY_MODEL_ID, modelInfo.id)
+            .putString(DownloadWorker.KEY_MODEL_NAME, modelInfo.name)
+            .putString(DownloadWorker.KEY_DOWNLOAD_URL, url)
+            .putLong(DownloadWorker.KEY_TOTAL_BYTES, modelInfo.sizeBytes)
+            .putBoolean(DownloadWorker.KEY_SAVE_TO_DOWNLOADS, saveToDownloads)
+            .build()
+
+        val downloadRequest = OneTimeWorkRequestBuilder<DownloadWorker>()
+            .setInputData(workData)
+            .addTag("model_download")
+            .addTag(modelInfo.id)
+            .build()
+
+        AppLogger.i(TAG, "Enqueuing WorkManager download for ${modelInfo.name} (uniqueWork=download_${modelInfo.id})")
+        WorkManager.getInstance(context).enqueueUniqueWork(
+            "download_${modelInfo.id}",
+            ExistingWorkPolicy.REPLACE,
+            downloadRequest
+        )
+    }
+
+    /**
+     * Cancels an ongoing background download task.
+     */
+    fun cancelDownload(modelId: String) {
+        AppLogger.i(TAG, "Canceling download work for modelId=$modelId")
+        WorkManager.getInstance(context).cancelUniqueWork("download_$modelId")
+    }
+
+    /**
+     * Returns a Flow observing the background download progress/status for a model.
+     */
+    fun getDownloadWorkInfo(modelId: String): Flow<WorkInfo?> {
+        return WorkManager.getInstance(context)
+            .getWorkInfosForUniqueWorkFlow("download_$modelId")
+            .map { it.firstOrNull() }
+    }
+
+    /**
+     * Deletes a model file from storage and refreshes available models.
+     */
+    suspend fun deleteModel(modelInfo: ModelInfo): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val path = modelInfo.path
+            if (path == null) {
+                AppLogger.w(TAG, "Cannot delete model ${modelInfo.name}: path is null")
+                return@withContext false
+            }
+            val file = File(path)
+            if (file.exists()) {
+                val deleted = file.delete()
+                AppLogger.i(TAG, "Deleted model file at $path: success=$deleted")
+                refreshModels()
+                deleted
+            } else {
+                AppLogger.w(TAG, "File to delete does not exist: $path")
+                refreshModels()
+                false
+            }
+        } catch (e: Exception) {
+            AppLogger.e(TAG, "Failed to delete model ${modelInfo.name}: ${e.message}", e)
+            false
+        }
+    }
+
+    /**
+     * Copies a model from Downloads / external storage into App Private Storage (models/),
+     * allowing the user to delete the original external file without losing the model.
+     */
+    suspend fun importToPrivateStorage(modelInfo: ModelInfo): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val srcPath = modelInfo.path ?: return@withContext false
+            val srcFile = File(srcPath)
+            if (!srcFile.exists()) {
+                AppLogger.w(TAG, "Source file does not exist: $srcPath")
+                return@withContext false
+            }
+
+            val internalModelsDir = File(context.filesDir, "models")
+            if (!internalModelsDir.exists()) {
+                internalModelsDir.mkdirs()
+            }
+            val destFile = File(internalModelsDir, modelInfo.name)
+            if (destFile.canonicalPath == srcFile.canonicalPath) {
+                AppLogger.i(TAG, "Model is already in app private storage.")
+                return@withContext true
+            }
+
+            AppLogger.i(TAG, "Importing ${srcFile.name} (${srcFile.length()} bytes) to app private storage: ${destFile.absolutePath}")
+            FileInputStream(srcFile).use { input ->
+                FileOutputStream(destFile).use { output ->
+                    input.copyTo(output)
+                }
+            }
+
+            AppLogger.i(TAG, "Import completed successfully.")
+            refreshModels()
+            true
+        } catch (e: Exception) {
+            AppLogger.e(TAG, "Failed importing model to private storage: ${e.message}", e)
+            false
         }
     }
 }

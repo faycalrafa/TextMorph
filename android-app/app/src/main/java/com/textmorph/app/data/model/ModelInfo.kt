@@ -13,5 +13,6 @@ data class ModelInfo(
     val isBuiltInCatalog: Boolean = false,
     val isExternalStorage: Boolean = false,
     val isVisionCapable: Boolean = true,
-    val description: String = ""
+    val description: String = "",
+    val downloadUrl: String? = null
 )

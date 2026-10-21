@@ -35,7 +35,8 @@ class FloatingToolbarWindowManager(
     private var userY: Int? = null
 
     fun show(
-        onTakeScreenshot: (() -> Unit)? = null
+        onTakeScreenshot: (((ByteArray) -> Unit) -> Unit)? = null,
+        onExtractTranscript: (() -> String)? = null
     ) {
         try {
             if (isShowing && composeView != null) {
@@ -88,6 +89,7 @@ class FloatingToolbarWindowManager(
                                 onDragDelta(dx, dy, screenWidth, screenHeight)
                             },
                             onTakeScreenshotContext = onTakeScreenshot,
+                            onExtractTranscript = onExtractTranscript,
                             onDismiss = { hide() },
                             engineProvider = {
                                 val currentSettings = settingsRepository.settingsState.value

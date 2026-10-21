@@ -64,7 +64,8 @@ class TextMorphAccessibilityService : AccessibilityService() {
                 val isEditable = source?.isEditable == true || isCurrentInputEditable()
                 if (isEditable) {
                     overlayManager?.show(
-                        onTakeScreenshot = { captureScreenContext() }
+                        onTakeScreenshot = { callback -> captureScreenContext(callback) },
+                        onExtractTranscript = { extractConversationTranscript() }
                     )
                 } else {
                     overlayManager?.hide()
@@ -154,7 +155,7 @@ class TextMorphAccessibilityService : AccessibilityService() {
         }
     }
 
-    private fun captureScreenContext() {
+    fun captureScreenContext(onCaptured: (ByteArray) -> Unit) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             try {
                 AppLogger.i(TAG, "Capturing screen for multimodal vision context...")
@@ -176,6 +177,7 @@ class TextMorphAccessibilityService : AccessibilityService() {
                                     val bytes = stream.toByteArray()
                                     bitmap.recycle()
                                     AppLogger.i(TAG, "Screen captured successfully: ${bytes.size} bytes.")
+                                    onCaptured(bytes)
                                 }
                             } catch (e: Exception) {
                                 AppLogger.e(TAG, "Error processing screenshot hardware buffer: ${e.message}", e)
@@ -191,6 +193,65 @@ class TextMorphAccessibilityService : AccessibilityService() {
                 AppLogger.e(TAG, "Failed to initiate screen capture: ${e.message}", e)
             }
         }
+    }
+
+    private data class ChatBubble(val text: String, val isMe: Boolean, val top: Int)
+
+    /**
+     * Traverses the active window UI tree to extract visible conversation chat bubbles,
+     * classifying Left vs. Right alignment into incoming ("Them") vs outgoing ("Me").
+     */
+    fun extractConversationTranscript(): String {
+        val root = rootInActiveWindow ?: return ""
+        val bubbles = mutableListOf<ChatBubble>()
+        val displayMetrics = resources.displayMetrics
+        val screenCenterX = displayMetrics.widthPixels / 2
+
+        try {
+            fun traverse(node: AccessibilityNodeInfo?) {
+                if (node == null) return
+                try {
+                    val text = node.text?.toString()?.trim()
+                    if (!node.isEditable && !text.isNullOrBlank() && text.length > 1) {
+                        val rect = android.graphics.Rect()
+                        node.getBoundsInScreen(rect)
+                        if (rect.width() > 30 && rect.height() > 15 && rect.bottom > 0 && rect.top < displayMetrics.heightPixels) {
+                            val isMe = rect.centerX() > screenCenterX
+                            bubbles.add(ChatBubble(text, isMe, rect.top))
+                        }
+                    }
+
+                    for (i in 0 until node.childCount) {
+                        val child = node.getChild(i)
+                        traverse(child)
+                        try { child?.recycle() } catch (_: Exception) {}
+                    }
+                } catch (e: Exception) {
+                    AppLogger.w(TAG, "Error traversing accessibility node: ${e.message}")
+                }
+            }
+
+            traverse(root)
+        } finally {
+            try { root.recycle() } catch (_: Exception) {}
+        }
+
+        // Sort by vertical position on screen
+        bubbles.sortBy { it.top }
+
+        val sb = StringBuilder()
+        var lastText = ""
+        for (bubble in bubbles) {
+            if (bubble.text != lastText) {
+                val speaker = if (bubble.isMe) "Me" else "Them"
+                sb.append("$speaker: ${bubble.text}\n")
+                lastText = bubble.text
+            }
+        }
+
+        val transcript = sb.toString().trim()
+        AppLogger.i(TAG, "Extracted conversation transcript: ${bubbles.size} bubbles, length=${transcript.length}")
+        return transcript
     }
 
     override fun onInterrupt() {
