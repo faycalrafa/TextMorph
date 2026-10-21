@@ -31,8 +31,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.textmorph.app.data.model.ContextAction
 import com.textmorph.app.data.model.PromptCategory
 import com.textmorph.app.data.model.PromptEntity
 import java.util.UUID
@@ -48,7 +50,15 @@ fun PromptEditorDialog(
     var systemInstruction by remember { mutableStateOf(prompt?.systemInstruction ?: "") }
     var iconEmoji by remember { mutableStateOf(prompt?.iconEmoji ?: "✨") }
     var category by remember { mutableStateOf(prompt?.category ?: PromptCategory.TEXT_TRANSFORM) }
-    var requiresVision by remember { mutableStateOf(prompt?.requiresVision ?: false) }
+    var contextAction by remember {
+        mutableStateOf(
+            prompt?.contextAction ?: if (prompt?.requiresVision == true) ContextAction.SCREENSHOT else ContextAction.NONE
+        )
+    }
+
+    val isVisionRequired = contextAction == ContextAction.SCREENSHOT ||
+            contextAction == ContextAction.CAMERA ||
+            contextAction == ContextAction.OCR
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -123,12 +133,65 @@ fun PromptEditorDialog(
                             selected = category == cat,
                             onClick = {
                                 category = cat
-                                if (cat == PromptCategory.VISION_ACTION) requiresVision = true
+                                if (cat == PromptCategory.VISION_ACTION && contextAction == ContextAction.NONE) {
+                                    contextAction = ContextAction.SCREENSHOT
+                                }
                             },
                             label = { Text(cat.displayName) }
                         )
                     }
                 }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Text(
+                    text = "Automatic Context Action",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    text = "Automatically captures and attaches context before executing:",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    ContextAction.entries.forEach { action ->
+                        val actionIcon = when (action) {
+                            ContextAction.NONE -> "📝"
+                            ContextAction.SCREENSHOT -> "📸"
+                            ContextAction.CAMERA -> "📷"
+                            ContextAction.OCR -> "📄"
+                            ContextAction.ACCESSIBILITY_TEXT -> "🔤"
+                        }
+                        FilterChip(
+                            selected = contextAction == action,
+                            onClick = {
+                                contextAction = action
+                                if (action == ContextAction.SCREENSHOT || action == ContextAction.CAMERA || action == ContextAction.OCR) {
+                                    category = PromptCategory.VISION_ACTION
+                                }
+                            },
+                            label = { Text("$actionIcon ${action.displayName}") }
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                Text(
+                    text = contextAction.description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontSize = 11.sp
+                )
 
                 Spacer(modifier = Modifier.height(16.dp))
 
@@ -142,32 +205,6 @@ fun PromptEditorDialog(
                         .height(140.dp),
                     shape = RoundedCornerShape(12.dp)
                 )
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Requires Vision / Screen Context",
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Text(
-                            text = "Attaches screenshot or camera input when invoked.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    Switch(
-                        checked = requiresVision,
-                        onCheckedChange = { requiresVision = it }
-                    )
-                }
 
                 Spacer(modifier = Modifier.height(24.dp))
 
@@ -192,15 +229,17 @@ fun PromptEditorDialog(
                                     systemInstruction = systemInstruction.trim(),
                                     iconEmoji = iconEmoji.ifBlank { "✨" },
                                     category = category,
-                                    requiresVision = requiresVision
+                                    requiresVision = isVisionRequired,
+                                    contextAction = contextAction
                                 ) ?: PromptEntity(
                                     id = "custom_" + UUID.randomUUID().toString(),
                                     title = title.trim(),
                                     systemInstruction = systemInstruction.trim(),
                                     iconEmoji = iconEmoji.ifBlank { "✨" },
                                     category = category,
-                                    requiresVision = requiresVision,
-                                    sortOrder = 99
+                                    requiresVision = isVisionRequired,
+                                    sortOrder = 99,
+                                    contextAction = contextAction
                                 )
                                 onSave(newOrUpdated)
                             }

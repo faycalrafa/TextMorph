@@ -131,7 +131,27 @@ class TextMorphAccessibilityService : AccessibilityService() {
         }
     }
 
-    fun replaceLiveInputText(newText: String): Boolean {
+    private var previousTextBeforeTransformation: String? = null
+
+    fun hasPreviousTransformation(): Boolean = !previousTextBeforeTransformation.isNullOrEmpty()
+
+    fun revertPreviousTransformation(): Boolean {
+        val previous = previousTextBeforeTransformation ?: return false
+        AppLogger.i(TAG, "Reverting to previous text length=${previous.length}")
+        val success = replaceLiveInputText(previous, recordHistory = false)
+        if (success) {
+            previousTextBeforeTransformation = null
+        }
+        return success
+    }
+
+    fun replaceLiveInputText(newText: String, recordHistory: Boolean = true): Boolean {
+        if (recordHistory) {
+            val current = getLiveInputText()
+            if (current.isNotBlank()) {
+                previousTextBeforeTransformation = current
+            }
+        }
         val node = getLiveInputNode() ?: return false
         return try {
             AppLogger.i(TAG, "Replacing live input text with length=${newText.length}")

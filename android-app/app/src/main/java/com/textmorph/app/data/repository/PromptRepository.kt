@@ -2,6 +2,7 @@ package com.textmorph.app.data.repository
 
 import android.content.Context
 import androidx.core.util.AtomicFile
+import com.textmorph.app.data.model.ContextAction
 import com.textmorph.app.data.model.PromptCategory
 import com.textmorph.app.data.model.PromptEntity
 import com.textmorph.app.util.AppLogger
@@ -41,7 +42,14 @@ class PromptRepository(private val context: Context) {
             } else {
                 val content = promptsFile.readText()
                 val parsed = json.decodeFromString<List<PromptEntity>>(content)
-                _promptsState.value = parsed.sortedBy { it.sortOrder }
+                val migrated = parsed.map { prompt ->
+                    if (prompt.requiresVision && prompt.contextAction == ContextAction.NONE) {
+                        prompt.copy(contextAction = ContextAction.SCREENSHOT)
+                    } else {
+                        prompt
+                    }
+                }.sortedBy { it.sortOrder }
+                _promptsState.value = migrated
             }
         } catch (e: Exception) {
             AppLogger.e(TAG, "Error loading prompts from disk, falling back to seeds: ${e.message}", e)
@@ -52,12 +60,14 @@ class PromptRepository(private val context: Context) {
 
     suspend fun addPrompt(prompt: PromptEntity) = withContext(Dispatchers.IO) {
         mutex.withLock {
-            val updated = _promptsState.value.toMutableList().apply {
-                add(prompt)
-            }.sortedBy { it.sortOrder }
+            val currentList = _promptsState.value.toMutableList()
+            val maxSortOrder = currentList.maxOfOrNull { it.sortOrder } ?: -1
+            val normalizedPrompt = prompt.copy(sortOrder = maxSortOrder + 1)
+            currentList.add(normalizedPrompt)
+            val updated = currentList.sortedBy { it.sortOrder }
             _promptsState.value = updated
             savePromptsToDisk(updated)
-            AppLogger.i(TAG, "Added prompt: ${prompt.title} (${prompt.id})")
+            AppLogger.i(TAG, "Added prompt: ${prompt.title} (${prompt.id}) at sortOrder=${normalizedPrompt.sortOrder}")
         }
     }
 
@@ -75,9 +85,30 @@ class PromptRepository(private val context: Context) {
     suspend fun deletePrompt(id: String) = withContext(Dispatchers.IO) {
         mutex.withLock {
             val updated = _promptsState.value.filterNot { it.id == id }
+                .mapIndexed { index, prompt -> prompt.copy(sortOrder = index) }
             _promptsState.value = updated
             savePromptsToDisk(updated)
             AppLogger.i(TAG, "Deleted prompt: $id")
+        }
+    }
+
+    suspend fun movePrompt(promptId: String, direction: Int) = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            val list = _promptsState.value.sortedBy { it.sortOrder }.toMutableList()
+            val currentIndex = list.indexOfFirst { it.id == promptId }
+            if (currentIndex == -1) return@withLock
+            val targetIndex = currentIndex + direction
+            if (targetIndex in list.indices) {
+                val currentItem = list[currentIndex]
+                val targetItem = list[targetIndex]
+                list[currentIndex] = targetItem
+                list[targetIndex] = currentItem
+                // Re-index all sortOrders cleanly
+                val reordered = list.mapIndexed { index, item -> item.copy(sortOrder = index) }
+                _promptsState.value = reordered
+                savePromptsToDisk(reordered)
+                AppLogger.i(TAG, "Moved prompt '${currentItem.title}' ($promptId) from $currentIndex to $targetIndex")
+            }
         }
     }
 
@@ -126,7 +157,8 @@ class PromptRepository(private val context: Context) {
                 iconEmoji = "✏️",
                 category = PromptCategory.TEXT_TRANSFORM,
                 requiresVision = false,
-                sortOrder = 0
+                sortOrder = 0,
+                contextAction = ContextAction.NONE
             ),
             PromptEntity(
                 id = "seed_make_concise",
@@ -135,7 +167,8 @@ class PromptRepository(private val context: Context) {
                 iconEmoji = "✂️",
                 category = PromptCategory.TEXT_TRANSFORM,
                 requiresVision = false,
-                sortOrder = 1
+                sortOrder = 1,
+                contextAction = ContextAction.NONE
             ),
             PromptEntity(
                 id = "seed_pro_tone",
@@ -144,7 +177,8 @@ class PromptRepository(private val context: Context) {
                 iconEmoji = "💼",
                 category = PromptCategory.TEXT_TRANSFORM,
                 requiresVision = false,
-                sortOrder = 2
+                sortOrder = 2,
+                contextAction = ContextAction.NONE
             ),
             PromptEntity(
                 id = "seed_casual_tone",
@@ -153,7 +187,8 @@ class PromptRepository(private val context: Context) {
                 iconEmoji = "💬",
                 category = PromptCategory.TEXT_TRANSFORM,
                 requiresVision = false,
-                sortOrder = 3
+                sortOrder = 3,
+                contextAction = ContextAction.NONE
             ),
             PromptEntity(
                 id = "seed_expand",
@@ -162,7 +197,8 @@ class PromptRepository(private val context: Context) {
                 iconEmoji = "📖",
                 category = PromptCategory.TEXT_TRANSFORM,
                 requiresVision = false,
-                sortOrder = 4
+                sortOrder = 4,
+                contextAction = ContextAction.NONE
             ),
 
             // Smart Reply Prompts
@@ -173,7 +209,8 @@ class PromptRepository(private val context: Context) {
                 iconEmoji = "👍",
                 category = PromptCategory.SMART_REPLY,
                 requiresVision = false,
-                sortOrder = 5
+                sortOrder = 5,
+                contextAction = ContextAction.ACCESSIBILITY_TEXT
             ),
             PromptEntity(
                 id = "seed_reply_inquire",
@@ -182,7 +219,8 @@ class PromptRepository(private val context: Context) {
                 iconEmoji = "🤔",
                 category = PromptCategory.SMART_REPLY,
                 requiresVision = false,
-                sortOrder = 6
+                sortOrder = 6,
+                contextAction = ContextAction.ACCESSIBILITY_TEXT
             ),
             PromptEntity(
                 id = "seed_reply_decline",
@@ -191,7 +229,8 @@ class PromptRepository(private val context: Context) {
                 iconEmoji = "✋",
                 category = PromptCategory.SMART_REPLY,
                 requiresVision = false,
-                sortOrder = 7
+                sortOrder = 7,
+                contextAction = ContextAction.ACCESSIBILITY_TEXT
             ),
 
             // Vision Prompts
@@ -202,7 +241,8 @@ class PromptRepository(private val context: Context) {
                 iconEmoji = "🔍",
                 category = PromptCategory.VISION_ACTION,
                 requiresVision = true,
-                sortOrder = 8
+                sortOrder = 8,
+                contextAction = ContextAction.SCREENSHOT
             ),
             PromptEntity(
                 id = "seed_vision_math",
@@ -211,7 +251,8 @@ class PromptRepository(private val context: Context) {
                 iconEmoji = "🧩",
                 category = PromptCategory.VISION_ACTION,
                 requiresVision = true,
-                sortOrder = 9
+                sortOrder = 9,
+                contextAction = ContextAction.SCREENSHOT
             ),
             PromptEntity(
                 id = "seed_vision_ocr",
@@ -220,7 +261,8 @@ class PromptRepository(private val context: Context) {
                 iconEmoji = "📄",
                 category = PromptCategory.VISION_ACTION,
                 requiresVision = true,
-                sortOrder = 10
+                sortOrder = 10,
+                contextAction = ContextAction.OCR
             ),
             PromptEntity(
                 id = "seed_vision_meme",
@@ -229,7 +271,8 @@ class PromptRepository(private val context: Context) {
                 iconEmoji = "📊",
                 category = PromptCategory.VISION_ACTION,
                 requiresVision = true,
-                sortOrder = 11
+                sortOrder = 11,
+                contextAction = ContextAction.SCREENSHOT
             )
         )
     }

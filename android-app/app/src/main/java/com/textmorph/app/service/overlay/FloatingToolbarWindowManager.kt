@@ -82,8 +82,16 @@ class FloatingToolbarWindowManager(
                             onInsertText = { result ->
                                 service.replaceLiveInputText(result)
                             },
-                            onRevertText = { original ->
-                                service.replaceLiveInputText(original)
+                            onRevertText = {
+                                service.revertPreviousTransformation()
+                            },
+                            hasUndo = { service.hasPreviousTransformation() },
+                            isPlacedOnRight = {
+                                val currentX = userX ?: initialX
+                                currentX > (screenWidth / 2)
+                            },
+                            onRadialStateChanged = { isOpen, offsetX, offsetY ->
+                                onRadialMenuStateChanged(isOpen, offsetX, offsetY)
                             },
                             onDragDelta = { dx, dy ->
                                 onDragDelta(dx, dy, screenWidth, screenHeight)
@@ -118,6 +126,23 @@ class FloatingToolbarWindowManager(
             AppLogger.d(TAG, "Floating assistant displayed successfully at ($initialX, $initialY)")
         } catch (e: Exception) {
             AppLogger.e(TAG, "Error displaying floating assistant: ${e.message}", e)
+        }
+    }
+
+    private fun onRadialMenuStateChanged(isOpen: Boolean, offsetX: Int, offsetY: Int) {
+        try {
+            val view = composeView ?: return
+            val params = view.layoutParams as? WindowManager.LayoutParams ?: return
+            if (isOpen) {
+                params.x = (userX ?: params.x) - offsetX
+                params.y = (userY ?: params.y) - offsetY
+            } else {
+                params.x = userX ?: params.x
+                params.y = userY ?: params.y
+            }
+            windowManager.updateViewLayout(view, params)
+        } catch (e: Exception) {
+            AppLogger.e(TAG, "Failed updating view layout for radial menu: ${e.message}", e)
         }
     }
 

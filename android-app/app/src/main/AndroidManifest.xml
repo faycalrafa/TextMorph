@@ -74,6 +74,13 @@
             </intent-filter>
         </activity>
 
+        <!-- Camera Capture Activity for Multimodal Photo Context -->
+        <activity
+            android:name=".ui.camera.CameraCaptureActivity"
+            android:exported="false"
+            android:theme="@style/Theme.TextMorph.Dialog"
+            android:excludeFromRecents="true" />
+
         <!-- Mode 2: Accessibility Service for Floating AI Toolbar -->
         <service
             android:name=".service.overlay.TextMorphAccessibilityService"

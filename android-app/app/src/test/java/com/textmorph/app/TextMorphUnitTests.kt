@@ -201,4 +201,99 @@ class TextMorphUnitTests {
         assertEquals("Let me double-check my schedule first.", lines[1])
         assertEquals("Sorry, I won't be able to make it today.", lines[2])
     }
+
+    @Test
+    fun testPromptEntityContextActionSerialization() {
+        val prompt = PromptEntity(
+            id = "test_ocr_action",
+            title = "Extract Text",
+            systemInstruction = "Extract OCR",
+            contextAction = com.textmorph.app.data.model.ContextAction.OCR,
+            requiresVision = true
+        )
+        val json = Json { ignoreUnknownKeys = true }
+        val encoded = json.encodeToString(prompt)
+        val decoded = json.decodeFromString<PromptEntity>(encoded)
+
+        assertEquals("test_ocr_action", decoded.id)
+        assertEquals(com.textmorph.app.data.model.ContextAction.OCR, decoded.contextAction)
+        assertTrue(decoded.requiresVision)
+
+        // Test backward compatibility: JSON missing contextAction defaults to NONE
+        val legacyJson = """
+            {
+               "id": "legacy_prompt",
+               "title": "Legacy Fix",
+               "systemInstruction": "Fix text",
+               "requiresVision": false,
+               "sortOrder": 0
+            }
+        """.trimIndent()
+        val legacyDecoded = json.decodeFromString<PromptEntity>(legacyJson)
+        assertEquals(com.textmorph.app.data.model.ContextAction.NONE, legacyDecoded.contextAction)
+    }
+
+    @Test
+    fun testSeedPromptsContextActionAssignments() {
+        val seeds = PromptRepository.getDefaultSeedPrompts()
+        val fixGrammar = seeds.first { it.id == "seed_fix_grammar" }
+        assertEquals(com.textmorph.app.data.model.ContextAction.NONE, fixGrammar.contextAction)
+
+        val ocrPrompt = seeds.first { it.id == "seed_vision_ocr" }
+        assertEquals(com.textmorph.app.data.model.ContextAction.OCR, ocrPrompt.contextAction)
+
+        val describePrompt = seeds.first { it.id == "seed_vision_describe" }
+        assertEquals(com.textmorph.app.data.model.ContextAction.SCREENSHOT, describePrompt.contextAction)
+
+        val smartReply = seeds.first { it.id == "seed_reply_agree" }
+        assertEquals(com.textmorph.app.data.model.ContextAction.ACCESSIBILITY_TEXT, smartReply.contextAction)
+    }
+
+    @Test
+    fun testRadialArcAnglesLeftVsRight() {
+        val total = 6
+        val centerX = 200f
+        val centerY = 200f
+        val radius = 135f
+
+        // When button is on the Right half: arc curves to the LEFT
+        for (i in 0 until total) {
+            val t = i.toFloat() / (total - 1)
+            val angleDeg = 255f - t * 150f
+            val rad = Math.toRadians(angleDeg.toDouble())
+            val x = centerX + (radius * kotlin.math.cos(rad)).toFloat()
+            val y = centerY + (radius * kotlin.math.sin(rad)).toFloat()
+
+            // All points must be to the left of the button (x <= centerX)
+            assertTrue("x should be <= centerX on left-opening arc", x <= centerX + 0.01f)
+            if (i == 0) {
+                // Top item must have y < centerY
+                assertTrue("Top item should have y < centerY", y < centerY)
+            }
+            if (i == total - 1) {
+                // Bottom item (Undo) must have y > centerY
+                assertTrue("Bottom item should have y > centerY", y > centerY)
+            }
+        }
+
+        // When button is on the Left half: arc curves to the RIGHT
+        for (i in 0 until total) {
+            val t = i.toFloat() / (total - 1)
+            val angleDeg = -75f + t * 150f
+            val rad = Math.toRadians(angleDeg.toDouble())
+            val x = centerX + (radius * kotlin.math.cos(rad)).toFloat()
+            val y = centerY + (radius * kotlin.math.sin(rad)).toFloat()
+
+            // All points must be to the right of the button (x >= centerX)
+            assertTrue("x should be >= centerX on right-opening arc", x >= centerX - 0.01f)
+            if (i == 0) {
+                // Top item must have y < centerY
+                assertTrue("Top item should have y < centerY", y < centerY)
+            }
+            if (i == total - 1) {
+                // Bottom item (Undo) must have y > centerY
+                assertTrue("Bottom item should have y > centerY", y > centerY)
+            }
+        }
+    }
 }
