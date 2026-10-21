@@ -33,9 +33,9 @@ class MainActivity : ComponentActivity() {
         AppLogger.i(TAG, "MainActivity onCreate starting.")
 
         // Initialize Repositories
-        promptRepository = PromptRepository(applicationContext)
-        settingsRepository = SettingsRepository(applicationContext)
-        modelRepository = ModelStorageRepository(applicationContext)
+        promptRepository = PromptRepository.getInstance(applicationContext)
+        settingsRepository = SettingsRepository.getInstance(applicationContext)
+        modelRepository = ModelStorageRepository.getInstance(applicationContext)
         updateRepository = UpdateRepository(applicationContext)
 
         // Ensure LLM Foreground Service is running

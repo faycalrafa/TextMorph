@@ -1,13 +1,24 @@
 package com.textmorph.app.llm
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.ParcelFileDescriptor
 import com.google.ai.edge.litertlm.Backend
+import com.google.ai.edge.litertlm.Content
+import com.google.ai.edge.litertlm.Contents
+import com.google.ai.edge.litertlm.Conversation
+import com.google.ai.edge.litertlm.ConversationConfig
 import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
 import com.google.ai.edge.litertlm.InputData
+import com.google.ai.edge.litertlm.Message
+import com.google.ai.edge.litertlm.MessageCallback
 import com.google.ai.edge.litertlm.ResponseCallback
+import com.google.ai.edge.litertlm.SamplerConfig
+import com.google.ai.edge.litertlm.Session
+import com.google.ai.edge.litertlm.ThinkingConfig
 import com.textmorph.app.util.AppLogger
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -24,6 +35,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -308,7 +320,7 @@ class LiteRtLmEngine(private val context: Context) : LlmEngine {
                 val totalMs = (now - testStartTime).coerceAtLeast(1L)
                 val ttft = (testFirstTokenTime ?: now) - testStartTime
                 val tps = if (totalMs > 0) (testTokenCount / (totalMs / 1000f)) else 0f
-                val responseOutput = sb.toString().trim()
+                val responseOutput = sb.toString().replace("<end_of_turn>", "").replace("<start_of_turn>", "").trim()
                 val displayOutput = if (responseOutput.length > 100) responseOutput.take(100) + "..." else responseOutput
 
                 addProgressLog("[TEST][$backendLabel] Prompt: \"$testPrompt\"")
@@ -355,54 +367,135 @@ class LiteRtLmEngine(private val context: Context) : LlmEngine {
             val eng = nativeEngine
             if (isSessionActive && eng != null) {
                 AppLogger.i(TAG, "Executing native forward-pass on $activeBackend...")
-                var session: com.google.ai.edge.litertlm.Session? = null
+                var conversation: Conversation? = null
+                var session: Session? = null
                 try {
-                    session = eng.createSession()
-                    val inputs = mutableListOf<InputData>()
+                    val contents = mutableListOf<Content>()
                     if (imageBytes != null && imageBytes.isNotEmpty()) {
-                        inputs.add(InputData.Image(imageBytes))
+                        val pngBytes = try {
+                            val bmp = BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
+                            if (bmp != null) {
+                                val stream = ByteArrayOutputStream()
+                                bmp.compress(Bitmap.CompressFormat.PNG, 100, stream)
+                                stream.toByteArray()
+                            } else {
+                                imageBytes
+                            }
+                        } catch (e: Exception) {
+                            AppLogger.w(TAG, "Image PNG conversion fallback: ${e.message}")
+                            imageBytes
+                        }
+                        contents.add(Content.ImageBytes(pngBytes))
                     }
-                    inputs.add(InputData.Text(effectivePrompt))
+
+                    val userText = if (systemInstruction.isNullOrBlank()) {
+                        prompt
+                    } else {
+                        "$cleanInstruction\n\n$prompt"
+                    }
+                    contents.add(Content.Text(userText))
 
                     val completionDeferred = CompletableDeferred<Unit>()
 
-                    session.generateContentStream(inputs, object : ResponseCallback {
-                        override fun onNext(response: String) {
-                            val now = System.currentTimeMillis()
-                            if (firstTokenTime == null) {
-                                firstTokenTime = now
-                            }
-                            tokenCount++
-                            val sanitized = sanitizeNoThinking(response)
-                            if (sanitized.isNotEmpty()) {
-                                trySend(sanitized)
-                            }
+                    var usedConversation = false
+                    try {
+                        val convConfig = ConversationConfig(
+                            samplerConfig = if (activeBackend.contains("GPU") || activeBackend.contains("CPU")) {
+                                SamplerConfig(topK = 40, topP = 0.95, temperature = 0.7)
+                            } else null,
+                            thinkingConfig = ThinkingConfig(enableThinking = false)
+                        )
+                        conversation = eng.createConversation(convConfig)
+                        usedConversation = true
 
-                            val ft = firstTokenTime ?: now
-                            val elapsed = (now - ft).coerceAtLeast(1L)
-                            val tps = if (tokenCount > 1) (tokenCount - 1) / (elapsed / 1000f) else 0f
+                        conversation.sendMessageAsync(
+                            Contents.of(contents),
+                            object : MessageCallback {
+                                override fun onMessage(message: Message) {
+                                    val now = System.currentTimeMillis()
+                                    if (firstTokenTime == null) {
+                                        firstTokenTime = now
+                                    }
+                                    tokenCount++
+                                    val sanitized = sanitizeNoThinking(message.toString())
+                                    if (sanitized.isNotEmpty()) {
+                                        trySend(sanitized)
+                                    }
 
-                            onMetricsUpdated?.invoke(
-                                InferenceMetrics(
-                                    timeToFirstTokenMs = ft - startTime,
-                                    totalDurationMs = now - startTime,
-                                    tokenCount = tokenCount,
-                                    tokensPerSecond = tps,
-                                    activeBackend = activeBackend,
-                                    modelName = currentModelName
+                                    val ft = firstTokenTime ?: now
+                                    val elapsed = (now - ft).coerceAtLeast(1L)
+                                    val tps = if (tokenCount > 1) (tokenCount - 1) / (elapsed / 1000f) else 0f
+
+                                    onMetricsUpdated?.invoke(
+                                        InferenceMetrics(
+                                            timeToFirstTokenMs = ft - startTime,
+                                            totalDurationMs = now - startTime,
+                                            tokenCount = tokenCount,
+                                            tokensPerSecond = tps,
+                                            activeBackend = activeBackend,
+                                            modelName = currentModelName
+                                        )
+                                    )
+                                }
+
+                                override fun onDone() {
+                                    completionDeferred.complete(Unit)
+                                }
+
+                                override fun onError(throwable: Throwable) {
+                                    AppLogger.e(TAG, "Conversation stream error: ${throwable.message}", throwable)
+                                    completionDeferred.completeExceptionally(throwable)
+                                }
+                            }
+                        )
+                    } catch (convEx: Throwable) {
+                        AppLogger.w(TAG, "Conversation setup failed, falling back to Session: ${convEx.message}", convEx)
+                        usedConversation = false
+                        session = eng.createSession()
+                        val inputs = mutableListOf<InputData>()
+                        if (imageBytes != null && imageBytes.isNotEmpty()) {
+                            inputs.add(InputData.Image(imageBytes))
+                        }
+                        inputs.add(InputData.Text(effectivePrompt))
+
+                        session.generateContentStream(inputs, object : ResponseCallback {
+                            override fun onNext(response: String) {
+                                val now = System.currentTimeMillis()
+                                if (firstTokenTime == null) {
+                                    firstTokenTime = now
+                                }
+                                tokenCount++
+                                val sanitized = sanitizeNoThinking(response)
+                                if (sanitized.isNotEmpty()) {
+                                    trySend(sanitized)
+                                }
+
+                                val ft = firstTokenTime ?: now
+                                val elapsed = (now - ft).coerceAtLeast(1L)
+                                val tps = if (tokenCount > 1) (tokenCount - 1) / (elapsed / 1000f) else 0f
+
+                                onMetricsUpdated?.invoke(
+                                    InferenceMetrics(
+                                        timeToFirstTokenMs = ft - startTime,
+                                        totalDurationMs = now - startTime,
+                                        tokenCount = tokenCount,
+                                        tokensPerSecond = tps,
+                                        activeBackend = activeBackend,
+                                        modelName = currentModelName
+                                    )
                                 )
-                            )
-                        }
+                            }
 
-                        override fun onDone() {
-                            completionDeferred.complete(Unit)
-                        }
+                            override fun onDone() {
+                                completionDeferred.complete(Unit)
+                            }
 
-                        override fun onError(throwable: Throwable) {
-                            AppLogger.e(TAG, "Native stream error: ${throwable.message}", throwable)
-                            completionDeferred.completeExceptionally(throwable)
-                        }
-                    })
+                            override fun onError(throwable: Throwable) {
+                                AppLogger.e(TAG, "Native stream error: ${throwable.message}", throwable)
+                                completionDeferred.completeExceptionally(throwable)
+                            }
+                        })
+                    }
 
                     completionDeferred.await()
                     val totalMs = System.currentTimeMillis() - startTime
@@ -411,11 +504,22 @@ class LiteRtLmEngine(private val context: Context) : LlmEngine {
                     AppLogger.i(TAG, "Inference completed. Tokens: $tokenCount, TTFT: ${ftFinal - startTime}ms, TPS: ${"%.1f".format(finalTps)}")
                 } catch (ce: CancellationException) {
                     AppLogger.i(TAG, "Inference stream was cancelled by user.")
+                    try {
+                        conversation?.cancelProcess()
+                        session?.cancelProcess()
+                    } catch (e: Exception) {
+                        AppLogger.w(TAG, "Error cancelling native inference: ${e.message}")
+                    }
                     throw ce
                 } catch (t: Throwable) {
                     AppLogger.e(TAG, "Native forward pass failed: ${t.message}", t)
                     trySend("\n[LiteRT-LM Native Error: ${t.message ?: "Forward pass failure"}]")
                 } finally {
+                    try {
+                        conversation?.close()
+                    } catch (e: Exception) {
+                        AppLogger.w(TAG, "Error closing conversation: ${e.message}")
+                    }
                     try {
                         session?.close()
                     } catch (e: Exception) {
@@ -523,8 +627,12 @@ class LiteRtLmEngine(private val context: Context) : LlmEngine {
 
     private fun sanitizeNoThinking(text: String): String {
         var clean = text
-        clean = clean.replace(Regex("(?s)<think>.*?</think>"), "").trim()
+        clean = clean.replace(Regex("(?s)<think>.*?</think>"), "")
         clean = clean.replace("<think>", "").replace("</think>", "")
+        clean = clean.replace("<end_of_turn>", "")
+        clean = clean.replace("<start_of_turn>", "")
+        clean = clean.replace("<eos>", "")
+        clean = clean.replace("<bos>", "")
         return clean
     }
 

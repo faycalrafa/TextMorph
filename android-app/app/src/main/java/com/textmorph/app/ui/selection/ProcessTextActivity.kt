@@ -61,6 +61,7 @@ import com.textmorph.app.data.model.PromptEntity
 import com.textmorph.app.data.repository.PromptRepository
 import com.textmorph.app.data.repository.SettingsRepository
 import com.textmorph.app.llm.LiteRtLmEngine
+import com.textmorph.app.llm.LiteRtLmEngineManager
 import com.textmorph.app.llm.LlmEngine
 import com.textmorph.app.llm.OpenAiCloudEngine
 import com.textmorph.app.theme.TextMorphTheme
@@ -83,9 +84,9 @@ class ProcessTextActivity : ComponentActivity() {
 
         AppLogger.i(TAG, "Triggered with text length=${selectedText.length}, readOnly=$isReadOnly")
 
-        promptRepository = PromptRepository(applicationContext)
-        settingsRepository = SettingsRepository(applicationContext)
-        liteRtEngine = LiteRtLmEngine(applicationContext)
+        promptRepository = PromptRepository.getInstance(applicationContext)
+        settingsRepository = SettingsRepository.getInstance(applicationContext)
+        liteRtEngine = LiteRtLmEngineManager.getInstance(applicationContext)
         cloudEngine = OpenAiCloudEngine()
 
         setContent {

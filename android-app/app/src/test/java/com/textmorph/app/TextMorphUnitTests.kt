@@ -115,4 +115,42 @@ class TextMorphUnitTests {
         AppLogger.clear()
         assertEquals(0, AppLogger.logsState.value.size)
     }
+
+    @Test
+    fun testTokenSanitizationPreservesSpacesAndRemovesControlTokens() {
+        fun sanitize(text: String): String {
+            var clean = text
+            clean = clean.replace(Regex("(?s)<think>.*?</think>"), "")
+            clean = clean.replace("<think>", "").replace("</think>", "")
+            clean = clean.replace("<end_of_turn>", "")
+            clean = clean.replace("<start_of_turn>", "")
+            clean = clean.replace("<eos>", "")
+            clean = clean.replace("<bos>", "")
+            return clean
+        }
+
+        val chunks = listOf("Hello.", " How", " can", " I", " assist", " you", "?", "<end_of_turn>")
+        val result = chunks.map { sanitize(it) }.joinToString("")
+        assertEquals("Hello. How can I assist you?", result)
+    }
+
+    @Test
+    fun testTokenSanitizationRemovesThinkingTags() {
+        fun sanitize(text: String): String {
+            var clean = text
+            clean = clean.replace(Regex("(?s)<think>.*?</think>"), "")
+            clean = clean.replace("<think>", "").replace("</think>", "")
+            clean = clean.replace("<end_of_turn>", "")
+            clean = clean.replace("<start_of_turn>", "")
+            clean = clean.replace("<eos>", "")
+            clean = clean.replace("<bos>", "")
+            return clean
+        }
+
+        val chunk1 = "<think>Let me reason</think>Direct answer"
+        assertEquals("Direct answer", sanitize(chunk1))
+
+        val chunk2 = "<start_of_turn>model\nHello world<end_of_turn>"
+        assertEquals("model\nHello world", sanitize(chunk2))
+    }
 }

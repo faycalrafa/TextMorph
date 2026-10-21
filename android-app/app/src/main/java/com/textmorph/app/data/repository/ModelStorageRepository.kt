@@ -27,6 +27,15 @@ class ModelStorageRepository(private val context: Context) {
     val isScanning: StateFlow<Boolean> = _isScanning.asStateFlow()
 
     companion object {
+        @Volatile
+        private var instance: ModelStorageRepository? = null
+
+        fun getInstance(context: Context): ModelStorageRepository {
+            return instance ?: synchronized(this) {
+                instance ?: ModelStorageRepository(context.applicationContext).also { instance = it }
+            }
+        }
+
         val CATALOG_E2B = ModelInfo(
             id = "catalog_gemma_4_e2b",
             name = "gemma-4-E2B-it.litertlm",

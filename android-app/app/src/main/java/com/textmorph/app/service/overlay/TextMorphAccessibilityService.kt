@@ -23,6 +23,7 @@ class TextMorphAccessibilityService : AccessibilityService() {
 
     private val TAG = "TextMorphAccessService"
     private var overlayManager: FloatingToolbarWindowManager? = null
+    private val screenshotExecutor = Executors.newSingleThreadExecutor()
     private lateinit var promptRepository: PromptRepository
     private lateinit var settingsRepository: SettingsRepository
     private lateinit var liteRtEngine: LiteRtLmEngine
@@ -32,8 +33,8 @@ class TextMorphAccessibilityService : AccessibilityService() {
         super.onServiceConnected()
         AppLogger.i(TAG, "TextMorph Accessibility Service connected.")
 
-        promptRepository = PromptRepository(applicationContext)
-        settingsRepository = SettingsRepository(applicationContext)
+        promptRepository = PromptRepository.getInstance(applicationContext)
+        settingsRepository = SettingsRepository.getInstance(applicationContext)
         liteRtEngine = com.textmorph.app.llm.LiteRtLmEngineManager.getInstance(applicationContext)
         cloudEngine = OpenAiCloudEngine()
 
@@ -102,8 +103,12 @@ class TextMorphAccessibilityService : AccessibilityService() {
 
     private fun getLiveInputNode(): AccessibilityNodeInfo? {
         return try {
-            findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
-                ?: rootInActiveWindow?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+            val direct = findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+            if (direct != null) return direct
+            val root = rootInActiveWindow
+            val fromRoot = root?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+            try { root?.recycle() } catch (_: Exception) {}
+            fromRoot
         } catch (e: Exception) {
             AppLogger.e(TAG, "Failed finding focused input node: ${e.message}", e)
             null
@@ -155,18 +160,21 @@ class TextMorphAccessibilityService : AccessibilityService() {
                 AppLogger.i(TAG, "Capturing screen for multimodal vision context...")
                 takeScreenshot(
                     Display.DEFAULT_DISPLAY,
-                    Executors.newSingleThreadExecutor(),
+                    screenshotExecutor,
                     object : TakeScreenshotCallback {
                         override fun onSuccess(screenshot: ScreenshotResult) {
                             try {
+                                val hardwareBuffer = screenshot.hardwareBuffer
                                 val bitmap = Bitmap.wrapHardwareBuffer(
-                                    screenshot.hardwareBuffer,
+                                    hardwareBuffer,
                                     screenshot.colorSpace
                                 )
+                                try { hardwareBuffer.close() } catch (_: Exception) {}
                                 if (bitmap != null) {
                                     val stream = ByteArrayOutputStream()
-                                    bitmap.compress(Bitmap.CompressFormat.JPEG, 85, stream)
+                                    bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)
                                     val bytes = stream.toByteArray()
+                                    bitmap.recycle()
                                     AppLogger.i(TAG, "Screen captured successfully: ${bytes.size} bytes.")
                                 }
                             } catch (e: Exception) {
@@ -193,6 +201,11 @@ class TextMorphAccessibilityService : AccessibilityService() {
     override fun onDestroy() {
         super.onDestroy()
         AppLogger.i(TAG, "TextMorph Accessibility Service destroyed.")
+        try {
+            screenshotExecutor.shutdown()
+        } catch (e: Exception) {
+            AppLogger.w(TAG, "Error shutting down screenshot executor: ${e.message}")
+        }
         overlayManager?.destroy()
         overlayManager = null
     }

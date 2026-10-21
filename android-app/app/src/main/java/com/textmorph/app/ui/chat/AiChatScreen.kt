@@ -134,7 +134,7 @@ fun AiChatContent(
                         } else rawBitmap
 
                         val bos = ByteArrayOutputStream()
-                        scaled.compress(Bitmap.CompressFormat.JPEG, 85, bos)
+                        scaled.compress(Bitmap.CompressFormat.PNG, 100, bos)
                         selectedImageBytes = bos.toByteArray()
                         selectedBitmap = scaled
                         AppLogger.i(TAG, "Selected image attached: ${selectedImageBytes?.size} bytes")

@@ -108,6 +108,15 @@ class PromptRepository(private val context: Context) {
     }
 
     companion object {
+        @Volatile
+        private var instance: PromptRepository? = null
+
+        fun getInstance(context: Context): PromptRepository {
+            return instance ?: synchronized(this) {
+                instance ?: PromptRepository(context.applicationContext).also { instance = it }
+            }
+        }
+
         fun getDefaultSeedPrompts(): List<PromptEntity> = listOf(
             // Text Prompts
             PromptEntity(

@@ -45,7 +45,7 @@ class LlmForegroundService : Service() {
     override fun onCreate() {
         super.onCreate()
         AppLogger.i(TAG, "LlmForegroundService onCreate")
-        settingsRepository = SettingsRepository(applicationContext)
+        settingsRepository = SettingsRepository.getInstance(applicationContext)
         engine = com.textmorph.app.llm.LiteRtLmEngineManager.getInstance(applicationContext)
 
         acquireWakeLock()

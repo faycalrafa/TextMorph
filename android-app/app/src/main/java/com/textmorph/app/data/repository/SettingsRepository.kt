@@ -110,4 +110,15 @@ class SettingsRepository(private val context: Context) {
             AppLogger.e(TAG, "Failed to write settings to disk: ${e.message}", e)
         }
     }
+
+    companion object {
+        @Volatile
+        private var instance: SettingsRepository? = null
+
+        fun getInstance(context: Context): SettingsRepository {
+            return instance ?: synchronized(this) {
+                instance ?: SettingsRepository(context.applicationContext).also { instance = it }
+            }
+        }
+    }
 }
