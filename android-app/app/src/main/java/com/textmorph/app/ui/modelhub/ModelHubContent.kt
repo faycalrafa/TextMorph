@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.FileOpen
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -61,6 +62,7 @@ import kotlinx.coroutines.launch
 fun ModelHubContent(
     modelRepository: ModelStorageRepository,
     settingsRepository: SettingsRepository,
+    onNavigateToChat: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -246,6 +248,16 @@ fun ModelHubContent(
                                 shape = RoundedCornerShape(8.dp)
                             ) {
                                 Text("Activate Model")
+                            }
+                        } else {
+                            Button(
+                                onClick = { onNavigateToChat() },
+                                shape = RoundedCornerShape(8.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                            ) {
+                                Icon(Icons.Default.Speed, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Test in Playground")
                             }
                         }
                     }

@@ -46,7 +46,7 @@ class LlmForegroundService : Service() {
         super.onCreate()
         AppLogger.i(TAG, "LlmForegroundService onCreate")
         settingsRepository = SettingsRepository(applicationContext)
-        engine = LiteRtLmEngine(applicationContext)
+        engine = com.textmorph.app.llm.LiteRtLmEngineManager.getInstance(applicationContext)
 
         acquireWakeLock()
         createNotificationChannel()
@@ -76,7 +76,7 @@ class LlmForegroundService : Service() {
             // Warm up model session if path is specified
             if (settings.activeModelPath != null && !engine.isLoaded()) {
                 serviceScope.launch {
-                    engine.initialize(settings.activeModelPath)
+                    engine.initialize(settings.activeModelPath, settings.activeModelName)
                 }
             }
         }.launchIn(serviceScope)

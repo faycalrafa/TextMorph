@@ -9,13 +9,13 @@ android {
     compileSdk = 36
     val appVersionName = providers.environmentVariable("APP_VERSION_NAME")
         .orElse(providers.gradleProperty("appVersionName"))
-        .getOrElse("1.2.0")
+        .getOrElse("1.3.0")
 
     defaultConfig {
         applicationId = "com.textmorph.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 4
+        versionCode = 5
         versionName = appVersionName
 
         ndk {
@@ -128,6 +128,9 @@ dependencies {
   implementation(libs.ktor.server.content.negotiation)
   implementation(libs.ktor.serialization.kotlinx.json)
   implementation(libs.ktor.server.cors)
+
+  // Google AI Edge LiteRT-LM native on-device runtime (ARM64 & x86_64 JNI)
+  implementation(libs.litertlm.android)
 
   // Testing
   testImplementation(libs.junit)

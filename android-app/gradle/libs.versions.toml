@@ -17,8 +17,10 @@ kotlinxSerializationJson = "1.8.0"
 markwon = "4.6.2"
 ktor = "3.1.1"
 room = "2.6.1"
+litertlmAndroid = "0.18.1"
 
 [libraries]
+litertlm-android = { module = "com.google.ai.edge.litertlm:litertlm-android", version.ref = "litertlmAndroid" }
 markwon-core = { module = "io.noties.markwon:core", version.ref = "markwon" }
 kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinxSerializationJson" }
 kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "coroutines" }

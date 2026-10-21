@@ -34,7 +34,7 @@ class TextMorphAccessibilityService : AccessibilityService() {
 
         promptRepository = PromptRepository(applicationContext)
         settingsRepository = SettingsRepository(applicationContext)
-        liteRtEngine = LiteRtLmEngine(applicationContext)
+        liteRtEngine = com.textmorph.app.llm.LiteRtLmEngineManager.getInstance(applicationContext)
         cloudEngine = OpenAiCloudEngine()
 
         overlayManager = FloatingToolbarWindowManager(

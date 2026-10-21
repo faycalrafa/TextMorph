@@ -28,6 +28,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
@@ -98,6 +99,7 @@ import kotlinx.coroutines.launch
 enum class AppDestination(val title: String) {
     PROMPTS("Custom Prompts"),
     MODEL_HUB("Model Hub"),
+    CHAT("AI Playground"),
     SETTINGS("Settings"),
     ABOUT("About TextMorph")
 }
@@ -113,6 +115,7 @@ fun DashboardScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+    val liteRtEngine = remember { com.textmorph.app.llm.LiteRtLmEngineManager.getInstance(context) }
 
     var currentDestination by remember { mutableStateOf(AppDestination.PROMPTS) }
 
@@ -207,6 +210,17 @@ fun DashboardScreen(
                     selected = currentDestination == AppDestination.MODEL_HUB,
                     onClick = {
                         currentDestination = AppDestination.MODEL_HUB
+                        scope.launch { drawerState.close() }
+                    },
+                    modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+                )
+
+                NavigationDrawerItem(
+                    icon = { Icon(Icons.Default.AutoAwesome, contentDescription = null) },
+                    label = { Text("AI Playground") },
+                    selected = currentDestination == AppDestination.CHAT,
+                    onClick = {
+                        currentDestination = AppDestination.CHAT
                         scope.launch { drawerState.close() }
                     },
                     modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
@@ -417,7 +431,17 @@ fun DashboardScreen(
                     AppDestination.MODEL_HUB -> {
                         ModelHubContent(
                             modelRepository = modelRepository,
-                            settingsRepository = settingsRepository
+                            settingsRepository = settingsRepository,
+                            onNavigateToChat = { currentDestination = AppDestination.CHAT }
+                        )
+                    }
+
+                    AppDestination.CHAT -> {
+                        com.textmorph.app.ui.chat.AiChatContent(
+                            liteRtEngine = liteRtEngine,
+                            settingsRepository = settingsRepository,
+                            modelRepository = modelRepository,
+                            onNavigateToModelHub = { currentDestination = AppDestination.MODEL_HUB }
                         )
                     }
 
