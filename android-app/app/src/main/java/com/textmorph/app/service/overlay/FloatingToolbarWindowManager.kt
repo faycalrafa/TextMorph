@@ -1,30 +1,24 @@
 package com.textmorph.app.service.overlay
 
-import android.accessibilityservice.AccessibilityService
-import android.content.ClipData
-import android.content.ClipboardManager
 import android.content.Context
 import android.graphics.PixelFormat
 import android.graphics.Rect
 import android.view.Gravity
 import android.view.WindowManager
-import android.widget.Toast
 import androidx.compose.ui.platform.ComposeView
 import androidx.lifecycle.setViewTreeLifecycleOwner
 import androidx.lifecycle.setViewTreeViewModelStoreOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
-import com.textmorph.app.data.model.AppSettings
 import com.textmorph.app.data.model.EngineType
 import com.textmorph.app.data.repository.PromptRepository
 import com.textmorph.app.data.repository.SettingsRepository
 import com.textmorph.app.llm.LiteRtLmEngine
-import com.textmorph.app.llm.LlmEngine
 import com.textmorph.app.llm.OpenAiCloudEngine
 import com.textmorph.app.theme.TextMorphTheme
 import com.textmorph.app.util.AppLogger
 
 class FloatingToolbarWindowManager(
-    private val service: AccessibilityService,
+    private val service: TextMorphAccessibilityService,
     private val promptRepository: PromptRepository,
     private val settingsRepository: SettingsRepository,
     private val liteRtEngine: LiteRtLmEngine,
@@ -37,20 +31,25 @@ class FloatingToolbarWindowManager(
     private var serviceLifecycleOwner: ServiceLifecycleOwner? = null
     private var isShowing = false
 
+    private var userX: Int? = null
+    private var userY: Int? = null
+
     fun show(
-        inputBounds: Rect,
-        currentText: String,
-        onInsertText: (String) -> Unit,
         onTakeScreenshot: (() -> Unit)? = null
     ) {
         try {
             if (isShowing && composeView != null) {
-                // Update position if already shown
-                updatePosition(inputBounds)
                 return
             }
 
             serviceLifecycleOwner = ServiceLifecycleOwner()
+
+            val displayMetrics = service.resources.displayMetrics
+            val screenWidth = displayMetrics.widthPixels
+            val screenHeight = displayMetrics.heightPixels
+
+            val initialX = userX ?: (screenWidth - 200).coerceAtLeast(16)
+            val initialY = userY ?: (screenHeight / 2 - 100).coerceAtLeast(100)
 
             val params = WindowManager.LayoutParams(
                 WindowManager.LayoutParams.WRAP_CONTENT,
@@ -62,8 +61,8 @@ class FloatingToolbarWindowManager(
                 PixelFormat.TRANSLUCENT
             ).apply {
                 gravity = Gravity.TOP or Gravity.START
-                x = (inputBounds.left).coerceAtLeast(16)
-                y = (inputBounds.top - 120).coerceAtLeast(100)
+                x = initialX
+                y = initialY
             }
 
             composeView = ComposeView(service).apply {
@@ -77,15 +76,16 @@ class FloatingToolbarWindowManager(
 
                     TextMorphTheme(themeMode = settings.theme) {
                         FloatingToolbarContent(
-                            currentFieldText = currentText,
+                            getLiveInputText = { service.getLiveInputText() },
                             prompts = prompts,
                             onInsertText = { result ->
-                                onInsertText(result)
+                                service.replaceLiveInputText(result)
                             },
-                            onCopyText = { copyText ->
-                                val cm = service.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                cm.setPrimaryClip(ClipData.newPlainText("TextMorph", copyText))
-                                Toast.makeText(service, "Copied to clipboard", Toast.LENGTH_SHORT).show()
+                            onRevertText = { original ->
+                                service.replaceLiveInputText(original)
+                            },
+                            onDragDelta = { dx, dy ->
+                                onDragDelta(dx, dy, screenWidth, screenHeight)
                             },
                             onTakeScreenshotContext = onTakeScreenshot,
                             onDismiss = { hide() },
@@ -104,23 +104,27 @@ class FloatingToolbarWindowManager(
 
             windowManager.addView(composeView, params)
             isShowing = true
-            AppLogger.d(TAG, "Floating toolbar overlay displayed successfully above bounds: $inputBounds")
+            AppLogger.d(TAG, "Floating assistant displayed successfully at ($initialX, $initialY)")
         } catch (e: Exception) {
-            AppLogger.e(TAG, "Error displaying floating toolbar overlay: ${e.message}", e)
+            AppLogger.e(TAG, "Error displaying floating assistant: ${e.message}", e)
         }
     }
 
-    private fun updatePosition(inputBounds: Rect) {
+    private fun onDragDelta(dx: Float, dy: Float, screenWidth: Int, screenHeight: Int) {
         try {
             val view = composeView ?: return
             val params = view.layoutParams as? WindowManager.LayoutParams ?: return
-            params.x = (inputBounds.left).coerceAtLeast(16)
-            params.y = (inputBounds.top - 120).coerceAtLeast(100)
+            params.x = (params.x + dx.toInt()).coerceIn(0, (screenWidth - 80).coerceAtLeast(0))
+            params.y = (params.y + dy.toInt()).coerceIn(60, (screenHeight - 120).coerceAtLeast(60))
+            userX = params.x
+            userY = params.y
             windowManager.updateViewLayout(view, params)
         } catch (e: Exception) {
-            AppLogger.e(TAG, "Failed to update overlay position: ${e.message}", e)
+            AppLogger.e(TAG, "Failed updating dragged overlay layout: ${e.message}", e)
         }
     }
+
+    fun isShowing(): Boolean = isShowing
 
     fun hide() {
         if (!isShowing || composeView == null) return
@@ -130,9 +134,9 @@ class FloatingToolbarWindowManager(
             serviceLifecycleOwner?.destroy()
             serviceLifecycleOwner = null
             isShowing = false
-            AppLogger.d(TAG, "Floating toolbar overlay hidden.")
+            AppLogger.d(TAG, "Floating assistant hidden.")
         } catch (e: Exception) {
-            AppLogger.e(TAG, "Error removing overlay view: ${e.message}", e)
+            AppLogger.e(TAG, "Error removing floating assistant overlay: ${e.message}", e)
         }
     }
 

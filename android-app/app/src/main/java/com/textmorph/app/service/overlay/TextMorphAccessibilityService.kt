@@ -1,13 +1,16 @@
 package com.textmorph.app.service.overlay
 
 import android.accessibilityservice.AccessibilityService
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.Rect
 import android.os.Build
 import android.os.Bundle
 import android.view.Display
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import android.view.accessibility.AccessibilityWindowInfo
 import com.textmorph.app.data.repository.PromptRepository
 import com.textmorph.app.data.repository.SettingsRepository
 import com.textmorph.app.llm.LiteRtLmEngine
@@ -51,70 +54,99 @@ class TextMorphAccessibilityService : AccessibilityService() {
             return
         }
 
-        when (event.eventType) {
-            AccessibilityEvent.TYPE_VIEW_FOCUSED,
-            AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED -> {
-                handleNodeInteraction(event)
-            }
-            AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED -> {
-                // If keyboard or layout changed, keep overlay synced
-            }
-        }
-    }
-
-    private fun handleNodeInteraction(event: AccessibilityEvent) {
-        val source = event.source ?: return
+        val source = event.source
         try {
-            if (source.isEditable) {
-                val bounds = Rect()
-                source.getBoundsInScreen(bounds)
+            val keyboardVisible = isKeyboardVisible()
+            AppLogger.d(TAG, "Event: ${AccessibilityEvent.eventTypeToString(event.eventType)}, keyboardVisible=$keyboardVisible")
 
-                // Skip placeholder hint text
-                val isHint = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    source.isShowingHintText
-                } else false
-
-                val text = if (!isHint) source.text?.toString() ?: "" else ""
-
-                overlayManager?.show(
-                    inputBounds = bounds,
-                    currentText = text,
-                    onInsertText = { replacement ->
-                        replaceNodeText(source, replacement)
-                    },
-                    onTakeScreenshot = {
-                        captureScreenContext()
-                    }
-                )
+            if (keyboardVisible) {
+                // Keyboard is open, verify if there is an editable field
+                val isEditable = source?.isEditable == true || isCurrentInputEditable()
+                if (isEditable) {
+                    overlayManager?.show(
+                        onTakeScreenshot = { captureScreenContext() }
+                    )
+                } else {
+                    overlayManager?.hide()
+                }
             } else {
-                // Non-editable field focused, hide overlay
+                // Keyboard dismissed or not open: hide floating button immediately
                 overlayManager?.hide()
             }
         } catch (e: Exception) {
-            AppLogger.e(TAG, "Error handling accessibility event: ${e.message}", e)
+            AppLogger.e(TAG, "Error processing accessibility event: ${e.message}", e)
         } finally {
-            // Contract: Always recycle AccessibilityNodeInfo to prevent memory leaks and binder exhaustion
             try {
-                source.recycle()
+                source?.recycle()
             } catch (recycleEx: Exception) {
-                // Ignore already recycled exceptions
+                // Ignore already recycled nodes
             }
         }
     }
 
-    private fun replaceNodeText(node: AccessibilityNodeInfo, text: String) {
-        try {
-            AppLogger.i(TAG, "Replacing node text with length=${text.length}")
+    fun isKeyboardVisible(): Boolean {
+        return try {
+            windows.any { it.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD }
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    private fun isCurrentInputEditable(): Boolean {
+        val node = getLiveInputNode() ?: return false
+        return try {
+            node.isEditable
+        } finally {
+            try { node.recycle() } catch (_: Exception) {}
+        }
+    }
+
+    private fun getLiveInputNode(): AccessibilityNodeInfo? {
+        return try {
+            findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+                ?: rootInActiveWindow?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+        } catch (e: Exception) {
+            AppLogger.e(TAG, "Failed finding focused input node: ${e.message}", e)
+            null
+        }
+    }
+
+    fun getLiveInputText(): String {
+        val node = getLiveInputNode() ?: return ""
+        return try {
+            val isHint = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                node.isShowingHintText
+            } else false
+            if (!isHint) node.text?.toString() ?: "" else ""
+        } catch (e: Exception) {
+            AppLogger.e(TAG, "Error reading live input text: ${e.message}", e)
+            ""
+        } finally {
+            try { node.recycle() } catch (_: Exception) {}
+        }
+    }
+
+    fun replaceLiveInputText(newText: String): Boolean {
+        val node = getLiveInputNode() ?: return false
+        return try {
+            AppLogger.i(TAG, "Replacing live input text with length=${newText.length}")
             val arguments = Bundle().apply {
-                putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text)
+                putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, newText)
             }
             val success = node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, arguments)
             if (!success) {
-                AppLogger.w(TAG, "ACTION_SET_TEXT failed, attempting clipboard paste fallback...")
+                AppLogger.w(TAG, "ACTION_SET_TEXT failed, falling back to clipboard paste...")
+                val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                cm.setPrimaryClip(ClipData.newPlainText("TextMorph", newText))
                 node.performAction(AccessibilityNodeInfo.ACTION_PASTE)
+            } else {
+                true
             }
         } catch (e: Exception) {
-            AppLogger.e(TAG, "Failed replacing node text: ${e.message}", e)
+            AppLogger.e(TAG, "Failed replacing live input text: ${e.message}", e)
+            false
+        } finally {
+            try { node.recycle() } catch (_: Exception) {}
         }
     }
 
