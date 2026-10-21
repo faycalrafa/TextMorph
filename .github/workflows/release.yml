@@ -16,18 +16,18 @@ jobs:
 
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v6
         with:
           distribution: 'temurin'
           java-version: '17'
 
       - name: Setup Gradle Cache
-        uses: gradle/actions/setup-gradle@v3
+        uses: gradle/actions/setup-gradle@v6
 
       - name: Make Gradle Wrapper Executable
         run: chmod +x android-app/gradlew
@@ -35,7 +35,7 @@ jobs:
       - name: Determine Release Tag
         id: tag_version
         run: |
-          VERSION="1.1.0"
+          VERSION="1.1.1"
           DATE_TAG="v$VERSION"
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_ENV
           echo "APP_VERSION=$VERSION" >> $GITHUB_ENV
@@ -53,13 +53,13 @@ jobs:
           cp android-app/app/build/outputs/apk/release/app-release.apk build-artifacts/update-latest.apk
 
       - name: Upload Build Artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: TextMorph-Release-APK
           path: build-artifacts/*.apk
 
       - name: Create GitHub Release and Upload APK
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           name: TextMorph ${{ env.RELEASE_TAG }} (Stable)

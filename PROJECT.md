@@ -51,4 +51,4 @@ Key architectural boundaries:
 ## Verification & Build Results
 - **Unit Tests**: `testDebugUnitTest` executed and passed with exit code `0`.
 - **Release Build**: `assembleRelease` executed and passed with exit code `0` (`app-release.apk` 15MB generated and signed with release keystore).
-- **Application Version**: `v1.1.0` (versionCode `2`).
+- **Application Version**: `v1.1.1` (versionCode `3`).
