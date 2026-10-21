@@ -23,6 +23,7 @@ import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.InstallMobile
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Memory
@@ -128,7 +129,7 @@ fun AboutContent(
             }
         }
 
-        // Core Architecture Card
+        // Version History & Changes Card
         item {
             Surface(
                 shape = RoundedCornerShape(16.dp),
@@ -138,27 +139,116 @@ fun AboutContent(
                 Column(modifier = Modifier.padding(16.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
-                            Icons.Default.Memory,
+                            Icons.Default.History,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(20.dp)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "Architecture & Engine",
+                            text = "Version History & Changes",
                             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                             color = MaterialTheme.colorScheme.onSurface
                         )
                     }
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = "• Zero-Copy mmap: Directly memory-maps multi-gigabyte .litertlm models from your Downloads folder with zero file copying.\n" +
-                                "• Strict No-Thinking: Enforces immediate direct responses for clean text box insertion without internal thinking traces.\n" +
-                                "• Embedded Ktor Localhost Server: Exposes an OpenAI-compatible API at 127.0.0.1:8080 for external integrations.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        lineHeight = 18.sp
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    val releases = listOf(
+                        Triple(
+                            "v1.5.0",
+                            "Current",
+                            listOf(
+                                "Automated model liveliness test with direct console response feedback.",
+                                "Guarded floating button against unauthenticated OpenAI 401 calls.",
+                                "Eliminated per-event accessibility debug log flooding.",
+                                "Fixed SAF persistent ParcelFileDescriptor reuse across app restarts."
+                            )
+                        ),
+                        Triple(
+                            "v1.4.0",
+                            "Stable",
+                            listOf(
+                                "Redesigned sidebar with bottom-pinned Settings & About matching BookReader.",
+                                "Real-time monospace Inference Console & loading progress bar in Model Hub.",
+                                "Full-screen Dev Logs inspector with search, level filters, and export."
+                            )
+                        ),
+                        Triple(
+                            "v1.3.0",
+                            "Previous",
+                            listOf(
+                                "Native LiteRT-LM C++ JNI integration (liblitertlm_jni.so) on GPU & CPU.",
+                                "Interactive AI Playground with live tok/s speed metrics and photo analysis."
+                            )
+                        ),
+                        Triple(
+                            "v1.2.0",
+                            "Previous",
+                            listOf(
+                                "Draggable floating assistant with animated laser loading ring and stop button.",
+                                "5-second revert undo window and soft keyboard auto-dismissal."
+                            )
+                        ),
+                        Triple(
+                            "v1.1.0",
+                            "Previous",
+                            listOf(
+                                "Forest Clay Material 3 theme palette and responsive full-width dialogs.",
+                                "Direct GitHub Releases In-App updater with background APK installer."
+                            )
+                        ),
+                        Triple(
+                            "v1.0.0",
+                            "Initial",
+                            listOf(
+                                "Initial release: Zero-copy mmap model loading, 127.0.0.1:8080 Ktor server, and prompt repository."
+                            )
+                        )
                     )
+
+                    releases.forEachIndexed { index, (version, tag, changes) ->
+                        if (index > 0) {
+                            HorizontalDivider(
+                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
+                                modifier = Modifier.padding(vertical = 10.dp)
+                            )
+                        }
+                        Column {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    text = version,
+                                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = if (tag == "Current") MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
+                                ) {
+                                    Text(
+                                        text = tag,
+                                        style = MaterialTheme.typography.labelSmall.copy(
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (tag == "Current") MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
+                                        ),
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                            changes.forEach { change ->
+                                Text(
+                                    text = "• $change",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    lineHeight = 16.sp
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }

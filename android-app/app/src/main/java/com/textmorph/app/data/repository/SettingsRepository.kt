@@ -66,7 +66,8 @@ class SettingsRepository(private val context: Context) {
     suspend fun setEngine(engine: EngineType) = updateSettings { it.copy(selectedEngine = engine) }
 
     suspend fun setActiveModel(name: String, path: String?, uriString: String? = null) = updateSettings {
-        it.copy(activeModelName = name, activeModelPath = path, activeModelUri = uriString)
+        val sanitizedPath = if (path != null && path.startsWith("/proc/self/fd/")) null else path
+        it.copy(activeModelName = name, activeModelPath = sanitizedPath, activeModelUri = uriString)
     }
 
     suspend fun setLocalServer(enabled: Boolean, port: Int = 8080, token: String = "") = updateSettings {

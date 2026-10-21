@@ -90,8 +90,17 @@ class FloatingToolbarWindowManager(
                             onTakeScreenshotContext = onTakeScreenshot,
                             onDismiss = { hide() },
                             engineProvider = {
-                                if (settings.selectedEngine == EngineType.CLOUD_OPENAI) {
-                                    cloudEngine.updateConfig(settings.cloudBaseUrl, settings.cloudApiKey, settings.cloudModelId)
+                                val currentSettings = settingsRepository.settingsState.value
+                                val useCloud = currentSettings.selectedEngine == EngineType.CLOUD_OPENAI &&
+                                        (currentSettings.cloudApiKey.isNotBlank() ||
+                                                currentSettings.cloudBaseUrl.contains("localhost") ||
+                                                currentSettings.cloudBaseUrl.contains("127.0.0.1"))
+                                if (useCloud) {
+                                    cloudEngine.updateConfig(
+                                        currentSettings.cloudBaseUrl,
+                                        currentSettings.cloudApiKey,
+                                        currentSettings.cloudModelId
+                                    )
                                     cloudEngine
                                 } else {
                                     liteRtEngine

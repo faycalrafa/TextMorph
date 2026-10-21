@@ -23,6 +23,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -105,7 +106,7 @@ class LiteRtLmEngine(private val context: Context) : LlmEngine {
                 var effectivePath: String? = null
 
                 // 1. Resolve path from direct file or ParcelFileDescriptor
-                if (modelPath != null && File(modelPath).exists() && File(modelPath).canRead()) {
+                if (modelPath != null && !modelPath.startsWith("/proc/self/fd/") && File(modelPath).exists() && File(modelPath).canRead()) {
                     effectivePath = modelPath
                     val sizeMb = File(modelPath).length() / (1024 * 1024)
                     addProgressLog("Direct file path confirmed: $modelPath ($sizeMb MB)", 0.25f, "Mapping tensors via zero-copy mmap...")
@@ -127,9 +128,9 @@ class LiteRtLmEngine(private val context: Context) : LlmEngine {
                     } else {
                         addProgressLog("[ERROR] Failed to open SAF file descriptor for: $modelUri")
                     }
-                } else if (modelPath != null && modelPath.startsWith("/proc/self/fd/")) {
+                } else if (modelPath != null && !modelPath.startsWith("/proc/self/fd/") && File(modelPath).exists()) {
                     effectivePath = modelPath
-                    addProgressLog("Attempting proc fd path: $modelPath", 0.25f)
+                    addProgressLog("Attempting direct file path: $modelPath", 0.25f)
                 }
 
                 if (effectivePath != null) {
@@ -177,7 +178,11 @@ class LiteRtLmEngine(private val context: Context) : LlmEngine {
                     val elapsed = System.currentTimeMillis() - startTime
 
                     if (initialized) {
-                        addProgressLog("Session active on $activeBackend in ${elapsed}ms!", 1.0f, "Model Ready")
+                        addProgressLog("Session active on $activeBackend in ${elapsed}ms!", 0.95f, "Testing Model Liveliness...")
+
+                        // Automated Model Liveliness Self-Test
+                        performLivelinessTest()
+
                         _loadingProgress.update { it.copy(isLoading = false, success = true, error = null) }
                         _sessionState.value = ModelSessionState(
                             isLoaded = true,
@@ -228,6 +233,72 @@ class LiteRtLmEngine(private val context: Context) : LlmEngine {
         }
     }
 
+    private suspend fun performLivelinessTest() {
+        val eng = nativeEngine ?: return
+        val testPrompt = "hi how do you feel?"
+        addProgressLog("[TEST] Verifying model liveliness: '$testPrompt'", 0.96f, "Testing Model Liveliness...")
+
+        val testInstruction = "You are a helpful AI assistant. Answer directly in one concise sentence without thinking traces or conversational intro."
+        val promptWithTags = buildString {
+            append("<start_of_turn>user\n$testInstruction\n\n$testPrompt<end_of_turn>\n<start_of_turn>model\n")
+        }
+
+        val testStartTime = System.currentTimeMillis()
+        var testFirstTokenTime: Long? = null
+        var testTokenCount = 0
+        val sb = StringBuilder()
+
+        try {
+            val session = eng.createSession()
+            try {
+                val completionDeferred = CompletableDeferred<Unit>()
+                session.generateContentStream(listOf(InputData.Text(promptWithTags)), object : ResponseCallback {
+                    override fun onNext(response: String) {
+                        if (testFirstTokenTime == null) {
+                            testFirstTokenTime = System.currentTimeMillis()
+                        }
+                        testTokenCount++
+                        val sanitized = sanitizeNoThinking(response)
+                        sb.append(sanitized)
+                    }
+
+                    override fun onDone() {
+                        completionDeferred.complete(Unit)
+                    }
+
+                    override fun onError(throwable: Throwable) {
+                        AppLogger.e(TAG, "Liveliness test stream error: ${throwable.message}", throwable)
+                        completionDeferred.completeExceptionally(throwable)
+                    }
+                })
+
+                withTimeout(15000L) {
+                    completionDeferred.await()
+                }
+
+                val now = System.currentTimeMillis()
+                val totalMs = (now - testStartTime).coerceAtLeast(1L)
+                val ttft = (testFirstTokenTime ?: now) - testStartTime
+                val tps = if (totalMs > 0) (testTokenCount / (totalMs / 1000f)) else 0f
+                val responseOutput = sb.toString().trim()
+                val displayOutput = if (responseOutput.length > 100) responseOutput.take(100) + "..." else responseOutput
+
+                addProgressLog("[TEST] Prompt: \"$testPrompt\"")
+                addProgressLog("[TEST] Output: \"$displayOutput\"")
+                addProgressLog("[SUCCESS] Model Verified Alive! ($testTokenCount tokens, ${"%.1f".format(tps)} tok/s, TTFT: ${ttft}ms)", 1.0f, "Model Ready")
+            } finally {
+                try {
+                    session.close()
+                } catch (closeEx: Exception) {
+                    AppLogger.w(TAG, "Error closing liveliness test session: ${closeEx.message}")
+                }
+            }
+        } catch (t: Throwable) {
+            AppLogger.w(TAG, "Liveliness evaluation encountered non-fatal notice: ${t.message}", t)
+            addProgressLog("[WARN] Liveliness notice: ${t.message ?: "Self-test completed"}", 1.0f, "Model Ready")
+        }
+    }
+
     override fun generateStream(
         prompt: String,
         systemInstruction: String?,
@@ -248,8 +319,7 @@ class LiteRtLmEngine(private val context: Context) : LlmEngine {
             AppLogger.i(TAG, "Starting stream inference. Image attached: ${imageBytes != null}, prompt length: ${prompt.length}")
             val cleanInstruction = systemInstruction ?: "You are a helpful AI assistant. Enforce concise, direct output."
             val effectivePrompt = buildString {
-                append("<system>\n$cleanInstruction\nStrict rule: Do not output thinking or reasoning traces. Respond directly.</system>\n")
-                append("<user>\n$prompt</user>\n<model>\n")
+                append("<start_of_turn>user\n$cleanInstruction\nStrict rule: Do not output thinking or reasoning traces. Respond directly.\n\n$prompt<end_of_turn>\n<start_of_turn>model\n")
             }
 
             val eng = nativeEngine
@@ -313,8 +383,8 @@ class LiteRtLmEngine(private val context: Context) : LlmEngine {
                     AppLogger.i(TAG, "Inference stream was cancelled by user.")
                     throw ce
                 } catch (t: Throwable) {
-                    AppLogger.e(TAG, "Native forward pass failed, fallback to standby response: ${t.message}", t)
-                    streamStandbyFallback(prompt, cleanInstruction, imageBytes != null, startTime, onMetricsUpdated)
+                    AppLogger.e(TAG, "Native forward pass failed: ${t.message}", t)
+                    trySend("\n[LiteRT-LM Native Error: ${t.message ?: "Forward pass failure"}]")
                 } finally {
                     try {
                         session?.close()

@@ -50,6 +50,13 @@ class OpenAiCloudEngine(
         systemInstruction: String?,
         imageBytes: ByteArray?
     ): Flow<String> = flow {
+        if (apiKey.isBlank() && !baseUrl.contains("localhost") && !baseUrl.contains("127.0.0.1")) {
+            val msg = "Error: OpenAI API key is missing. Please configure your API key in Settings or switch to On-Device LiteRT-LM."
+            AppLogger.w(TAG, msg)
+            emit(msg)
+            return@flow
+        }
+
         AppLogger.i(TAG, "Starting Cloud streaming inference with model: $modelId")
         val endpoint = "$baseUrl/chat/completions"
         val url = URL(endpoint)

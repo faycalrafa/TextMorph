@@ -57,7 +57,6 @@ class TextMorphAccessibilityService : AccessibilityService() {
         val source = event.source
         try {
             val keyboardVisible = isKeyboardVisible()
-            AppLogger.d(TAG, "Event: ${AccessibilityEvent.eventTypeToString(event.eventType)}, keyboardVisible=$keyboardVisible")
 
             if (keyboardVisible) {
                 // Keyboard is open, verify if there is an editable field

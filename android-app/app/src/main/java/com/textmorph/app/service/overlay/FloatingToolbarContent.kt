@@ -153,6 +153,13 @@ fun FloatingToolbarContent(
                 }
 
                 val finalOutput = sb.toString().trim()
+                if (finalOutput.startsWith("Error:") || finalOutput.startsWith("Error (")) {
+                    AppLogger.w("FloatingToolbar", "Generation returned error: $finalOutput")
+                    Toast.makeText(context, finalOutput, Toast.LENGTH_LONG).show()
+                    state = FloatingButtonState.IDLE
+                    return@launch
+                }
+
                 if (finalOutput.isNotEmpty()) {
                     onInsertText(finalOutput)
                     // Trigger the 5-second revert window

@@ -26,11 +26,11 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.Send
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -120,8 +120,17 @@ class ProcessTextActivity : ComponentActivity() {
                             finish()
                         },
                         engineProvider = {
-                            if (settings.selectedEngine == EngineType.CLOUD_OPENAI) {
-                                cloudEngine.updateConfig(settings.cloudBaseUrl, settings.cloudApiKey, settings.cloudModelId)
+                            val currentSettings = settingsRepository.settingsState.value
+                            val useCloud = currentSettings.selectedEngine == EngineType.CLOUD_OPENAI &&
+                                    (currentSettings.cloudApiKey.isNotBlank() ||
+                                            currentSettings.cloudBaseUrl.contains("localhost") ||
+                                            currentSettings.cloudBaseUrl.contains("127.0.0.1"))
+                            if (useCloud) {
+                                cloudEngine.updateConfig(
+                                    currentSettings.cloudBaseUrl,
+                                    currentSettings.cloudApiKey,
+                                    currentSettings.cloudModelId
+                                )
                                 cloudEngine
                             } else {
                                 liteRtEngine
@@ -272,7 +281,7 @@ private fun ProcessTextContent(
                 },
                 enabled = customInstruction.isNotBlank() && !isGenerating
             ) {
-                Icon(Icons.Default.Send, contentDescription = "Run", tint = MaterialTheme.colorScheme.primary)
+                Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Run", tint = MaterialTheme.colorScheme.primary)
             }
         }
 
