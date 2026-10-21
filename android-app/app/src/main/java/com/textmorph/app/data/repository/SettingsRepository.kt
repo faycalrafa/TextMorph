@@ -90,6 +90,10 @@ class SettingsRepository(private val context: Context) {
         it.copy(hasShownProminentDisclosure = shown)
     }
 
+    suspend fun setPreferredAccelerator(accelerator: String) = updateSettings {
+        it.copy(preferredAccelerator = accelerator)
+    }
+
     private fun saveSettingsToDisk(settings: AppSettings) {
         try {
             val atomicFile = AtomicFile(settingsFile)

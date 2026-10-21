@@ -77,7 +77,7 @@ class LlmForegroundService : Service() {
             if ((settings.activeModelPath != null || settings.activeModelUri != null) && !engine.isLoaded()) {
                 serviceScope.launch {
                     val uri = settings.activeModelUri?.let { android.net.Uri.parse(it) }
-                    engine.initialize(settings.activeModelPath, settings.activeModelName, uri)
+                    engine.initialize(settings.activeModelPath, settings.activeModelName, uri, settings.preferredAccelerator)
                 }
             }
         }.launchIn(serviceScope)

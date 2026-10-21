@@ -78,12 +78,13 @@ class LiteRtLmEngine(private val context: Context) : LlmEngine {
         }
     }
 
-    override suspend fun initialize(modelPath: String?): Boolean = initialize(modelPath, null, null)
+    override suspend fun initialize(modelPath: String?): Boolean = initialize(modelPath, null, null, "AUTO")
 
     suspend fun initialize(
         modelPath: String?,
         modelName: String? = null,
-        modelUri: Uri? = null
+        modelUri: Uri? = null,
+        preferredAccelerator: String = "AUTO"
     ): Boolean = withContext(Dispatchers.IO) {
         inferenceMutex.withLock {
             _loadingProgress.value = ModelLoadingProgress(
@@ -98,7 +99,7 @@ class LiteRtLmEngine(private val context: Context) : LlmEngine {
 
             try {
                 val effectiveName = modelName ?: modelPath?.let { File(it).name } ?: modelUri?.lastPathSegment ?: "Custom Model"
-                addProgressLog("Initializing LiteRT-LM session for: $effectiveName", 0.1f, "Inspecting model file...")
+                addProgressLog("Initializing LiteRT-LM session for: $effectiveName (Accelerator: $preferredAccelerator)", 0.1f, "Inspecting model file...")
 
                 // Clean previous engine if any
                 unloadInternal()
@@ -137,23 +138,48 @@ class LiteRtLmEngine(private val context: Context) : LlmEngine {
                     currentModelPath = effectivePath
                     currentModelName = effectiveName
 
-                    // 2. Attempt GPU delegate initialization first (Adreno/Mali Vulkan/OpenCL)
-                    addProgressLog("Probing GPU backend (Vulkan/OpenCL) for hardware acceleration...", 0.5f, "Compiling GPU shaders & weights...")
-                    val initialized = try {
-                        val gpuConfig = EngineConfig(
-                            modelPath = effectivePath,
-                            backend = Backend.GPU(),
-                            visionBackend = Backend.GPU(),
-                            cacheDir = context.cacheDir.absolutePath
-                        )
-                        val eng = Engine(gpuConfig)
-                        eng.initialize()
-                        nativeEngine = eng
-                        activeBackend = "GPU (Vulkan/OpenCL)"
-                        addProgressLog("Native GPU compilation succeeded!", 0.9f, "Finalizing GPU session...")
-                        true
-                    } catch (gpuEx: Throwable) {
-                        addProgressLog("[WARN] GPU init failed (${gpuEx.message}). Attempting multi-threaded CPU fallback...", 0.6f, "Falling back to CPU (XNNPACK)...")
+                    var activeEng: Engine? = null
+                    var resolvedBackend = ""
+
+                    val wantsGpu = preferredAccelerator.equals("GPU", ignoreCase = true) || preferredAccelerator.equals("AUTO", ignoreCase = true)
+
+                    // Phase A: Probe GPU delegate if AUTO or GPU
+                    if (wantsGpu) {
+                        addProgressLog("Probing GPU backend (Vulkan/OpenCL) for hardware acceleration...", 0.45f, "Compiling GPU shaders & weights...")
+                        try {
+                            val gpuConfig = EngineConfig(
+                                modelPath = effectivePath,
+                                backend = Backend.GPU(),
+                                visionBackend = Backend.GPU(),
+                                cacheDir = context.cacheDir.absolutePath
+                            )
+                            val eng = Engine(gpuConfig)
+                            eng.initialize()
+                            addProgressLog("Native GPU compilation succeeded. Running GPU liveliness probe...", 0.7f, "Testing GPU session...")
+
+                            val isGpuAlive = testEngineLiveliness(eng, "GPU")
+                            if (isGpuAlive) {
+                                activeEng = eng
+                                resolvedBackend = "GPU (Vulkan/OpenCL)"
+                            } else {
+                                eng.close()
+                                if (!preferredAccelerator.equals("GPU", ignoreCase = true)) {
+                                    addProgressLog("[WARN] GPU liveliness probe failed. Falling back to multi-threaded CPU (XNNPACK)...", 0.6f, "Falling back to CPU...")
+                                }
+                            }
+                        } catch (gpuEx: Throwable) {
+                            AppLogger.w(TAG, "GPU compilation failed: ${gpuEx.message}", gpuEx)
+                            if (!preferredAccelerator.equals("GPU", ignoreCase = true)) {
+                                addProgressLog("[WARN] GPU init failed (${gpuEx.message}). Falling back to multi-threaded CPU (XNNPACK)...", 0.6f, "Falling back to CPU...")
+                            } else {
+                                addProgressLog("[ERROR] Force GPU requested but failed: ${gpuEx.message}")
+                            }
+                        }
+                    }
+
+                    // Phase B: Fallback or direct CPU backend (if GPU not active and CPU not disabled)
+                    if (activeEng == null && !preferredAccelerator.equals("GPU", ignoreCase = true)) {
+                        addProgressLog("Initializing native CPU backend (multi-threaded XNNPACK)...", 0.75f, "Compiling CPU tensors...")
                         try {
                             val cpuConfig = EngineConfig(
                                 modelPath = effectivePath,
@@ -163,25 +189,28 @@ class LiteRtLmEngine(private val context: Context) : LlmEngine {
                             )
                             val eng = Engine(cpuConfig)
                             eng.initialize()
-                            nativeEngine = eng
-                            activeBackend = "CPU (XNNPACK)"
-                            addProgressLog("Native CPU compilation succeeded with XNNPACK!", 0.9f, "Finalizing CPU session...")
-                            true
+                            addProgressLog("Native CPU compilation succeeded. Running CPU liveliness probe...", 0.85f, "Testing CPU session...")
+
+                            val isCpuAlive = testEngineLiveliness(eng, "CPU")
+                            if (isCpuAlive) {
+                                activeEng = eng
+                                resolvedBackend = "CPU (XNNPACK)"
+                            } else {
+                                eng.close()
+                                addProgressLog("[ERROR] CPU liveliness probe failed.")
+                            }
                         } catch (cpuEx: Throwable) {
-                            addProgressLog("[ERROR] Both GPU and CPU native LiteRT-LM initialization failed: ${cpuEx.message}")
-                            nativeEngine = null
-                            false
+                            AppLogger.e(TAG, "CPU initialization failed: ${cpuEx.message}", cpuEx)
+                            addProgressLog("[ERROR] CPU LiteRT-LM initialization failed: ${cpuEx.message}")
                         }
                     }
 
-                    isSessionActive = initialized
-                    val elapsed = System.currentTimeMillis() - startTime
-
-                    if (initialized) {
-                        addProgressLog("Session active on $activeBackend in ${elapsed}ms!", 0.95f, "Testing Model Liveliness...")
-
-                        // Automated Model Liveliness Self-Test
-                        performLivelinessTest()
+                    if (activeEng != null) {
+                        nativeEngine = activeEng
+                        activeBackend = resolvedBackend
+                        isSessionActive = true
+                        val elapsed = System.currentTimeMillis() - startTime
+                        addProgressLog("Session active on $activeBackend in ${elapsed}ms!", 1.0f, "Model Ready")
 
                         _loadingProgress.update { it.copy(isLoading = false, success = true, error = null) }
                         _sessionState.value = ModelSessionState(
@@ -193,8 +222,8 @@ class LiteRtLmEngine(private val context: Context) : LlmEngine {
                         )
                         true
                     } else {
-                        addProgressLog("[FAILED] Model weights could not be loaded into memory.")
-                        _loadingProgress.update { it.copy(isLoading = false, success = false, error = "Native initialization failed") }
+                        addProgressLog("[FAILED] Model could not be loaded into memory on any backend.")
+                        _loadingProgress.update { it.copy(isLoading = false, success = false, error = "Hardware initialization failed") }
                         _sessionState.value = ModelSessionState(
                             isLoaded = false,
                             modelName = currentModelName,
@@ -233,10 +262,9 @@ class LiteRtLmEngine(private val context: Context) : LlmEngine {
         }
     }
 
-    private suspend fun performLivelinessTest() {
-        val eng = nativeEngine ?: return
+    private suspend fun testEngineLiveliness(eng: Engine, backendLabel: String): Boolean {
         val testPrompt = "hi how do you feel?"
-        addProgressLog("[TEST] Verifying model liveliness: '$testPrompt'", 0.96f, "Testing Model Liveliness...")
+        addProgressLog("[TEST] Probing $backendLabel liveliness with prompt: '$testPrompt'", null, "Verifying liveliness on $backendLabel...")
 
         val testInstruction = "You are a helpful AI assistant. Answer directly in one concise sentence without thinking traces or conversational intro."
         val promptWithTags = buildString {
@@ -248,7 +276,7 @@ class LiteRtLmEngine(private val context: Context) : LlmEngine {
         var testTokenCount = 0
         val sb = StringBuilder()
 
-        try {
+        return try {
             val session = eng.createSession()
             try {
                 val completionDeferred = CompletableDeferred<Unit>()
@@ -267,7 +295,7 @@ class LiteRtLmEngine(private val context: Context) : LlmEngine {
                     }
 
                     override fun onError(throwable: Throwable) {
-                        AppLogger.e(TAG, "Liveliness test stream error: ${throwable.message}", throwable)
+                        AppLogger.w(TAG, "[$backendLabel] Probe stream notice: ${throwable.message}", throwable)
                         completionDeferred.completeExceptionally(throwable)
                     }
                 })
@@ -283,9 +311,10 @@ class LiteRtLmEngine(private val context: Context) : LlmEngine {
                 val responseOutput = sb.toString().trim()
                 val displayOutput = if (responseOutput.length > 100) responseOutput.take(100) + "..." else responseOutput
 
-                addProgressLog("[TEST] Prompt: \"$testPrompt\"")
-                addProgressLog("[TEST] Output: \"$displayOutput\"")
-                addProgressLog("[SUCCESS] Model Verified Alive! ($testTokenCount tokens, ${"%.1f".format(tps)} tok/s, TTFT: ${ttft}ms)", 1.0f, "Model Ready")
+                addProgressLog("[TEST][$backendLabel] Prompt: \"$testPrompt\"")
+                addProgressLog("[TEST][$backendLabel] Output: \"$displayOutput\"")
+                addProgressLog("[SUCCESS] Model Verified Alive on $backendLabel! ($testTokenCount tokens, ${"%.1f".format(tps)} tok/s, TTFT: ${ttft}ms)")
+                true
             } finally {
                 try {
                     session.close()
@@ -294,8 +323,9 @@ class LiteRtLmEngine(private val context: Context) : LlmEngine {
                 }
             }
         } catch (t: Throwable) {
-            AppLogger.w(TAG, "Liveliness evaluation encountered non-fatal notice: ${t.message}", t)
-            addProgressLog("[WARN] Liveliness notice: ${t.message ?: "Self-test completed"}", 1.0f, "Model Ready")
+            AppLogger.w(TAG, "Liveliness evaluation on $backendLabel failed: ${t.message}", t)
+            addProgressLog("[WARN] $backendLabel liveliness check failed: ${t.message}")
+            false
         }
     }
 

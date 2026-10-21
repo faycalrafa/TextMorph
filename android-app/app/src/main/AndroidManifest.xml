@@ -99,5 +99,13 @@
                 android:value="Hosting on-device local multimodal LLM engine and embedded local inference server." />
         </service>
 
+        <!-- Native Hardware Acceleration Libraries (OpenCL, Hexagon CDSP, EdgeTPU) -->
+        <uses-native-library android:name="libvndksupport.so" android:required="false"/>
+        <uses-native-library android:name="libOpenCL.so" android:required="false"/>
+        <uses-native-library android:name="libcdsprpc.so" android:required="false"/>
+        <uses-native-library android:name="libedgetpu_litert.so" android:required="false"/>
+        <uses-native-library android:name="libedgetpu_util.so" android:required="false"/>
+        <uses-native-library android:name="libedgetpu_client.google.so" android:required="false"/>
+
     </application>
 </manifest>

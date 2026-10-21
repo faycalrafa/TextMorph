@@ -23,5 +23,6 @@ data class AppSettings(
     val cloudModelId: String = "gpt-4o-mini",
     val floatingToolbarEnabled: Boolean = true,
     val autoSuggestReplies: Boolean = true,
+    val preferredAccelerator: String = "AUTO",
     val hasShownProminentDisclosure: Boolean = false
 )

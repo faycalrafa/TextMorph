@@ -141,6 +141,33 @@ fun SettingsContent(
                         modifier = Modifier.weight(1f)
                     )
                 }
+
+                if (settings.selectedEngine == EngineType.ON_DEVICE_LITERT) {
+                    Spacer(modifier = Modifier.height(14.dp))
+                    Text(
+                        text = "Hardware Acceleration",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        listOf("AUTO" to "Auto (GPU/CPU)", "GPU" to "Force GPU", "CPU" to "Force CPU").forEach { (mode, label) ->
+                            val selected = settings.preferredAccelerator.equals(mode, ignoreCase = true)
+                            FilterChip(
+                                selected = selected,
+                                onClick = {
+                                    scope.launch {
+                                        settingsRepository.setPreferredAccelerator(mode)
+                                    }
+                                },
+                                label = { Text(label) }
+                            )
+                        }
+                    }
+                }
             }
         }
 

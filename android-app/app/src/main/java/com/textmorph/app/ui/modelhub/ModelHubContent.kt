@@ -38,6 +38,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -101,7 +102,7 @@ fun ModelHubContent(
                 val registered = modelRepository.registerSafModelUri(uri)
                 if (registered != null) {
                     settingsRepository.setActiveModel(registered.name, registered.path, registered.uriString)
-                    liteRtEngine.initialize(registered.path, registered.name, uri)
+                    liteRtEngine.initialize(registered.path, registered.name, uri, settings.preferredAccelerator)
                     Toast.makeText(context, "Loading: ${registered.name}", Toast.LENGTH_SHORT).show()
                 }
             }
@@ -161,6 +162,32 @@ fun ModelHubContent(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
 
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Text(
+                        text = "Hardware Accelerator:",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        listOf("AUTO" to "Auto (GPU/CPU)", "GPU" to "Force GPU", "CPU" to "Force CPU").forEach { (mode, label) ->
+                            val selected = settings.preferredAccelerator.equals(mode, ignoreCase = true)
+                            FilterChip(
+                                selected = selected,
+                                onClick = {
+                                    scope.launch {
+                                        settingsRepository.setPreferredAccelerator(mode)
+                                    }
+                                },
+                                label = { Text(label, fontSize = 12.sp) }
+                            )
+                        }
+                    }
+
                     Spacer(modifier = Modifier.height(12.dp))
 
                     FlowRow(
@@ -185,7 +212,7 @@ fun ModelHubContent(
                         ) {
                             Icon(Icons.Default.FolderOpen, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("Scan Downloads/")
+                            Text("Scan Device Storage")
                         }
                     }
                 }
@@ -269,7 +296,7 @@ fun ModelHubContent(
                                     scope.launch {
                                         val uri = model.uriString?.let { Uri.parse(it) }
                                         settingsRepository.setActiveModel(model.name, model.path, model.uriString)
-                                        liteRtEngine.initialize(model.path, model.name, uri)
+                                        liteRtEngine.initialize(model.path, model.name, uri, settings.preferredAccelerator)
                                         Toast.makeText(context, "Loading: ${model.name}...", Toast.LENGTH_SHORT).show()
                                     }
                                 },

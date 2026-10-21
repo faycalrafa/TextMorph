@@ -53,27 +53,36 @@ class ModelStorageRepository(private val context: Context) {
         try {
             val list = mutableListOf<ModelInfo>()
 
-            // 1. Scan Downloads directory if All Files access is granted
+            // 1. Scan External Storage directories if All Files access is granted
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && Environment.isExternalStorageManager()) {
-                val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-                if (downloadsDir != null && downloadsDir.exists() && downloadsDir.isDirectory) {
-                    val files = downloadsDir.listFiles { file ->
+                val searchDirs = listOfNotNull(
+                    Environment.getExternalStorageDirectory(),
+                    Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
+                    Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS)
+                ).filter { it.exists() && it.isDirectory }
+
+                val seenPaths = mutableSetOf<String>()
+                for (dir in searchDirs) {
+                    val files = dir.listFiles { file ->
                         file.isFile && file.name.endsWith(".litertlm", ignoreCase = true)
                     }
                     files?.forEach { file ->
-                        list.add(
-                            ModelInfo(
-                                id = "ext_${file.absolutePath.hashCode()}",
-                                name = file.name,
-                                path = file.absolutePath,
-                                sizeBytes = file.length(),
-                                isDownloaded = true,
-                                isBuiltInCatalog = false,
-                                isExternalStorage = true,
-                                isVisionCapable = file.name.contains("gemma-4", ignoreCase = true) || file.name.contains("vision", ignoreCase = true),
-                                description = "Zero-copy memory-mapped directly from Downloads/"
+                        val canonical = file.canonicalPath
+                        if (seenPaths.add(canonical)) {
+                            list.add(
+                                ModelInfo(
+                                    id = "ext_${canonical.hashCode()}",
+                                    name = file.name,
+                                    path = canonical,
+                                    sizeBytes = file.length(),
+                                    isDownloaded = true,
+                                    isBuiltInCatalog = false,
+                                    isExternalStorage = true,
+                                    isVisionCapable = file.name.contains("gemma-4", ignoreCase = true) || file.name.contains("vision", ignoreCase = true),
+                                    description = "Zero-copy memory-mapped from ${file.parentFile?.name ?: "storage"}/"
+                                )
                             )
-                        )
+                        }
                     }
                 }
             }
