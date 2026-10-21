@@ -1,11 +1,15 @@
 package com.textmorph.app
 
+import com.textmorph.app.data.model.AppSettings
 import com.textmorph.app.data.model.PromptCategory
 import com.textmorph.app.data.model.PromptEntity
 import com.textmorph.app.data.repository.PromptRepository
-import com.textmorph.app.llm.LiteRtLmEngine
-import kotlinx.coroutines.flow.toList
-import kotlinx.coroutines.runBlocking
+import com.textmorph.app.llm.ModelLoadingProgress
+import com.textmorph.app.llm.ModelSessionState
+import com.textmorph.app.util.AppLogger
+import com.textmorph.app.util.LogLevel
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -58,5 +62,57 @@ class TextMorphUnitTests {
         assertTrue(isVersionNewer("2.0.0", "1.9.9"))
         assertFalse(isVersionNewer("1.0.0", "1.0.0"))
         assertFalse(isVersionNewer("1.0.0", "1.0.1"))
+    }
+
+    @Test
+    fun testAppSettingsActiveModelUriSerialization() {
+        val settings = AppSettings(
+            activeModelName = "gemma-4-E2B-it.litertlm",
+            activeModelPath = "/sdcard/Download/gemma-4-E2B-it.litertlm",
+            activeModelUri = "content://com.android.providers.downloads.documents/document/123"
+        )
+        val json = Json { ignoreUnknownKeys = true }
+        val encoded = json.encodeToString(settings)
+        val decoded = json.decodeFromString<AppSettings>(encoded)
+
+        assertEquals("gemma-4-E2B-it.litertlm", decoded.activeModelName)
+        assertEquals("/sdcard/Download/gemma-4-E2B-it.litertlm", decoded.activeModelPath)
+        assertEquals("content://com.android.providers.downloads.documents/document/123", decoded.activeModelUri)
+    }
+
+    @Test
+    fun testModelSessionStateAndLoadingProgressDefaults() {
+        val defaultSession = ModelSessionState()
+        assertFalse(defaultSession.isLoaded)
+        assertEquals("No Model Loaded", defaultSession.modelName)
+        assertEquals("Standby (Simulated)", defaultSession.backend)
+
+        val defaultProgress = ModelLoadingProgress()
+        assertFalse(defaultProgress.isLoading)
+        assertEquals(0f, defaultProgress.progress, 0.001f)
+        assertEquals("Idle", defaultProgress.statusText)
+        assertTrue(defaultProgress.logLines.isEmpty())
+    }
+
+    @Test
+    fun testAppLoggerFormatAndClear() {
+        AppLogger.clear()
+        assertEquals(0, AppLogger.logsState.value.size)
+
+        AppLogger.i("TestTag", "Test message info")
+        AppLogger.w("TestTag", "Test message warn")
+        AppLogger.e("TestTag", "Test message error")
+
+        val logs = AppLogger.logsState.value
+        assertEquals(3, logs.size)
+
+        val exported = AppLogger.formatForExport("1.4.0")
+        assertTrue(exported.contains("=== TextMorph Diagnostic Logs ==="))
+        assertTrue(exported.contains("App Version: 1.4.0"))
+        assertTrue(exported.contains("Test message info"))
+        assertTrue(exported.contains("Test message error"))
+
+        AppLogger.clear()
+        assertEquals(0, AppLogger.logsState.value.size)
     }
 }

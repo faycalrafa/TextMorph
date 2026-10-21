@@ -23,12 +23,16 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
@@ -37,7 +41,6 @@ import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.Widgets
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -54,6 +57,7 @@ import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.NavigationDrawerItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.ScrollableTabRow
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -74,6 +78,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.textmorph.app.data.model.PromptCategory
@@ -85,6 +90,7 @@ import com.textmorph.app.data.repository.PromptRepository
 import com.textmorph.app.data.repository.SettingsRepository
 import com.textmorph.app.data.repository.UpdateRepository
 import com.textmorph.app.ui.about.AboutContent
+import com.textmorph.app.ui.about.DevLogsScreen
 import com.textmorph.app.ui.common.DevLogsDialog
 import com.textmorph.app.ui.common.ProminentDisclosureDialog
 import com.textmorph.app.ui.common.UpdateDialog
@@ -101,7 +107,8 @@ enum class AppDestination(val title: String) {
     MODEL_HUB("Model Hub"),
     CHAT("AI Playground"),
     SETTINGS("Settings"),
-    ABOUT("About TextMorph")
+    ABOUT("About TextMorph"),
+    DEV_LOGS("Developer Diagnostics")
 }
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -129,6 +136,7 @@ fun DashboardScreen(
     var showProminentDisclosure by remember { mutableStateOf(false) }
     var showDevLogs by remember { mutableStateOf(false) }
     var showUpdateDialog by remember { mutableStateOf(false) }
+    var isCheckingUpdate by remember { mutableStateOf(false) }
     var activeReleaseInfo by remember { mutableStateOf<AppReleaseInfo?>(null) }
     var downloadState by remember { mutableStateOf<DownloadState?>(null) }
 
@@ -154,13 +162,15 @@ fun DashboardScreen(
         }
     }
 
-    // Intercept Back button when search is open or drawer is open
-    BackHandler(enabled = isSearchActive || drawerState.isOpen) {
+    // Intercept Back button when search is open, drawer is open, or in sub-destination
+    BackHandler(enabled = isSearchActive || drawerState.isOpen || currentDestination != AppDestination.PROMPTS) {
         if (isSearchActive) {
             isSearchActive = false
             searchQuery = ""
         } else if (drawerState.isOpen) {
             scope.launch { drawerState.close() }
+        } else if (currentDestination != AppDestination.PROMPTS) {
+            currentDestination = AppDestination.PROMPTS
         }
     }
 
@@ -193,366 +203,485 @@ fun DashboardScreen(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                NavigationDrawerItem(
-                    icon = { Icon(Icons.Default.Widgets, contentDescription = null) },
-                    label = { Text("Custom Prompts") },
-                    selected = currentDestination == AppDestination.PROMPTS,
-                    onClick = {
-                        currentDestination = AppDestination.PROMPTS
-                        scope.launch { drawerState.close() }
-                    },
-                    modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
-                )
+                // Scrollable main navigation items (pinned above footer)
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState())
+                ) {
+                    NavigationDrawerItem(
+                        icon = { Icon(Icons.Default.Widgets, contentDescription = null) },
+                        label = { Text("Custom Prompts") },
+                        selected = currentDestination == AppDestination.PROMPTS,
+                        onClick = {
+                            currentDestination = AppDestination.PROMPTS
+                            scope.launch { drawerState.close() }
+                        },
+                        modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+                    )
 
-                NavigationDrawerItem(
-                    icon = { Icon(Icons.Default.Memory, contentDescription = null) },
-                    label = { Text("Model Hub") },
-                    selected = currentDestination == AppDestination.MODEL_HUB,
-                    onClick = {
-                        currentDestination = AppDestination.MODEL_HUB
-                        scope.launch { drawerState.close() }
-                    },
-                    modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
-                )
+                    NavigationDrawerItem(
+                        icon = { Icon(Icons.Default.Memory, contentDescription = null) },
+                        label = { Text("Model Hub") },
+                        selected = currentDestination == AppDestination.MODEL_HUB,
+                        onClick = {
+                            currentDestination = AppDestination.MODEL_HUB
+                            scope.launch { drawerState.close() }
+                        },
+                        modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+                    )
 
-                NavigationDrawerItem(
-                    icon = { Icon(Icons.Default.AutoAwesome, contentDescription = null) },
-                    label = { Text("AI Playground") },
-                    selected = currentDestination == AppDestination.CHAT,
-                    onClick = {
-                        currentDestination = AppDestination.CHAT
-                        scope.launch { drawerState.close() }
-                    },
-                    modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
-                )
+                    NavigationDrawerItem(
+                        icon = { Icon(Icons.Default.AutoAwesome, contentDescription = null) },
+                        label = { Text("AI Playground") },
+                        selected = currentDestination == AppDestination.CHAT,
+                        onClick = {
+                            currentDestination = AppDestination.CHAT
+                            scope.launch { drawerState.close() }
+                        },
+                        modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+                    )
+                }
 
-                NavigationDrawerItem(
-                    icon = { Icon(Icons.Default.Settings, contentDescription = null) },
-                    label = { Text("Settings") },
-                    selected = currentDestination == AppDestination.SETTINGS,
+                HorizontalDivider()
+
+                // Drawer Bottom Footer: Settings (Pinned to bottom)
+                Surface(
                     onClick = {
                         currentDestination = AppDestination.SETTINGS
                         scope.launch { drawerState.close() }
                     },
-                    modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
-                )
+                    color = if (currentDestination == AppDestination.SETTINGS) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f) else MaterialTheme.colorScheme.surface,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Default.Settings,
+                            contentDescription = "Settings",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Settings",
+                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = "Theme, floating button & localhost API",
+                                style = MaterialTheme.typography.bodySmall.copy(
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                    fontSize = 11.sp
+                                )
+                            )
+                        }
+                    }
+                }
 
-                NavigationDrawerItem(
-                    icon = { Icon(Icons.Default.Terminal, contentDescription = null) },
-                    label = { Text("Developer Diagnostics") },
-                    selected = false,
-                    onClick = {
-                        showDevLogs = true
-                        scope.launch { drawerState.close() }
-                    },
-                    modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
-                )
+                HorizontalDivider()
 
-                HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp, horizontal = 16.dp))
-
-                NavigationDrawerItem(
-                    icon = { Icon(Icons.Default.Info, contentDescription = null) },
-                    label = { Text("About") },
-                    selected = currentDestination == AppDestination.ABOUT,
+                // Drawer Bottom Footer: About TextMorph with embedded BugReport action (Pinned to bottom)
+                Surface(
                     onClick = {
                         currentDestination = AppDestination.ABOUT
                         scope.launch { drawerState.close() }
                     },
-                    modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
-                )
+                    color = if (currentDestination == AppDestination.ABOUT) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f) else MaterialTheme.colorScheme.surface,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Default.Info,
+                            contentDescription = "About App",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "About TextMorph",
+                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = "v${updateRepository.getCurrentVersionName()}",
+                                style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        IconButton(
+                            onClick = {
+                                currentDestination = AppDestination.DEV_LOGS
+                                scope.launch { drawerState.close() }
+                            },
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.BugReport,
+                                contentDescription = "Developer Logs",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowForward,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
             }
         }
     ) {
-        Scaffold(
-            topBar = {
-                TopAppBar(
-                    title = {
-                        if (isSearchActive) {
-                            BasicTextField(
-                                value = searchQuery,
-                                onValueChange = { searchQuery = it },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 8.dp),
-                                textStyle = TextStyle(
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    fontSize = 18.sp,
-                                    fontWeight = FontWeight.Medium
-                                ),
-                                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                                singleLine = true,
-                                decorationBox = { innerTextField ->
-                                    if (searchQuery.isEmpty()) {
-                                        Text(
-                                            text = "Search prompts...",
-                                            style = MaterialTheme.typography.bodyLarge,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                                        )
-                                    }
-                                    innerTextField()
-                                }
-                            )
-                        } else {
-                            Text(
-                                text = currentDestination.title,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    },
-                    navigationIcon = {
-                        IconButton(onClick = { scope.launch { drawerState.open() } }) {
-                            Icon(Icons.Default.Menu, contentDescription = "Menu")
-                        }
-                    },
-                    actions = {
-                        if (currentDestination == AppDestination.PROMPTS) {
+        if (currentDestination == AppDestination.DEV_LOGS) {
+            DevLogsScreen(
+                installedVersionName = updateRepository.getCurrentVersionName(),
+                onNavigateBack = { currentDestination = AppDestination.PROMPTS },
+                onOpenDrawer = { scope.launch { drawerState.open() } }
+            )
+        } else {
+            Scaffold(
+                topBar = {
+                    TopAppBar(
+                        title = {
                             if (isSearchActive) {
-                                IconButton(onClick = {
-                                    if (searchQuery.isNotEmpty()) {
-                                        searchQuery = ""
-                                    } else {
-                                        isSearchActive = false
+                                BasicTextField(
+                                    value = searchQuery,
+                                    onValueChange = { searchQuery = it },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 8.dp),
+                                    textStyle = TextStyle(
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        fontSize = 18.sp,
+                                        fontWeight = FontWeight.Medium
+                                    ),
+                                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                                    singleLine = true,
+                                    decorationBox = { innerTextField ->
+                                        if (searchQuery.isEmpty()) {
+                                            Text(
+                                                text = "Search prompts...",
+                                                style = MaterialTheme.typography.bodyLarge,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                            )
+                                        }
+                                        innerTextField()
                                     }
-                                }) {
-                                    Icon(Icons.Default.Close, contentDescription = "Close search")
-                                }
+                                )
                             } else {
-                                IconButton(onClick = { isSearchActive = true }) {
-                                    Icon(Icons.Default.Search, contentDescription = "Search prompts")
+                                Text(
+                                    text = currentDestination.title,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        },
+                        navigationIcon = {
+                            IconButton(onClick = { scope.launch { drawerState.open() } }) {
+                                Icon(Icons.Default.Menu, contentDescription = "Open Drawer")
+                            }
+                        },
+                        actions = {
+                            if (currentDestination == AppDestination.PROMPTS) {
+                                if (isSearchActive) {
+                                    IconButton(onClick = {
+                                        isSearchActive = false
+                                        searchQuery = ""
+                                    }) {
+                                        Icon(Icons.Default.Close, contentDescription = "Close Search")
+                                    }
+                                } else {
+                                    IconButton(onClick = { isSearchActive = true }) {
+                                        Icon(Icons.Default.Search, contentDescription = "Search Prompts")
+                                    }
                                 }
                             }
-                        }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.surface
-                    )
-                )
-            },
-            floatingActionButton = {
-                if (currentDestination == AppDestination.PROMPTS) {
-                    FloatingActionButton(
-                        onClick = {
-                            editingPrompt = null
-                            showPromptEditor = true
                         },
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        contentColor = MaterialTheme.colorScheme.onPrimary,
-                        shape = CircleShape
-                    ) {
-                        Icon(Icons.Default.Add, contentDescription = "Add Custom Prompt")
+                        colors = TopAppBarDefaults.topAppBarColors(
+                            containerColor = MaterialTheme.colorScheme.surface
+                        )
+                    )
+                },
+                floatingActionButton = {
+                    if (currentDestination == AppDestination.PROMPTS) {
+                        FloatingActionButton(
+                            onClick = {
+                                editingPrompt = null
+                                showPromptEditor = true
+                            },
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary,
+                            shape = CircleShape
+                        ) {
+                            Icon(Icons.Default.Add, contentDescription = "Create Custom Prompt")
+                        }
                     }
                 }
-            }
-        ) { paddingValues ->
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(paddingValues)
-            ) {
-                when (currentDestination) {
-                    AppDestination.PROMPTS -> {
-                        LazyColumn(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(horizontal = 16.dp),
-                            verticalArrangement = Arrangement.spacedBy(14.dp)
-                        ) {
-                            item {
-                                Spacer(modifier = Modifier.height(8.dp))
-                                ReadinessBanner(
-                                    onOpenAccessibilityDisclosure = {
-                                        showProminentDisclosure = true
-                                    }
-                                )
-                            }
-
-                            item {
-                                ScrollableTabRow(
-                                    selectedTabIndex = selectedCategoryIndex,
-                                    edgePadding = 0.dp,
-                                    containerColor = MaterialTheme.colorScheme.background,
-                                    contentColor = MaterialTheme.colorScheme.primary,
-                                    divider = {}
-                                ) {
-                                    categories.forEachIndexed { index, title ->
-                                        Tab(
-                                            selected = selectedCategoryIndex == index,
-                                            onClick = { selectedCategoryIndex = index },
-                                            text = {
-                                                Text(
-                                                    text = title,
-                                                    fontWeight = if (selectedCategoryIndex == index) FontWeight.Bold else FontWeight.Normal
-                                                )
-                                            }
-                                        )
-                                    }
-                                }
-                            }
-
-                            if (filteredPrompts.isEmpty()) {
+            ) { paddingValues ->
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(paddingValues)
+                ) {
+                    when (currentDestination) {
+                        AppDestination.PROMPTS -> {
+                            LazyColumn(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(horizontal = 16.dp),
+                                verticalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
                                 item {
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(vertical = 40.dp),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Text(
-                                            text = if (searchQuery.isNotEmpty()) "No matching prompts found." else "No prompts in this category.",
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    ReadinessBanner(
+                                        onOpenAccessibilityDisclosure = { showProminentDisclosure = true }
+                                    )
                                 }
-                            }
 
-                            items(filteredPrompts, key = { it.id }) { prompt ->
-                                PromptItemCard(
-                                    prompt = prompt,
-                                    onEdit = {
-                                        editingPrompt = prompt
-                                        showPromptEditor = true
-                                    },
-                                    onDelete = {
-                                        scope.launch {
-                                            promptRepository.deletePrompt(prompt.id)
-                                            Toast.makeText(context, "Deleted: ${prompt.title}", Toast.LENGTH_SHORT).show()
+                                item {
+                                    ScrollableTabRow(
+                                        selectedTabIndex = selectedCategoryIndex,
+                                        edgePadding = 0.dp,
+                                        containerColor = Color.Transparent,
+                                        divider = {}
+                                    ) {
+                                        categories.forEachIndexed { index, title ->
+                                            Tab(
+                                                selected = selectedCategoryIndex == index,
+                                                onClick = { selectedCategoryIndex = index },
+                                                text = {
+                                                    Text(
+                                                        text = title,
+                                                        fontWeight = if (selectedCategoryIndex == index) FontWeight.Bold else FontWeight.Normal
+                                                    )
+                                                }
+                                            )
                                         }
                                     }
-                                )
-                            }
+                                }
 
-                            item {
-                                Spacer(modifier = Modifier.height(80.dp)) // Space for FAB
+                                if (filteredPrompts.isEmpty()) {
+                                    item {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(vertical = 40.dp),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(
+                                                text = if (searchQuery.isNotEmpty()) "No matching prompts found." else "No prompts in this category.",
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
+                                }
+
+                                items(filteredPrompts, key = { it.id }) { prompt ->
+                                    PromptItemCard(
+                                        prompt = prompt,
+                                        onEdit = {
+                                            editingPrompt = prompt
+                                            showPromptEditor = true
+                                        },
+                                        onDelete = {
+                                            scope.launch {
+                                                promptRepository.deletePrompt(prompt.id)
+                                                Toast.makeText(context, "Deleted: ${prompt.title}", Toast.LENGTH_SHORT).show()
+                                            }
+                                        }
+                                    )
+                                }
+
+                                item {
+                                    Spacer(modifier = Modifier.height(80.dp)) // Space for FAB
+                                }
                             }
                         }
-                    }
 
-                    AppDestination.MODEL_HUB -> {
-                        ModelHubContent(
-                            modelRepository = modelRepository,
-                            settingsRepository = settingsRepository,
-                            onNavigateToChat = { currentDestination = AppDestination.CHAT }
-                        )
-                    }
+                        AppDestination.MODEL_HUB -> {
+                            ModelHubContent(
+                                modelRepository = modelRepository,
+                                settingsRepository = settingsRepository,
+                                liteRtEngine = liteRtEngine,
+                                onNavigateToChat = { currentDestination = AppDestination.CHAT }
+                            )
+                        }
 
-                    AppDestination.CHAT -> {
-                        com.textmorph.app.ui.chat.AiChatContent(
-                            liteRtEngine = liteRtEngine,
-                            settingsRepository = settingsRepository,
-                            modelRepository = modelRepository,
-                            onNavigateToModelHub = { currentDestination = AppDestination.MODEL_HUB }
-                        )
-                    }
+                        AppDestination.CHAT -> {
+                            com.textmorph.app.ui.chat.AiChatContent(
+                                liteRtEngine = liteRtEngine,
+                                settingsRepository = settingsRepository,
+                                modelRepository = modelRepository,
+                                onNavigateToModelHub = { currentDestination = AppDestination.MODEL_HUB }
+                            )
+                        }
 
-                    AppDestination.SETTINGS -> {
-                        SettingsContent(
-                            settingsRepository = settingsRepository,
-                            updateRepository = updateRepository,
-                            onOpenDevLogs = { showDevLogs = true },
-                            onCheckUpdate = {
-                                scope.launch {
-                                    val result = updateRepository.checkForUpdates()
-                                    result.onSuccess { info ->
-                                        if (info != null && info.isUpdateAvailable) {
-                                            activeReleaseInfo = info
-                                            showUpdateDialog = true
-                                        } else {
-                                            Toast.makeText(context, "App is up to date!", Toast.LENGTH_SHORT).show()
+                        AppDestination.SETTINGS -> {
+                            SettingsContent(
+                                settingsRepository = settingsRepository,
+                                updateRepository = updateRepository,
+                                onOpenDevLogs = { currentDestination = AppDestination.DEV_LOGS },
+                                onCheckUpdate = {
+                                    scope.launch {
+                                        isCheckingUpdate = true
+                                        val result = updateRepository.checkForUpdates()
+                                        isCheckingUpdate = false
+                                        result.onSuccess { info ->
+                                            if (info != null && info.isUpdateAvailable) {
+                                                activeReleaseInfo = info
+                                                showUpdateDialog = true
+                                            } else {
+                                                Toast.makeText(context, "App is up to date!", Toast.LENGTH_SHORT).show()
+                                            }
+                                        }.onFailure { err ->
+                                            Toast.makeText(context, "Update check failed: ${err.message}", Toast.LENGTH_SHORT).show()
                                         }
-                                    }.onFailure { err ->
-                                        Toast.makeText(context, "Update check failed: ${err.message}", Toast.LENGTH_SHORT).show()
                                     }
                                 }
-                            }
-                        )
-                    }
+                            )
+                        }
 
-                    AppDestination.ABOUT -> {
-                        AboutContent(
-                            updateRepository = updateRepository,
-                            onCheckUpdate = {
-                                scope.launch {
-                                    val result = updateRepository.checkForUpdates()
-                                    result.onSuccess { info ->
-                                        if (info != null && info.isUpdateAvailable) {
-                                            activeReleaseInfo = info
-                                            showUpdateDialog = true
-                                        } else {
-                                            Toast.makeText(context, "App is up to date!", Toast.LENGTH_SHORT).show()
+                        AppDestination.ABOUT -> {
+                            AboutContent(
+                                installedVersionName = updateRepository.getCurrentVersionName(),
+                                isCheckingUpdate = isCheckingUpdate,
+                                downloadedApk = updateRepository.getDownloadedApkFile(),
+                                onCheckForUpdates = {
+                                    scope.launch {
+                                        isCheckingUpdate = true
+                                        val result = updateRepository.checkForUpdates()
+                                        isCheckingUpdate = false
+                                        result.onSuccess { info ->
+                                            if (info != null && info.isUpdateAvailable) {
+                                                activeReleaseInfo = info
+                                                showUpdateDialog = true
+                                            } else {
+                                                Toast.makeText(context, "App is up to date!", Toast.LENGTH_SHORT).show()
+                                            }
+                                        }.onFailure { err ->
+                                            Toast.makeText(context, "Update check failed: ${err.message}", Toast.LENGTH_SHORT).show()
                                         }
-                                    }.onFailure { err ->
-                                        Toast.makeText(context, "Update check failed: ${err.message}", Toast.LENGTH_SHORT).show()
                                     }
+                                },
+                                onInstallDownloadedApk = {
+                                    updateRepository.getDownloadedApkFile()?.let { file ->
+                                        updateRepository.installApk(file)
+                                    }
+                                },
+                                onSaveApkToPath = {
+                                    activeReleaseInfo?.let { release ->
+                                        showUpdateDialog = true
+                                    } ?: run {
+                                        scope.launch {
+                                            isCheckingUpdate = true
+                                            val result = updateRepository.checkForUpdates()
+                                            isCheckingUpdate = false
+                                            result.onSuccess { info ->
+                                                if (info != null) {
+                                                    activeReleaseInfo = info
+                                                    showUpdateDialog = true
+                                                }
+                                            }
+                                        }
+                                    }
+                                },
+                                onReplayOnboarding = {
+                                    showProminentDisclosure = true
+                                },
+                                onNavigateToDevLogs = {
+                                    currentDestination = AppDestination.DEV_LOGS
                                 }
-                            }
-                        )
+                            )
+                        }
+
+                        AppDestination.DEV_LOGS -> {
+                            // Handled in root Scaffold branch
+                        }
                     }
                 }
             }
         }
-    }
 
-    // Full-Width Dialogs
-    if (showPromptEditor) {
-        PromptEditorDialog(
-            prompt = editingPrompt,
-            onDismiss = { showPromptEditor = false },
-            onSave = { savedPrompt ->
-                scope.launch {
-                    if (editingPrompt != null) {
-                        promptRepository.updatePrompt(savedPrompt)
-                    } else {
-                        promptRepository.addPrompt(savedPrompt)
-                    }
+        // Prompt Editor Dialog
+        if (showPromptEditor) {
+            PromptEditorDialog(
+                prompt = editingPrompt,
+                onDismiss = {
                     showPromptEditor = false
-                    Toast.makeText(context, "Prompt saved successfully.", Toast.LENGTH_SHORT).show()
-                }
-            }
-        )
-    }
-
-    if (showProminentDisclosure) {
-        ProminentDisclosureDialog(
-            onDismiss = { showProminentDisclosure = false },
-            onAcceptAndContinue = {
-                showProminentDisclosure = false
-                scope.launch {
-                    settingsRepository.setProminentDisclosureShown(true)
-                }
-                PermissionUtils.openAccessibilitySettings(context)
-            }
-        )
-    }
-
-    if (showDevLogs) {
-        DevLogsDialog(
-            onDismiss = { showDevLogs = false }
-        )
-    }
-
-    if (showUpdateDialog && activeReleaseInfo != null) {
-        UpdateDialog(
-            releaseInfo = activeReleaseInfo!!,
-            downloadState = downloadState,
-            onDismiss = {
-                showUpdateDialog = false
-                downloadState = null
-            },
-            onStartDownload = {
-                scope.launch {
-                    updateRepository.downloadApk(activeReleaseInfo!!.downloadUrl).collect { state ->
-                        downloadState = state
+                    editingPrompt = null
+                },
+                onSave = { updated ->
+                    scope.launch {
+                        if (editingPrompt == null) {
+                            promptRepository.addPrompt(updated)
+                        } else {
+                            promptRepository.updatePrompt(updated)
+                        }
+                        showPromptEditor = false
+                        editingPrompt = null
+                        Toast.makeText(context, "Prompt saved successfully.", Toast.LENGTH_SHORT).show()
                     }
                 }
-            },
-            onInstall = {
-                val state = downloadState
-                if (state is DownloadState.Completed) {
-                    updateRepository.installApk(state.file)
+            )
+        }
+
+        // Accessibility Prominent Disclosure Dialog
+        if (showProminentDisclosure) {
+            ProminentDisclosureDialog(
+                onDismiss = { showProminentDisclosure = false },
+                onAcceptAndContinue = {
+                    showProminentDisclosure = false
+                    scope.launch { settingsRepository.setProminentDisclosureShown(true) }
+                    PermissionUtils.openAccessibilitySettings(context)
                 }
-            }
-        )
+            )
+        }
+
+        // In-App Update Dialog
+        if (showUpdateDialog && activeReleaseInfo != null) {
+            UpdateDialog(
+                releaseInfo = activeReleaseInfo!!,
+                downloadState = downloadState,
+                onDismiss = {
+                    showUpdateDialog = false
+                    downloadState = null
+                },
+                onStartDownload = {
+                    scope.launch {
+                        updateRepository.downloadApk(activeReleaseInfo!!.downloadUrl).collect { state ->
+                            downloadState = state
+                        }
+                    }
+                },
+                onInstall = {
+                    val state = downloadState
+                    if (state is DownloadState.Completed) {
+                        updateRepository.installApk(state.file)
+                    } else {
+                        updateRepository.getDownloadedApkFile()?.let { file ->
+                            updateRepository.installApk(file)
+                        }
+                    }
+                }
+            )
+        }
     }
 }
 
@@ -560,10 +689,11 @@ fun DashboardScreen(
 private fun PromptItemCard(
     prompt: PromptEntity,
     onEdit: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
@@ -578,11 +708,8 @@ private fun PromptItemCard(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.weight(1f)
                 ) {
-                    Text(
-                        text = prompt.iconEmoji,
-                        fontSize = 24.sp
-                    )
-                    Spacer(modifier = Modifier.width(12.dp))
+                    Text(text = prompt.iconEmoji, fontSize = 24.sp)
+                    Spacer(modifier = Modifier.width(10.dp))
                     Column {
                         Text(
                             text = prompt.title,
@@ -591,7 +718,7 @@ private fun PromptItemCard(
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Text(
-                            text = prompt.category.displayName + (if (prompt.requiresVision) " • Vision" else ""),
+                            text = prompt.category.displayName,
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.primary
                         )
@@ -600,10 +727,20 @@ private fun PromptItemCard(
 
                 Row {
                     IconButton(onClick = onEdit) {
-                        Icon(Icons.Default.Edit, contentDescription = "Edit", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Icon(
+                            imageVector = Icons.Default.Edit,
+                            contentDescription = "Edit Prompt",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
+                        )
                     }
                     IconButton(onClick = onDelete) {
-                        Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Icon(
+                            imageVector = Icons.Default.Delete,
+                            contentDescription = "Delete Prompt",
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(20.dp)
+                        )
                     }
                 }
             }
@@ -612,9 +749,10 @@ private fun PromptItemCard(
 
             Text(
                 text = prompt.systemInstruction,
-                style = MaterialTheme.typography.bodySmall,
+                style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 2
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis
             )
         }
     }

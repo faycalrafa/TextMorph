@@ -51,6 +51,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -109,9 +110,12 @@ fun AiChatContent(
     var isGenerating by remember { mutableStateOf(false) }
     var currentJob by remember { mutableStateOf<Job?>(null) }
 
-    val activeModelName = liteRtEngine.getActiveModelName()
-    val activeBackend = liteRtEngine.getActiveBackend()
-    val isModelLoaded = liteRtEngine.isLoaded()
+    val sessionState by liteRtEngine.sessionState.collectAsState()
+    val loadingProgress by liteRtEngine.loadingProgress.collectAsState()
+
+    val isModelLoaded = sessionState.isLoaded
+    val activeModelName = sessionState.modelName
+    val activeBackend = sessionState.backend
 
     // Photo picker launcher
     val imagePickerLauncher = rememberLauncherForActivityResult(
@@ -175,26 +179,34 @@ fun AiChatContent(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.weight(1f)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Memory,
-                        contentDescription = "Model",
-                        tint = if (isModelLoaded) Color(0xFF68D391) else Color(0xFFA27B5C),
-                        modifier = Modifier.size(20.dp)
-                    )
+                    if (loadingProgress.isLoading) {
+                        CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                    } else {
+                        Icon(
+                            imageVector = Icons.Default.Memory,
+                            contentDescription = "Model",
+                            tint = if (isModelLoaded) Color(0xFF68D391) else Color(0xFFA27B5C),
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
                     Spacer(modifier = Modifier.width(8.dp))
                     Column {
                         Text(
-                            text = if (isModelLoaded) activeModelName else "No Local Model Loaded",
+                            text = if (loadingProgress.isLoading) "Loading: ${sessionState.modelName}"
+                            else if (isModelLoaded) activeModelName
+                            else "No Local Model Loaded",
                             style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
                             maxLines = 1
                         )
                         Text(
-                            text = if (isModelLoaded) "Backend: $activeBackend" else "Tap here to pick model in Hub",
+                            text = if (loadingProgress.isLoading) loadingProgress.statusText
+                            else if (isModelLoaded) "Backend: $activeBackend"
+                            else "Tap here to pick model in Hub",
                             style = MaterialTheme.typography.bodySmall.copy(
                                 color = if (isModelLoaded) MaterialTheme.colorScheme.primary else Color(0xFFA27B5C)
                             ),
                             modifier = Modifier.then(
-                                if (!isModelLoaded) Modifier.clickable { onNavigateToModelHub() } else Modifier
+                                if (!isModelLoaded && !loadingProgress.isLoading) Modifier.clickable { onNavigateToModelHub() } else Modifier
                             )
                         )
                     }

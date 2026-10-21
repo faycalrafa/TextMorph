@@ -13,6 +13,7 @@ data class AppSettings(
     val theme: ThemeMode = ThemeMode.FOREST_CLAY,
     val selectedEngine: EngineType = EngineType.ON_DEVICE_LITERT,
     val activeModelPath: String? = null,
+    val activeModelUri: String? = null,
     val activeModelName: String = "gemma-4-E2B-it.litertlm",
     val localServerEnabled: Boolean = false,
     val localServerPort: Int = 8080,

@@ -1,14 +1,22 @@
 package com.textmorph.app.util
 
+import android.os.Build
+import android.os.Process
 import android.util.Log
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.withContext
+import java.io.BufferedReader
+import java.io.InputStreamReader
 import java.io.PrintWriter
 import java.io.StringWriter
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicLong
 
 enum class LogLevel {
     DEBUG, INFO, WARN, ERROR
@@ -27,7 +35,9 @@ data class LogItem(
 }
 
 object AppLogger {
+    private const val TAG = "AppLogger"
     private const val MAX_LOGS = 1000
+    private val idCounter = AtomicLong(0)
     private val logs = mutableListOf<LogItem>()
     private val _logsState = MutableStateFlow<List<LogItem>>(emptyList())
     val logsState: StateFlow<List<LogItem>> = _logsState.asStateFlow()
@@ -39,10 +49,14 @@ object AppLogger {
             it.printStackTrace(PrintWriter(sw))
             sw.toString()
         }
+        val threadName = Thread.currentThread().name
+        val enrichedMessage = if (threadName != "main") "[$threadName] $message" else message
+
         val item = LogItem(
+            id = idCounter.incrementAndGet(),
             level = level,
             tag = tag,
-            message = message,
+            message = enrichedMessage,
             stackTrace = stackTrace
         )
         logs.add(item)
@@ -78,13 +92,74 @@ object AppLogger {
         _logsState.value = emptyList()
     }
 
+    /**
+     * Dumps the device system logcat entries for the current app PID.
+     * Useful for diagnosing native LiteRT-LM JNI, OpenCL/Vulkan drivers, and Android OS events.
+     */
+    suspend fun dumpSystemLogcat(): Int = withContext(Dispatchers.IO) {
+        var addedCount = 0
+        try {
+            val pid = Process.myPid().toString()
+            val command = arrayOf("logcat", "-d", "-v", "time", "--pid=$pid")
+            val process = Runtime.getRuntime().exec(command)
+            val reader = BufferedReader(InputStreamReader(process.inputStream))
+            val lines = reader.readLines()
+            process.destroy()
+
+            val now = System.currentTimeMillis()
+            val newItems = mutableListOf<LogItem>()
+
+            for (line in lines.takeLast(300)) {
+                if (line.isBlank()) continue
+                val level = when {
+                    line.contains(" E/") || line.contains(" E ") -> LogLevel.ERROR
+                    line.contains(" W/") || line.contains(" W ") -> LogLevel.WARN
+                    line.contains(" I/") || line.contains(" I ") -> LogLevel.INFO
+                    else -> LogLevel.DEBUG
+                }
+                newItems.add(
+                    LogItem(
+                        id = idCounter.incrementAndGet(),
+                        timestamp = now,
+                        level = level,
+                        tag = "SystemLogcat",
+                        message = line
+                    )
+                )
+                addedCount++
+            }
+
+            synchronized(this@AppLogger) {
+                logs.addAll(newItems)
+                while (logs.size > MAX_LOGS) {
+                    logs.removeAt(0)
+                }
+                _logsState.value = logs.toList()
+            }
+            i(TAG, "Dumped $addedCount system logcat lines for PID $pid")
+        } catch (e: Exception) {
+            e(TAG, "Failed to dump system logcat: ${e.message}", e)
+        }
+        addedCount
+    }
+
     fun formatForExport(versionName: String): String {
+        val runtime = Runtime.getRuntime()
+        val usedMemMb = (runtime.totalMemory() - runtime.freeMemory()) / (1024 * 1024)
+        val maxMemMb = runtime.maxMemory() / (1024 * 1024)
+
         val sb = StringBuilder()
         sb.append("=== TextMorph Diagnostic Logs ===\n")
         sb.append("App Version: $versionName\n")
-        sb.append("Export Time: ${SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())}\n\n")
-        logs.forEach { item ->
-            sb.append("[${item.formattedTime}] [${item.level}] [${item.tag}] ${item.message}\n")
+        sb.append("Device: ${Build.MANUFACTURER} ${Build.MODEL} (Android ${Build.VERSION.RELEASE}, API ${Build.VERSION.SDK_INT})\n")
+        sb.append("Memory Usage: ${usedMemMb}MB / ${maxMemMb}MB\n")
+        sb.append("Export Time: ${SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())}\n")
+        sb.append("Total Entries: ${_logsState.value.size}\n")
+        sb.append("------------------------------------\n\n")
+
+        _logsState.value.forEach { item ->
+            val levelChar = item.level.name.first()
+            sb.append("[${item.formattedTime}] $levelChar/${item.tag}: ${item.message}\n")
             if (!item.stackTrace.isNullOrBlank()) {
                 sb.append("${item.stackTrace}\n")
             }

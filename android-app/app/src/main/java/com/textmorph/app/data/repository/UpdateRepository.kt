@@ -168,6 +168,12 @@ class UpdateRepository(private val context: Context) {
         }
     }.flowOn(Dispatchers.IO)
 
+    fun getDownloadedApkFile(): File? {
+        val cacheDir = File(context.cacheDir, "updates")
+        val apkFile = File(cacheDir, "TextMorph-update.apk")
+        return if (apkFile.exists() && apkFile.length() > 0) apkFile else null
+    }
+
     fun installApk(file: File): Boolean {
         return try {
             AppLogger.i(TAG, "Triggering APK install: ${file.absolutePath}")

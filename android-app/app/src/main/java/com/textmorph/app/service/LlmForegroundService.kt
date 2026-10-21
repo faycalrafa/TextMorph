@@ -73,10 +73,11 @@ class LlmForegroundService : Service() {
                 updateNotification("Engine Active • On-Device Ready")
             }
 
-            // Warm up model session if path is specified
-            if (settings.activeModelPath != null && !engine.isLoaded()) {
+            // Warm up model session if path or URI is specified
+            if ((settings.activeModelPath != null || settings.activeModelUri != null) && !engine.isLoaded()) {
                 serviceScope.launch {
-                    engine.initialize(settings.activeModelPath, settings.activeModelName)
+                    val uri = settings.activeModelUri?.let { android.net.Uri.parse(it) }
+                    engine.initialize(settings.activeModelPath, settings.activeModelName, uri)
                 }
             }
         }.launchIn(serviceScope)

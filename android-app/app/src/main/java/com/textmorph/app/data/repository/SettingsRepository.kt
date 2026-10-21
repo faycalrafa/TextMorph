@@ -65,8 +65,8 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setEngine(engine: EngineType) = updateSettings { it.copy(selectedEngine = engine) }
 
-    suspend fun setActiveModel(name: String, path: String?) = updateSettings {
-        it.copy(activeModelName = name, activeModelPath = path)
+    suspend fun setActiveModel(name: String, path: String?, uriString: String? = null) = updateSettings {
+        it.copy(activeModelName = name, activeModelPath = path, activeModelUri = uriString)
     }
 
     suspend fun setLocalServer(enabled: Boolean, port: Int = 8080, token: String = "") = updateSettings {

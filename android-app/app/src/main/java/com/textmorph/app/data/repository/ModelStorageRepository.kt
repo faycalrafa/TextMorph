@@ -149,28 +149,51 @@ class ModelStorageRepository(private val context: Context) {
                 }
             }
 
-            // Resolve file descriptor to test zero-copy access
-            val pfd: ParcelFileDescriptor? = context.contentResolver.openFileDescriptor(uri, "r")
-            val fdPath = if (pfd != null) {
-                val fd = pfd.fd
-                val procPath = "/proc/self/fd/$fd"
-                pfd.close()
-                procPath
+            // Check if direct filesystem path exists and is readable
+            var directPath: String? = null
+            if (uri.scheme == "file") {
+                directPath = uri.path
             } else {
-                null
+                val docId = try {
+                    android.provider.DocumentsContract.getDocumentId(uri)
+                } catch (e: Exception) { null }
+
+                if (docId != null) {
+                    if (docId.startsWith("primary:")) {
+                        val relativePath = docId.removePrefix("primary:")
+                        val directFile = File(android.os.Environment.getExternalStorageDirectory(), relativePath)
+                        if (directFile.exists() && directFile.canRead()) {
+                            directPath = directFile.absolutePath
+                        }
+                    } else if (docId.startsWith("raw:")) {
+                        val rawPath = docId.removePrefix("raw:")
+                        val directFile = File(rawPath)
+                        if (directFile.exists() && directFile.canRead()) {
+                            directPath = directFile.absolutePath
+                        }
+                    }
+                }
+
+                if (directPath == null) {
+                    val downloadDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
+                    val downloadCandidate = File(downloadDir, displayName)
+                    if (downloadCandidate.exists() && downloadCandidate.canRead()) {
+                        directPath = downloadCandidate.absolutePath
+                    }
+                }
             }
 
             val modelInfo = ModelInfo(
                 id = "saf_${uri.toString().hashCode()}",
                 name = displayName,
-                path = fdPath,
+                path = directPath,
                 uriString = uri.toString(),
                 sizeBytes = size,
                 isDownloaded = true,
                 isBuiltInCatalog = false,
                 isExternalStorage = true,
                 isVisionCapable = displayName.contains("gemma-4", ignoreCase = true) || displayName.contains("vision", ignoreCase = true),
-                description = "SAF Selected Model (Zero-Copy ParcelFileDescriptor)"
+                description = if (directPath != null) "Direct Mmap: $displayName" else "SAF Zero-Copy Model: $displayName"
             )
 
             val updated = _availableModels.value.toMutableList()
@@ -178,7 +201,7 @@ class ModelStorageRepository(private val context: Context) {
             updated.add(0, modelInfo)
             _availableModels.value = updated
 
-            AppLogger.i(TAG, "Successfully registered SAF model: $displayName, size: $size bytes")
+            AppLogger.i(TAG, "Successfully registered SAF model: $displayName (directPath=$directPath, uri=$uri, size=$size bytes)")
             modelInfo
         } catch (e: Exception) {
             AppLogger.e(TAG, "Failed to register SAF model URI: ${e.message}", e)

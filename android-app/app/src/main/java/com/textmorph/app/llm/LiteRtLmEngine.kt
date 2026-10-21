@@ -1,6 +1,8 @@
 package com.textmorph.app.llm
 
 import android.content.Context
+import android.net.Uri
+import android.os.ParcelFileDescriptor
 import com.google.ai.edge.litertlm.Backend
 import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
@@ -12,12 +14,36 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+
+data class ModelSessionState(
+    val isLoaded: Boolean = false,
+    val modelName: String = "No Model Loaded",
+    val modelPath: String? = null,
+    val backend: String = "Standby (Simulated)",
+    val isVisionCapable: Boolean = true
+)
+
+data class ModelLoadingProgress(
+    val isLoading: Boolean = false,
+    val progress: Float = 0f,
+    val statusText: String = "Idle",
+    val logLines: List<String> = emptyList(),
+    val error: String? = null,
+    val success: Boolean = false
+)
 
 class LiteRtLmEngine(private val context: Context) : LlmEngine {
 
@@ -25,33 +51,96 @@ class LiteRtLmEngine(private val context: Context) : LlmEngine {
     private val inferenceMutex = Mutex()
 
     private var nativeEngine: Engine? = null
+    private var activePfd: ParcelFileDescriptor? = null
     private var currentModelPath: String? = null
     private var currentModelName: String = "No Model Loaded"
     private var isSessionActive = false
     private var activeBackend = "GPU (Vulkan/OpenCL)"
 
-    /**
-     * Initializes the LiteRT-LM engine with the specified model file path or proc fd path.
-     * Attempts GPU acceleration first (Adreno/Mali Vulkan/OpenCL), gracefully falling back to CPU.
-     */
-    override suspend fun initialize(modelPath: String?): Boolean = initialize(modelPath, null)
+    private val _sessionState = MutableStateFlow(ModelSessionState())
+    val sessionState: StateFlow<ModelSessionState> = _sessionState.asStateFlow()
 
-    suspend fun initialize(modelPath: String?, modelName: String? = null): Boolean = withContext(Dispatchers.IO) {
+    private val _loadingProgress = MutableStateFlow(ModelLoadingProgress())
+    val loadingProgress: StateFlow<ModelLoadingProgress> = _loadingProgress.asStateFlow()
+
+    private fun addProgressLog(message: String, progress: Float? = null, statusText: String? = null) {
+        val time = SimpleDateFormat("HH:mm:ss.SSS", Locale.US).format(Date())
+        val formatted = "[$time] $message"
+        AppLogger.i(TAG, message)
+        _loadingProgress.update { current ->
+            val updatedLogs = (current.logLines + formatted).takeLast(100)
+            current.copy(
+                progress = progress ?: current.progress,
+                statusText = statusText ?: current.statusText,
+                logLines = updatedLogs
+            )
+        }
+    }
+
+    override suspend fun initialize(modelPath: String?): Boolean = initialize(modelPath, null, null)
+
+    suspend fun initialize(
+        modelPath: String?,
+        modelName: String? = null,
+        modelUri: Uri? = null
+    ): Boolean = withContext(Dispatchers.IO) {
         inferenceMutex.withLock {
+            _loadingProgress.value = ModelLoadingProgress(
+                isLoading = true,
+                progress = 0.05f,
+                statusText = "Preparing model loading...",
+                logLines = emptyList(),
+                error = null,
+                success = false
+            )
+            val startTime = System.currentTimeMillis()
+
             try {
-                AppLogger.i(TAG, "Initializing LiteRT-LM session with path: $modelPath, name: $modelName")
-                if (modelPath != null && (File(modelPath).exists() || modelPath.startsWith("/proc/self/fd/"))) {
-                    currentModelPath = modelPath
-                    currentModelName = modelName ?: File(modelPath).name
+                val effectiveName = modelName ?: modelPath?.let { File(it).name } ?: modelUri?.lastPathSegment ?: "Custom Model"
+                addProgressLog("Initializing LiteRT-LM session for: $effectiveName", 0.1f, "Inspecting model file...")
 
-                    // Clean previous engine if any
-                    unloadInternal()
+                // Clean previous engine if any
+                unloadInternal()
 
-                    // 1. Attempt GPU delegate initialization
+                var effectivePath: String? = null
+
+                // 1. Resolve path from direct file or ParcelFileDescriptor
+                if (modelPath != null && File(modelPath).exists() && File(modelPath).canRead()) {
+                    effectivePath = modelPath
+                    val sizeMb = File(modelPath).length() / (1024 * 1024)
+                    addProgressLog("Direct file path confirmed: $modelPath ($sizeMb MB)", 0.25f, "Mapping tensors via zero-copy mmap...")
+                } else if (modelUri != null) {
+                    addProgressLog("Opening zero-copy ParcelFileDescriptor for URI: $modelUri", 0.2f, "Opening SAF file descriptor...")
+                    val pfd = try {
+                        context.contentResolver.openFileDescriptor(modelUri, "r")
+                    } catch (e: Exception) {
+                        AppLogger.e(TAG, "Failed to open FileDescriptor for $modelUri: ${e.message}", e)
+                        null
+                    }
+
+                    if (pfd != null) {
+                        activePfd = pfd
+                        val fd = pfd.fd
+                        val procFdPath = "/proc/self/fd/$fd"
+                        effectivePath = procFdPath
+                        addProgressLog("Obtained open ParcelFileDescriptor fd=$fd ($procFdPath)", 0.35f, "Mapping tensors from descriptor...")
+                    } else {
+                        addProgressLog("[ERROR] Failed to open SAF file descriptor for: $modelUri")
+                    }
+                } else if (modelPath != null && modelPath.startsWith("/proc/self/fd/")) {
+                    effectivePath = modelPath
+                    addProgressLog("Attempting proc fd path: $modelPath", 0.25f)
+                }
+
+                if (effectivePath != null) {
+                    currentModelPath = effectivePath
+                    currentModelName = effectiveName
+
+                    // 2. Attempt GPU delegate initialization first (Adreno/Mali Vulkan/OpenCL)
+                    addProgressLog("Probing GPU backend (Vulkan/OpenCL) for hardware acceleration...", 0.5f, "Compiling GPU shaders & weights...")
                     val initialized = try {
-                        AppLogger.i(TAG, "Probing GPU backend (Vulkan/OpenCL) for LiteRT-LM...")
                         val gpuConfig = EngineConfig(
-                            modelPath = modelPath,
+                            modelPath = effectivePath,
                             backend = Backend.GPU(),
                             visionBackend = Backend.GPU(),
                             cacheDir = context.cacheDir.absolutePath
@@ -60,12 +149,13 @@ class LiteRtLmEngine(private val context: Context) : LlmEngine {
                         eng.initialize()
                         nativeEngine = eng
                         activeBackend = "GPU (Vulkan/OpenCL)"
+                        addProgressLog("Native GPU compilation succeeded!", 0.9f, "Finalizing GPU session...")
                         true
                     } catch (gpuEx: Throwable) {
-                        AppLogger.w(TAG, "GPU initialization failed, attempting fallback to multi-threaded CPU: ${gpuEx.message}", gpuEx)
+                        addProgressLog("[WARN] GPU init failed (${gpuEx.message}). Attempting multi-threaded CPU fallback...", 0.6f, "Falling back to CPU (XNNPACK)...")
                         try {
                             val cpuConfig = EngineConfig(
-                                modelPath = modelPath,
+                                modelPath = effectivePath,
                                 backend = Backend.CPU(),
                                 visionBackend = Backend.CPU(),
                                 cacheDir = context.cacheDir.absolutePath
@@ -74,31 +164,65 @@ class LiteRtLmEngine(private val context: Context) : LlmEngine {
                             eng.initialize()
                             nativeEngine = eng
                             activeBackend = "CPU (XNNPACK)"
+                            addProgressLog("Native CPU compilation succeeded with XNNPACK!", 0.9f, "Finalizing CPU session...")
                             true
                         } catch (cpuEx: Throwable) {
-                            AppLogger.e(TAG, "Both GPU and CPU native LiteRT-LM initialization failed: ${cpuEx.message}", cpuEx)
+                            addProgressLog("[ERROR] Both GPU and CPU native LiteRT-LM initialization failed: ${cpuEx.message}")
                             nativeEngine = null
                             false
                         }
                     }
 
                     isSessionActive = initialized
+                    val elapsed = System.currentTimeMillis() - startTime
+
                     if (initialized) {
-                        AppLogger.i(TAG, "LiteRT-LM session initialized successfully on $activeBackend for model: $currentModelName")
+                        addProgressLog("Session active on $activeBackend in ${elapsed}ms!", 1.0f, "Model Ready")
+                        _loadingProgress.update { it.copy(isLoading = false, success = true, error = null) }
+                        _sessionState.value = ModelSessionState(
+                            isLoaded = true,
+                            modelName = currentModelName,
+                            modelPath = effectivePath,
+                            backend = activeBackend,
+                            isVisionCapable = currentModelName.contains("vision", true) || currentModelName.contains("gemma-4", true)
+                        )
+                        true
+                    } else {
+                        addProgressLog("[FAILED] Model weights could not be loaded into memory.")
+                        _loadingProgress.update { it.copy(isLoading = false, success = false, error = "Native initialization failed") }
+                        _sessionState.value = ModelSessionState(
+                            isLoaded = false,
+                            modelName = currentModelName,
+                            backend = "Standby (Simulated)"
+                        )
+                        false
                     }
-                    initialized
                 } else {
-                    AppLogger.w(TAG, "Model path does not exist or is null: $modelPath. Running in preview/standby mode.")
+                    val msg = "Model path or URI is invalid or inaccessible: $modelPath"
+                    addProgressLog("[WARN] $msg. Assistant is in standby mode.")
                     currentModelPath = modelPath
-                    currentModelName = modelName ?: "Standby Assistant"
+                    currentModelName = effectiveName
                     unloadInternal()
                     isSessionActive = false
+                    _loadingProgress.update { it.copy(isLoading = false, success = false, error = msg) }
+                    _sessionState.value = ModelSessionState(
+                        isLoaded = false,
+                        modelName = currentModelName,
+                        backend = "Standby (Simulated)"
+                    )
                     false
                 }
             } catch (e: Throwable) {
                 AppLogger.e(TAG, "Fatal error initializing LiteRT-LM engine: ${e.message}", e)
+                addProgressLog("[FATAL] Exception: ${e.message}")
                 unloadInternal()
                 isSessionActive = false
+                _loadingProgress.update { it.copy(isLoading = false, success = false, error = e.message) }
+                _sessionState.value = ModelSessionState(
+                    isLoaded = false,
+                    modelName = currentModelName,
+                    backend = "Standby (Simulated)"
+                )
                 false
             }
         }
@@ -110,9 +234,6 @@ class LiteRtLmEngine(private val context: Context) : LlmEngine {
         imageBytes: ByteArray?
     ): Flow<String> = generateStreamWithMetrics(prompt, systemInstruction, imageBytes, null)
 
-    /**
-     * Executes real model inference with token-by-token streaming and detailed performance metrics.
-     */
     fun generateStreamWithMetrics(
         prompt: String,
         systemInstruction: String? = null,
@@ -148,27 +269,25 @@ class LiteRtLmEngine(private val context: Context) : LlmEngine {
                     session.generateContentStream(inputs, object : ResponseCallback {
                         override fun onNext(response: String) {
                             val now = System.currentTimeMillis()
-                            val ftTime = firstTokenTime ?: now.also { firstTokenTime = it }
+                            if (firstTokenTime == null) {
+                                firstTokenTime = now
+                            }
                             tokenCount++
-                            val ttft = ftTime - startTime
-                            val elapsedSinceFirst = (now - ftTime).coerceAtLeast(1L)
-                            val speed = if (tokenCount > 1) {
-                                (tokenCount - 1) / (elapsedSinceFirst / 1000f)
-                            } else {
-                                1f / (ttft.coerceAtLeast(1L) / 1000f)
+                            val sanitized = sanitizeNoThinking(response)
+                            if (sanitized.isNotEmpty()) {
+                                trySend(sanitized)
                             }
 
-                            val cleanChunk = sanitizeNoThinking(response)
-                            if (cleanChunk.isNotEmpty()) {
-                                trySend(cleanChunk)
-                            }
+                            val ft = firstTokenTime ?: now
+                            val elapsed = (now - ft).coerceAtLeast(1L)
+                            val tps = if (tokenCount > 1) (tokenCount - 1) / (elapsed / 1000f) else 0f
 
                             onMetricsUpdated?.invoke(
                                 InferenceMetrics(
-                                    timeToFirstTokenMs = ttft,
+                                    timeToFirstTokenMs = ft - startTime,
                                     totalDurationMs = now - startTime,
                                     tokenCount = tokenCount,
-                                    tokensPerSecond = speed,
+                                    tokensPerSecond = tps,
                                     activeBackend = activeBackend,
                                     modelName = currentModelName
                                 )
@@ -176,79 +295,61 @@ class LiteRtLmEngine(private val context: Context) : LlmEngine {
                         }
 
                         override fun onDone() {
-                            val now = System.currentTimeMillis()
-                            val totalMs = now - startTime
-                            val ttft = firstTokenTime?.let { it - startTime } ?: totalMs
-                            val durationAfterFirst = (now - (firstTokenTime ?: now)).coerceAtLeast(1L)
-                            val finalSpeed = if (tokenCount > 1) {
-                                (tokenCount - 1) / (durationAfterFirst / 1000f)
-                            } else 0f
-
-                            onMetricsUpdated?.invoke(
-                                InferenceMetrics(
-                                    timeToFirstTokenMs = ttft,
-                                    totalDurationMs = totalMs,
-                                    tokenCount = tokenCount,
-                                    tokensPerSecond = finalSpeed,
-                                    activeBackend = activeBackend,
-                                    modelName = currentModelName
-                                )
-                            )
-                            AppLogger.i(TAG, "Native stream completed: $tokenCount tokens in ${totalMs}ms (${String.format("%.1f", finalSpeed)} tok/s).")
                             completionDeferred.complete(Unit)
                         }
 
                         override fun onError(throwable: Throwable) {
-                            AppLogger.e(TAG, "Native inference runtime error: ${throwable.message}", throwable)
+                            AppLogger.e(TAG, "Native stream error: ${throwable.message}", throwable)
                             completionDeferred.completeExceptionally(throwable)
                         }
                     })
 
-                    try {
-                        completionDeferred.await()
-                    } catch (c: CancellationException) {
-                        AppLogger.i(TAG, "Inference cancelled by caller. Cancelling native process...")
-                        session.cancelProcess()
-                        throw c
-                    }
-                } catch (e: Throwable) {
-                    if (e !is CancellationException) {
-                        AppLogger.e(TAG, "Error during native inference execution: ${e.message}", e)
-                        // Fall back to standby response if native call crashes
-                        emitStandbyTokens(prompt, cleanInstruction, imageBytes != null, startTime, onMetricsUpdated)
-                    }
+                    completionDeferred.await()
+                    val totalMs = System.currentTimeMillis() - startTime
+                    val ftFinal = firstTokenTime ?: startTime
+                    val finalTps = if (totalMs > 0) (tokenCount / (totalMs / 1000f)) else 0f
+                    AppLogger.i(TAG, "Inference completed. Tokens: $tokenCount, TTFT: ${ftFinal - startTime}ms, TPS: ${"%.1f".format(finalTps)}")
+                } catch (ce: CancellationException) {
+                    AppLogger.i(TAG, "Inference stream was cancelled by user.")
+                    throw ce
+                } catch (t: Throwable) {
+                    AppLogger.e(TAG, "Native forward pass failed, fallback to standby response: ${t.message}", t)
+                    streamStandbyFallback(prompt, cleanInstruction, imageBytes != null, startTime, onMetricsUpdated)
                 } finally {
                     try {
                         session?.close()
-                    } catch (closeEx: Throwable) {
-                        AppLogger.w(TAG, "Error closing native session: ${closeEx.message}")
+                    } catch (e: Exception) {
+                        AppLogger.w(TAG, "Error closing session: ${e.message}")
                     }
                 }
             } else {
-                // Standby mode
-                emitStandbyTokens(prompt, cleanInstruction, imageBytes != null, startTime, onMetricsUpdated)
+                AppLogger.d(TAG, "No native model session active. Generating simulated standby response.")
+                streamStandbyFallback(prompt, cleanInstruction, imageBytes != null, startTime, onMetricsUpdated)
             }
         }
     }.flowOn(Dispatchers.IO)
 
-    private suspend fun kotlinx.coroutines.channels.ProducerScope<String>.emitStandbyTokens(
+    private suspend fun kotlinx.coroutines.channels.ProducerScope<String>.streamStandbyFallback(
         prompt: String,
-        cleanInstruction: String,
+        instruction: String,
         hasImage: Boolean,
         startTime: Long,
         onMetricsUpdated: ((InferenceMetrics) -> Unit)?
     ) {
-        val standbyText = generateStandbyResponse(prompt, cleanInstruction, hasImage)
-        val filtered = sanitizeNoThinking(standbyText)
-        val words = filtered.split(Regex("(?<=\\s)|(?<=\\n)"))
-        var tokenCount = 0
+        val fullText = generateStandbyResponse(prompt, instruction, hasImage)
+        val words = fullText.split(" ")
         var firstTokenTime: Long? = null
+        var tokenCount = 0
 
-        for (word in words) {
+        for ((index, word) in words.withIndex()) {
             val now = System.currentTimeMillis()
-            val ftTime = firstTokenTime ?: now.also { firstTokenTime = it }
+            if (firstTokenTime == null) {
+                firstTokenTime = now
+            }
+            val ftTime = firstTokenTime ?: now
+            val space = if (index < words.size - 1) "$word " else word
             tokenCount++
-            send(word)
+            send(space)
 
             val ttft = ftTime - startTime
             val elapsed = (now - ftTime).coerceAtLeast(1L)
@@ -264,7 +365,7 @@ class LiteRtLmEngine(private val context: Context) : LlmEngine {
                     modelName = currentModelName
                 )
             )
-            delay(16) // Realistic pacing
+            delay(16)
         }
 
         val totalMs = System.currentTimeMillis() - startTime
@@ -310,8 +411,11 @@ class LiteRtLmEngine(private val context: Context) : LlmEngine {
             AppLogger.i(TAG, "Unloading native LiteRT-LM engine.")
             nativeEngine?.close()
             nativeEngine = null
+            activePfd?.close()
+            activePfd = null
             isSessionActive = false
             currentModelPath = null
+            _sessionState.value = ModelSessionState()
         } catch (e: Throwable) {
             AppLogger.e(TAG, "Error unloading LiteRT-LM engine: ${e.message}", e)
         }
