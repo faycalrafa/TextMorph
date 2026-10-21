@@ -15,23 +15,37 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.Widgets
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -60,6 +74,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -84,6 +99,7 @@ enum class FloatingButtonState {
 
 sealed class RadialActionItem {
     data class PromptAction(val prompt: PromptEntity) : RadialActionItem()
+    data object MorePromptsAction : RadialActionItem()
     data object UndoAction : RadialActionItem()
 }
 
@@ -91,12 +107,14 @@ sealed class RadialActionItem {
 fun FloatingToolbarContent(
     getLiveInputText: () -> String,
     prompts: List<PromptEntity>,
+    isVisionCapable: () -> Boolean,
     onInsertText: (String) -> Unit,
     onRevertText: () -> Unit,
     hasUndo: () -> Boolean,
     isPlacedOnRight: () -> Boolean,
     onRadialStateChanged: (isOpen: Boolean, offsetX: Int, offsetY: Int) -> Unit,
-    onDragDelta: (Float, Float) -> Unit,
+    onDragStart: () -> Unit,
+    onDragMove: () -> Unit,
     onTakeScreenshotContext: (((ByteArray) -> Unit) -> Unit)? = null,
     onExtractTranscript: (() -> String)? = null,
     onDismiss: () -> Unit,
@@ -113,6 +131,7 @@ fun FloatingToolbarContent(
 
     // Radial Menu Interaction States
     var isRadialOpen by remember { mutableStateOf(false) }
+    var showMorePromptsDialog by remember { mutableStateOf(false) }
     var hoveredIndex by remember { mutableIntStateOf(-1) }
     var touchPointerPos by remember { mutableStateOf(Offset.Zero) }
 
@@ -143,18 +162,20 @@ fun FloatingToolbarContent(
         }
     }
 
-    // Prepare radial items: top prompt actions + persistent bottom Undo action
+    // Prepare radial items: Top 5 prompts + "More Prompts 📂" (Slot 6) + "Undo ↩️" (Slot 7)
     val radialItems: List<RadialActionItem> = remember(prompts) {
         val topPrompts = prompts.take(5).map { RadialActionItem.PromptAction(it) }
-        topPrompts + listOf(RadialActionItem.UndoAction)
+        topPrompts + listOf(
+            RadialActionItem.MorePromptsAction,
+            RadialActionItem.UndoAction
+        )
     }
 
-    // Geometry measurements in Dp & Px
-    val buttonSizeDp = 54.dp
-    val buttonRadiusDp = 27.dp
-    val orbitRadiusDp = 135.dp
-    val containerWidthDp = 240.dp
-    val containerHeightDp = 360.dp
+    // Closer, sleeker geometry: 48dp main button, 95dp orbit radius, 36dp child bubbles
+    val buttonSizeDp = 48.dp
+    val orbitRadiusDp = 95.dp
+    val containerWidthDp = 220.dp
+    val containerHeightDp = 280.dp
 
     val containerWidthPx = with(density) { containerWidthDp.toPx() }
     val containerHeightPx = with(density) { containerHeightDp.toPx() }
@@ -164,35 +185,44 @@ fun FloatingToolbarContent(
     val isRightSide = isPlacedOnRight()
 
     // Button center coordinate within the expanded container
-    val buttonCenterX = if (isRightSide) containerWidthPx - buttonSizePx / 2 - with(density) { 16.dp.toPx() }
-    else buttonSizePx / 2 + with(density) { 16.dp.toPx() }
+    val buttonCenterX = if (isRightSide) containerWidthPx - buttonSizePx / 2 - with(density) { 12.dp.toPx() }
+    else buttonSizePx / 2 + with(density) { 12.dp.toPx() }
     val buttonCenterY = containerHeightPx / 2
 
     // Offset of the button within the expanded container
     val buttonOffsetXPx = (buttonCenterX - buttonSizePx / 2).roundToInt()
     val buttonOffsetYPx = (buttonCenterY - buttonSizePx / 2).roundToInt()
 
-    fun notifyRadialState(open: Boolean) {
-        isRadialOpen = open
-        if (open) {
+    fun notifyExpandedState(expanded: Boolean) {
+        if (expanded) {
             onRadialStateChanged(true, buttonOffsetXPx, buttonOffsetYPx)
-            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
         } else {
             hoveredIndex = -1
             onRadialStateChanged(false, 0, 0)
         }
     }
 
-    // Calculate node coordinates along the orbit
-    // Item 0 is at top, Item N-1 (Undo) is at bottom
+    fun notifyRadialState(open: Boolean) {
+        isRadialOpen = open
+        if (open) {
+            notifyExpandedState(true)
+            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+        } else {
+            if (!showMorePromptsDialog) {
+                notifyExpandedState(false)
+            }
+        }
+    }
+
+    // Calculate node coordinates along the orbit arc
     fun getActionPosition(index: Int, total: Int): Offset {
         val t = if (total <= 1) 0.5f else index.toFloat() / (total - 1)
         val angleDeg = if (isRightSide) {
-            // Arc curves to the LEFT (255 degrees at top down to 105 degrees at bottom)
-            255f - t * 150f
+            // Arc curves to the LEFT (250 degrees at top down to 110 degrees at bottom)
+            250f - t * 140f
         } else {
-            // Arc curves to the RIGHT (-75 degrees at top down to +75 degrees at bottom)
-            -75f + t * 150f
+            // Arc curves to the RIGHT (-70 degrees at top down to +70 degrees at bottom)
+            -70f + t * 140f
         }
         val rad = Math.toRadians(angleDeg.toDouble())
         val x = buttonCenterX + (orbitRadiusPx * cos(rad)).toFloat()
@@ -200,7 +230,7 @@ fun FloatingToolbarContent(
         return Offset(x, y)
     }
 
-    // Execution pipelines
+    // Live Streaming Execution pipelines
     fun startGeneration(systemInstruction: String, directExecute: Boolean = false) {
         val liveText = getLiveInputText()
         if (liveText.isBlank()) {
@@ -220,8 +250,19 @@ fun FloatingToolbarContent(
                 }
 
                 val sb = StringBuilder()
+                var lastStreamFlushTime = 0L
+
                 engine.generateStream(liveText, effectiveInstruction).collect { token ->
                     sb.append(token)
+                    val now = System.currentTimeMillis()
+                    // Live token streaming throttled to ~80ms or sentence boundaries to prevent IPC flood
+                    if (now - lastStreamFlushTime >= 80L || token.contains("\n") || token.contains(".")) {
+                        lastStreamFlushTime = now
+                        val intermediate = sb.toString()
+                        if (intermediate.isNotEmpty()) {
+                            onInsertText(intermediate)
+                        }
+                    }
                 }
 
                 val finalOutput = sb.toString().trim()
@@ -254,8 +295,18 @@ fun FloatingToolbarContent(
                 val engine = engineProvider()
                 val liveText = getLiveInputText().ifBlank { "Screen Multimodal Context" }
                 val sb = StringBuilder()
+                var lastStreamFlushTime = 0L
+
                 engine.generateStream(liveText, instruction, imageBytes).collect { token ->
                     sb.append(token)
+                    val now = System.currentTimeMillis()
+                    if (now - lastStreamFlushTime >= 80L || token.contains("\n") || token.contains(".")) {
+                        lastStreamFlushTime = now
+                        val intermediate = sb.toString()
+                        if (intermediate.isNotEmpty()) {
+                            onInsertText(intermediate)
+                        }
+                    }
                 }
 
                 val finalOutput = sb.toString().trim()
@@ -274,6 +325,10 @@ fun FloatingToolbarContent(
     }
 
     fun startVisionGeneration(instruction: String) {
+        if (!isVisionCapable()) {
+            Toast.makeText(context, "Active model is text-only (vision not supported).", Toast.LENGTH_LONG).show()
+            return
+        }
         if (onTakeScreenshotContext == null) {
             Toast.makeText(context, "Screenshot capture not available.", Toast.LENGTH_SHORT).show()
             return
@@ -285,6 +340,10 @@ fun FloatingToolbarContent(
     }
 
     fun startOcrGeneration(instruction: String) {
+        if (!isVisionCapable()) {
+            Toast.makeText(context, "Active model is text-only (OCR vision not supported).", Toast.LENGTH_LONG).show()
+            return
+        }
         if (onTakeScreenshotContext == null) {
             Toast.makeText(context, "Screen capture not available for OCR.", Toast.LENGTH_SHORT).show()
             return
@@ -321,11 +380,19 @@ fun FloatingToolbarContent(
                     Toast.makeText(context, "Nothing to undo.", Toast.LENGTH_SHORT).show()
                 }
             }
+            is RadialActionItem.MorePromptsAction -> {
+                showMorePromptsDialog = true
+                notifyExpandedState(true)
+            }
             is RadialActionItem.PromptAction -> {
                 val prompt = item.prompt
                 when (prompt.contextAction) {
                     ContextAction.SCREENSHOT -> startVisionGeneration(prompt.systemInstruction)
                     ContextAction.CAMERA -> {
+                        if (!isVisionCapable()) {
+                            Toast.makeText(context, "Active model is text-only (camera vision not supported).", Toast.LENGTH_LONG).show()
+                            return
+                        }
                         Toast.makeText(context, "Opening camera...", Toast.LENGTH_SHORT).show()
                         CameraCaptureActivity.launch(context) { bytes ->
                             if (bytes != null) {
@@ -343,28 +410,30 @@ fun FloatingToolbarContent(
         }
     }
 
-    // Outer container: when idle, WRAP_CONTENT 54dp. When radial open, expands to container size.
+    val isContainerExpanded = isRadialOpen || showMorePromptsDialog
+
+    // Outer container: when idle, 48dp. When radial open or dialog showing, expands to container size.
     Box(
-        modifier = if (isRadialOpen) {
+        modifier = if (isContainerExpanded) {
             Modifier.size(containerWidthDp, containerHeightDp)
         } else {
             Modifier.size(buttonSizeDp)
         }
     ) {
         // Orbital Canvas: Draws Guide Path & Active Glowing Laser Tether
-        if (isRadialOpen) {
+        if (isRadialOpen && !showMorePromptsDialog) {
             Canvas(modifier = Modifier.fillMaxSize()) {
                 val buttonCenter = Offset(buttonCenterX, buttonCenterY)
 
                 // Draw dashed / dotted orbital track
-                val pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 10f), 0f)
+                val pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 8f), 0f)
                 val sweepAngles = if (isRightSide) {
-                    -105f to -150f
+                    -110f to -140f
                 } else {
-                    -75f to 150f
+                    -70f to 140f
                 }
                 drawArc(
-                    color = Color(0x33A27B5C),
+                    color = Color(0x44A27B5C),
                     startAngle = sweepAngles.first,
                     sweepAngle = sweepAngles.second,
                     useCenter = false,
@@ -384,7 +453,7 @@ fun FloatingToolbarContent(
                         ),
                         start = buttonCenter,
                         end = targetPos,
-                        strokeWidth = 6.dp.toPx(),
+                        strokeWidth = 5.dp.toPx(),
                         cap = StrokeCap.Round
                     )
 
@@ -400,25 +469,25 @@ fun FloatingToolbarContent(
                     // Node highlight aura
                     drawCircle(
                         color = Color(0x3300E5FF),
-                        radius = with(density) { 34.dp.toPx() },
+                        radius = with(density) { 26.dp.toPx() },
                         center = targetPos
                     )
                 }
             }
         }
 
-        // Action Bubbles along the Orbit
-        if (isRadialOpen) {
+        // Action Bubbles along the Orbit (36dp base, 44dp hovered)
+        if (isRadialOpen && !showMorePromptsDialog) {
             radialItems.forEachIndexed { index, item ->
                 val pos = getActionPosition(index, radialItems.size)
                 val isHovered = hoveredIndex == index
                 val scale by animateFloatAsState(
-                    targetValue = if (isHovered) 1.25f else 1.0f,
+                    targetValue = if (isHovered) 1.22f else 1.0f,
                     animationSpec = spring(dampingRatio = 0.6f, stiffness = 600f),
                     label = "bubbleScale"
                 )
 
-                val itemBubbleSize = 46.dp
+                val itemBubbleSize = 36.dp
                 val halfItemPx = with(density) { itemBubbleSize.toPx() / 2 }
 
                 Box(
@@ -439,11 +508,11 @@ fun FloatingToolbarContent(
                             Surface(
                                 shape = CircleShape,
                                 color = if (enabled) Color(0xFFFF7043) else Color(0x66FF7043),
-                                shadowElevation = if (isHovered) 12.dp else 4.dp,
+                                shadowElevation = if (isHovered) 10.dp else 4.dp,
                                 modifier = Modifier
                                     .fillMaxSize()
                                     .border(
-                                        width = if (isHovered) 2.5.dp else 1.5.dp,
+                                        width = if (isHovered) 2.dp else 1.dp,
                                         color = if (isHovered) Color.White else Color(0xAAFFD54F),
                                         shape = CircleShape
                                     )
@@ -453,28 +522,58 @@ fun FloatingToolbarContent(
                                         imageVector = Icons.AutoMirrored.Filled.Undo,
                                         contentDescription = "Undo Text",
                                         tint = Color.White,
-                                        modifier = Modifier.size(22.dp)
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                        }
+                        is RadialActionItem.MorePromptsAction -> {
+                            Surface(
+                                shape = CircleShape,
+                                color = Color(0xFF2E7D32),
+                                shadowElevation = if (isHovered) 10.dp else 4.dp,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .border(
+                                        width = if (isHovered) 2.dp else 1.dp,
+                                        color = if (isHovered) Color(0xFF00E5FF) else Color(0x8881C784),
+                                        shape = CircleShape
+                                    )
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Default.Widgets,
+                                        contentDescription = "More Prompts",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(18.dp)
                                     )
                                 }
                             }
                         }
                         is RadialActionItem.PromptAction -> {
                             val prompt = item.prompt
-                            val bubbleGradient = when (prompt.contextAction) {
-                                ContextAction.SCREENSHOT -> listOf(Color(0xFF0288D1), Color(0xFF01579B))
-                                ContextAction.CAMERA -> listOf(Color(0xFFFF8F00), Color(0xFFE65100))
-                                ContextAction.OCR -> listOf(Color(0xFF8E24AA), Color(0xFF4A148C))
-                                ContextAction.ACCESSIBILITY_TEXT -> listOf(Color(0xFF00897B), Color(0xFF004D40))
-                                ContextAction.NONE -> listOf(Color(0xFF5E35B1), Color(0xFF311B92))
+                            val isVision = prompt.contextAction in listOf(ContextAction.SCREENSHOT, ContextAction.CAMERA, ContextAction.OCR)
+                            val visionDisabled = isVision && !isVisionCapable()
+
+                            val bubbleGradient = if (visionDisabled) {
+                                listOf(Color(0xFF555555), Color(0xFF333333))
+                            } else {
+                                when (prompt.contextAction) {
+                                    ContextAction.SCREENSHOT -> listOf(Color(0xFF0288D1), Color(0xFF01579B))
+                                    ContextAction.CAMERA -> listOf(Color(0xFFFF8F00), Color(0xFFE65100))
+                                    ContextAction.OCR -> listOf(Color(0xFF8E24AA), Color(0xFF4A148C))
+                                    ContextAction.ACCESSIBILITY_TEXT -> listOf(Color(0xFF00897B), Color(0xFF004D40))
+                                    ContextAction.NONE -> listOf(Color(0xFF5E35B1), Color(0xFF311B92))
+                                }
                             }
 
                             Box(
                                 modifier = Modifier
                                     .fillMaxSize()
-                                    .shadow(elevation = if (isHovered) 12.dp else 4.dp, shape = CircleShape)
+                                    .shadow(elevation = if (isHovered) 10.dp else 4.dp, shape = CircleShape)
                                     .background(Brush.linearGradient(bubbleGradient), shape = CircleShape)
                                     .border(
-                                        width = if (isHovered) 2.5.dp else 1.dp,
+                                        width = if (isHovered) 2.dp else 1.dp,
                                         color = if (isHovered) Color(0xFF00E5FF) else Color(0x55FFFFFF),
                                         shape = CircleShape
                                     ),
@@ -482,7 +581,7 @@ fun FloatingToolbarContent(
                             ) {
                                 Text(
                                     text = prompt.iconEmoji,
-                                    fontSize = 20.sp
+                                    fontSize = 16.sp
                                 )
                             }
                         }
@@ -492,29 +591,37 @@ fun FloatingToolbarContent(
                 // Hover Tooltip Pill
                 if (isHovered) {
                     val tooltipOffsetX = if (isRightSide) {
-                        (pos.x - with(density) { 150.dp.toPx() }).roundToInt()
+                        (pos.x - with(density) { 140.dp.toPx() }).roundToInt()
                     } else {
-                        (pos.x + with(density) { 28.dp.toPx() }).roundToInt()
+                        (pos.x + with(density) { 24.dp.toPx() }).roundToInt()
                     }
-                    val tooltipOffsetY = (pos.y - with(density) { 18.dp.toPx() }).roundToInt()
+                    val tooltipOffsetY = (pos.y - with(density) { 16.dp.toPx() }).roundToInt()
 
                     Surface(
-                        shape = RoundedCornerShape(12.dp),
+                        shape = RoundedCornerShape(10.dp),
                         color = Color(0xF21C2520),
                         shadowElevation = 8.dp,
                         modifier = Modifier
                             .offset { IntOffset(tooltipOffsetX, tooltipOffsetY) }
-                            .border(1.dp, Color(0x66A27B5C), RoundedCornerShape(12.dp))
-                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                            .border(1.dp, Color(0x66A27B5C), RoundedCornerShape(10.dp))
+                            .padding(horizontal = 10.dp, vertical = 5.dp)
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             val tooltipText = when (item) {
                                 is RadialActionItem.UndoAction -> "↩️ Revert Text"
-                                is RadialActionItem.PromptAction -> "${item.prompt.iconEmoji} ${item.prompt.title}"
+                                is RadialActionItem.MorePromptsAction -> "📂 More Prompts..."
+                                is RadialActionItem.PromptAction -> {
+                                    val isVision = item.prompt.contextAction in listOf(ContextAction.SCREENSHOT, ContextAction.CAMERA, ContextAction.OCR)
+                                    if (isVision && !isVisionCapable()) {
+                                        "${item.prompt.iconEmoji} ${item.prompt.title} (Text-only model)"
+                                    } else {
+                                        "${item.prompt.iconEmoji} ${item.prompt.title}"
+                                    }
+                                }
                             }
                             Text(
                                 text = tooltipText,
-                                style = MaterialTheme.typography.labelMedium,
+                                style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.Bold,
                                 color = Color.White
                             )
@@ -524,202 +631,324 @@ fun FloatingToolbarContent(
             }
         }
 
-        // Center Floating Action Button (54dp) with Gesture Disambiguation
-        Box(
-            modifier = Modifier
-                .offset {
-                    if (isRadialOpen) {
-                        IntOffset(buttonOffsetXPx, buttonOffsetYPx)
-                    } else {
-                        IntOffset.Zero
-                    }
-                }
-                .size(buttonSizeDp)
-                .pointerInput(isRightSide, prompts) {
-                    awaitEachGesture {
-                        val down = awaitFirstDown(requireUnconsumed = false)
-                        val downTime = System.currentTimeMillis()
-                        val startPos = down.position
-                        var hasMovedPastThreshold = false
-                        var lastPos = startPos
-
-                        // Coroutine to trigger radial menu after 220ms hold in place
-                        val holdJob = scope.launch {
-                            delay(220)
-                            if (!hasMovedPastThreshold && state == FloatingButtonState.IDLE) {
-                                notifyRadialState(true)
-                            }
+        // More Prompts Dialog Popup (for Prompts 6+)
+        if (showMorePromptsDialog) {
+            Card(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(8.dp),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                elevation = CardDefaults.cardElevation(defaultElevation = 12.dp)
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.FolderOpen,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "More Prompts",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold
+                            )
                         }
+                        IconButton(
+                            onClick = {
+                                showMorePromptsDialog = false
+                                notifyExpandedState(false)
+                            },
+                            modifier = Modifier.size(24.dp)
+                        ) {
+                            Icon(Icons.Default.Close, contentDescription = "Close", modifier = Modifier.size(16.dp))
+                        }
+                    }
 
-                        var pointerActive = true
-                        while (pointerActive) {
-                            val event = awaitPointerEvent()
-                            val pointerChange = event.changes.firstOrNull { it.id == down.id } ?: break
+                    Spacer(modifier = Modifier.height(6.dp))
 
-                            if (!pointerChange.pressed) {
-                                pointerActive = false
-                                holdJob.cancel()
-                                pointerChange.consume()
+                    val extendedPrompts = remember(prompts) { prompts.drop(5) }
+                    if (extendedPrompts.isEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "All prompts are currently in your direct quick slots! Add more in Custom Prompts.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(8.dp)
+                            )
+                        }
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            items(extendedPrompts, key = { it.id }) { prompt ->
+                                val isVision = prompt.contextAction in listOf(ContextAction.SCREENSHOT, ContextAction.CAMERA, ContextAction.OCR)
+                                val visionDisabled = isVision && !isVisionCapable()
 
-                                val elapsed = System.currentTimeMillis() - downTime
-
-                                if (isRadialOpen) {
-                                    // Release on Radial Item
-                                    if (hoveredIndex in radialItems.indices) {
-                                        val selectedItem = radialItems[hoveredIndex]
-                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                        executeRadialItem(selectedItem)
-                                    }
-                                    notifyRadialState(false)
-                                } else if (!hasMovedPastThreshold && elapsed < 200) {
-                                    // Quick Tap (< 200ms)
-                                    when (state) {
-                                        FloatingButtonState.IDLE -> {
-                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                            startGeneration("", directExecute = true)
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = MaterialTheme.colorScheme.surfaceVariant,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            showMorePromptsDialog = false
+                                            notifyExpandedState(false)
+                                            executeRadialItem(RadialActionItem.PromptAction(prompt))
                                         }
-                                        FloatingButtonState.GENERATING -> {
-                                            activeJob?.cancel()
-                                            activeJob = null
-                                            state = FloatingButtonState.IDLE
-                                            Toast.makeText(context, "Generation stopped.", Toast.LENGTH_SHORT).show()
-                                        }
-                                        FloatingButtonState.REVERT_WINDOW -> {
-                                            onRevertText()
-                                            state = FloatingButtonState.IDLE
-                                            Toast.makeText(context, "Text reverted.", Toast.LENGTH_SHORT).show()
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(text = prompt.iconEmoji, fontSize = 18.sp)
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = prompt.title,
+                                                style = MaterialTheme.typography.labelMedium,
+                                                fontWeight = FontWeight.Bold,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                            if (visionDisabled) {
+                                                Text(
+                                                    text = "Text-only model loaded",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.error,
+                                                    fontSize = 10.sp
+                                                )
+                                            } else if (prompt.contextAction != ContextAction.NONE) {
+                                                Text(
+                                                    text = prompt.contextAction.displayName,
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.primary,
+                                                    fontSize = 10.sp
+                                                )
+                                            }
                                         }
                                     }
                                 }
-                            } else {
-                                // Pointer is moving
-                                val currentPos = pointerChange.position
-                                val deltaTotal = hypot(currentPos.x - startPos.x, currentPos.y - startPos.y)
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
-                                if (!isRadialOpen) {
-                                    if (deltaTotal > with(density) { 10.dp.toPx() }) {
-                                        hasMovedPastThreshold = true
-                                        holdJob.cancel()
-                                        val dx = currentPos.x - lastPos.x
-                                        val dy = currentPos.y - lastPos.y
-                                        onDragDelta(dx, dy)
+        // Center Floating Action Button (48dp) with Gesture Disambiguation & 120fps Raw Dragging
+        if (!showMorePromptsDialog) {
+            Box(
+                modifier = Modifier
+                    .offset {
+                        if (isRadialOpen) {
+                            IntOffset(buttonOffsetXPx, buttonOffsetYPx)
+                        } else {
+                            IntOffset.Zero
+                        }
+                    }
+                    .size(buttonSizeDp)
+                    .pointerInput(isRightSide, prompts) {
+                        awaitEachGesture {
+                            val down = awaitFirstDown(requireUnconsumed = false)
+                            val downTime = System.currentTimeMillis()
+                            val startPos = down.position
+                            var hasMovedPastThreshold = false
+                            var hasStartedDrag = false
+
+                            // Coroutine to trigger radial menu after 220ms hold in place
+                            val holdJob = scope.launch {
+                                delay(220)
+                                if (!hasMovedPastThreshold && state == FloatingButtonState.IDLE) {
+                                    notifyRadialState(true)
+                                }
+                            }
+
+                            var pointerActive = true
+                            while (pointerActive) {
+                                val event = awaitPointerEvent()
+                                val pointerChange = event.changes.firstOrNull { it.id == down.id } ?: break
+
+                                if (!pointerChange.pressed) {
+                                    pointerActive = false
+                                    holdJob.cancel()
+                                    pointerChange.consume()
+
+                                    val elapsed = System.currentTimeMillis() - downTime
+
+                                    if (isRadialOpen) {
+                                        // Release on Radial Item
+                                        if (hoveredIndex in radialItems.indices) {
+                                            val selectedItem = radialItems[hoveredIndex]
+                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            executeRadialItem(selectedItem)
+                                        }
+                                        notifyRadialState(false)
+                                    } else if (!hasMovedPastThreshold && elapsed < 200) {
+                                        // Quick Tap (< 200ms)
+                                        when (state) {
+                                            FloatingButtonState.IDLE -> {
+                                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                startGeneration("", directExecute = true)
+                                            }
+                                            FloatingButtonState.GENERATING -> {
+                                                activeJob?.cancel()
+                                                activeJob = null
+                                                state = FloatingButtonState.REVERT_WINDOW
+                                                Toast.makeText(context, "Generation stopped.", Toast.LENGTH_SHORT).show()
+                                            }
+                                            FloatingButtonState.REVERT_WINDOW -> {
+                                                onRevertText()
+                                                state = FloatingButtonState.IDLE
+                                                Toast.makeText(context, "Text reverted.", Toast.LENGTH_SHORT).show()
+                                            }
+                                        }
                                     }
                                 } else {
-                                    // In Radial Menu Mode: Track Hover Position
-                                    pointerChange.consume()
-                                    // Translate pointer position to container coordinates
-                                    val localX = buttonOffsetXPx + currentPos.x
-                                    val localY = buttonOffsetYPx + currentPos.y
-                                    touchPointerPos = Offset(localX, localY)
+                                    // Pointer is moving
+                                    val currentPos = pointerChange.position
+                                    val deltaTotal = hypot(currentPos.x - startPos.x, currentPos.y - startPos.y)
 
-                                    // Hit-test closest action bubble within 44dp hit-box
-                                    var closestIndex = -1
-                                    var minDistance = with(density) { 46.dp.toPx() }
-
-                                    radialItems.indices.forEach { i ->
-                                        val itemPos = getActionPosition(i, radialItems.size)
-                                        val dist = hypot(localX - itemPos.x, localY - itemPos.y)
-                                        if (dist < minDistance) {
-                                            minDistance = dist
-                                            closestIndex = i
+                                    if (!isRadialOpen) {
+                                        if (deltaTotal > with(density) { 10.dp.toPx() }) {
+                                            hasMovedPastThreshold = true
+                                            holdJob.cancel()
+                                            if (!hasStartedDrag) {
+                                                hasStartedDrag = true
+                                                onDragStart()
+                                            }
+                                            onDragMove()
                                         }
-                                    }
+                                    } else {
+                                        // In Radial Menu Mode: Track Hover Position
+                                        pointerChange.consume()
+                                        // Translate pointer position to container coordinates
+                                        val localX = buttonOffsetXPx + currentPos.x
+                                        val localY = buttonOffsetYPx + currentPos.y
+                                        touchPointerPos = Offset(localX, localY)
 
-                                    if (closestIndex != hoveredIndex) {
-                                        hoveredIndex = closestIndex
-                                        if (closestIndex != -1) {
-                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        // Hit-test closest action bubble within 40dp hit-box
+                                        var closestIndex = -1
+                                        var minDistance = with(density) { 40.dp.toPx() }
+
+                                        radialItems.indices.forEach { i ->
+                                            val itemPos = getActionPosition(i, radialItems.size)
+                                            val dist = hypot(localX - itemPos.x, localY - itemPos.y)
+                                            if (dist < minDistance) {
+                                                minDistance = dist
+                                                closestIndex = i
+                                            }
+                                        }
+
+                                        if (closestIndex != hoveredIndex) {
+                                            hoveredIndex = closestIndex
+                                            if (closestIndex != -1) {
+                                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                            }
                                         }
                                     }
                                 }
-                                lastPos = currentPos
+                            }
+                        }
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                // Main Button Surface
+                Surface(
+                    shape = CircleShape,
+                    color = when (state) {
+                        FloatingButtonState.GENERATING -> Color(0xFF2C3930)
+                        FloatingButtonState.REVERT_WINDOW -> Color(0xFF3F4F44)
+                        else -> Color(0xFF1E2822)
+                    },
+                    shadowElevation = if (isRadialOpen) 14.dp else 8.dp,
+                    modifier = Modifier
+                        .size(buttonSizeDp)
+                        .border(
+                            width = 2.dp,
+                            brush = Brush.linearGradient(
+                                listOf(Color(0xFF8A2BE2), Color(0xFF00E5FF), Color(0xFFFF4081))
+                            ),
+                            shape = CircleShape
+                        )
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        when (state) {
+                            FloatingButtonState.GENERATING -> {
+                                Icon(
+                                    imageVector = Icons.Default.Stop,
+                                    contentDescription = "Stop Generation",
+                                    tint = Color(0xFFFF5252),
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                            FloatingButtonState.REVERT_WINDOW -> {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.Undo,
+                                    contentDescription = "Revert to Original",
+                                    tint = Color(0xFFFFD54F),
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+                            else -> {
+                                Icon(
+                                    imageVector = Icons.Default.AutoAwesome,
+                                    contentDescription = "TextMorph AI",
+                                    tint = Color(0xFF00E5FF),
+                                    modifier = Modifier.size(20.dp)
+                                )
                             }
                         }
                     }
-                },
-            contentAlignment = Alignment.Center
-        ) {
-            // Main Button Surface with Holographic Gradient
-            Surface(
-                shape = CircleShape,
-                color = when (state) {
-                    FloatingButtonState.GENERATING -> Color(0xFF2C3930)
-                    FloatingButtonState.REVERT_WINDOW -> Color(0xFF3F4F44)
-                    else -> Color(0xFF1E2822)
-                },
-                shadowElevation = if (isRadialOpen) 14.dp else 8.dp,
-                modifier = Modifier
-                    .size(50.dp)
-                    .border(
-                        width = 2.dp,
-                        brush = Brush.linearGradient(
-                            listOf(Color(0xFF8A2BE2), Color(0xFF00E5FF), Color(0xFFFF4081))
-                        ),
-                        shape = CircleShape
-                    )
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    when (state) {
-                        FloatingButtonState.GENERATING -> {
-                            Icon(
-                                imageVector = Icons.Default.Stop,
-                                contentDescription = "Stop Generation",
-                                tint = Color(0xFFFF5252),
-                                modifier = Modifier.size(22.dp)
-                            )
-                        }
-                        FloatingButtonState.REVERT_WINDOW -> {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.Undo,
-                                contentDescription = "Revert to Original",
-                                tint = Color(0xFFFFD54F),
-                                modifier = Modifier.size(24.dp)
-                            )
-                        }
-                        else -> {
-                            Icon(
-                                imageVector = Icons.Default.AutoAwesome,
-                                contentDescription = "TextMorph AI",
-                                tint = Color(0xFF00E5FF),
-                                modifier = Modifier.size(22.dp)
-                            )
-                        }
+                }
+
+                // Rotating Luminous Laser Beam Border during GENERATING state
+                if (state == FloatingButtonState.GENERATING) {
+                    Canvas(modifier = Modifier.fillMaxSize()) {
+                        drawCircle(
+                            color = Color(0x33C59B76),
+                            radius = size.minDimension / 2 - 2.dp.toPx(),
+                            style = Stroke(width = 3.dp.toPx())
+                        )
+                        drawArc(
+                            brush = Brush.sweepGradient(
+                                0.0f to Color.Transparent,
+                                0.7f to Color(0xFFC59B76),
+                                1.0f to Color(0xFFFFD54F)
+                            ),
+                            startAngle = laserAngle,
+                            sweepAngle = 100f,
+                            useCenter = false,
+                            style = Stroke(width = 3.5.dp.toPx(), cap = StrokeCap.Round)
+                        )
                     }
                 }
-            }
 
-            // Rotating Luminous Laser Beam Border during GENERATING state
-            if (state == FloatingButtonState.GENERATING) {
-                Canvas(modifier = Modifier.fillMaxSize()) {
-                    drawCircle(
-                        color = Color(0x33C59B76),
-                        radius = size.minDimension / 2 - 2.dp.toPx(),
-                        style = Stroke(width = 3.dp.toPx())
-                    )
-                    drawArc(
-                        brush = Brush.sweepGradient(
-                            0.0f to Color.Transparent,
-                            0.7f to Color(0xFFC59B76),
-                            1.0f to Color(0xFFFFD54F)
-                        ),
-                        startAngle = laserAngle,
-                        sweepAngle = 100f,
-                        useCenter = false,
-                        style = Stroke(width = 3.5.dp.toPx(), cap = StrokeCap.Round)
-                    )
-                }
-            }
-
-            // 5-Second Countdown Ring during REVERT_WINDOW state
-            if (state == FloatingButtonState.REVERT_WINDOW) {
-                Canvas(modifier = Modifier.fillMaxSize()) {
-                    drawArc(
-                        color = Color(0xFFFFD54F),
-                        startAngle = -90f,
-                        sweepAngle = 360f * revertCountdown.value,
-                        useCenter = false,
-                        style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round)
-                    )
+                // 5-Second Countdown Ring during REVERT_WINDOW state
+                if (state == FloatingButtonState.REVERT_WINDOW) {
+                    Canvas(modifier = Modifier.fillMaxSize()) {
+                        drawArc(
+                            color = Color(0xFFFFD54F),
+                            startAngle = -90f,
+                            sweepAngle = 360f * revertCountdown.value,
+                            useCenter = false,
+                            style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round)
+                        )
+                    }
                 }
             }
         }

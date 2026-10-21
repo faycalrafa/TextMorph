@@ -1,9 +1,9 @@
 # TextMorph Master Implementation & Audit Plan
 
-> **Document Status**: Active Implementation & Hardware Acceleration Resolution
-> **Target Version**: v1.6.0+  
+> **Document Status**: Production Complete (v1.10.0 Released)
+> **Target Version**: v1.10.0
 > **Source Spec**: Master Architecture Prompt + Google AI Edge Gallery Architecture Review  
-> **Design Directive**: **Preserve the current 54dp floating circular button (laser animation + 5s revert window)** as the approved overlay design.
+> **Design Directive**: Gesture-driven radial pie menu overlay with instant field streaming, smooth dragging, and text-only model fallback resilience.
 
 ---
 
@@ -268,11 +268,58 @@ flowchart TD
    - Added smart reply prompt execution generating 3 context-aware suggestions.
    - Surfaced 3 interactive reply chips in the floating overlay that auto-insert into the live input field and trigger the 5s revert window.
 
-### Phase 5: Verification, Version Bump & Push ⏳ In Progress
+### Phase 5: Verification, Version Bump & Push (v1.8.0) ✅ COMPLETE
 1. **Automated Tests**:
    - Added unit tests for `DownloadWorker` keys, catalog download URLs, and smart reply output parsing.
    - Verified `./gradlew testDebugUnitTest` with exit code `0`.
 2. **Release Version Bump**:
-   - Bump `versionCode = 10` and `appVersionName = "1.8.0"` in `build.gradle.kts`.
-   - Update `VERSION: "1.8.0"` in `.github/workflows/release.yml`.
-   - Commit and `git push origin main`.
+   - Bumped `versionCode = 10` and `appVersionName = "1.8.0"` in `build.gradle.kts`.
+   - Updated `VERSION: "1.8.0"` in `.github/workflows/release.yml`.
+   - Pushed cleanly to `origin/main`.
+
+### Phase 6: Gesture Radial Pie Menu & Vision Auto-Actions (v1.9.0) ✅ COMPLETE
+1. **Gesture-Driven Radial Menu Overhaul**:
+   - Replaced static curved list with press-drag-release radial pie menu centered around floating button touch point.
+   - Tap executes immediate direct request transformation on current input field.
+   - Press & hold + drag expands action bubbles outward along dynamic radial fan (adapts left/right depending on screen boundary).
+   - Light haptic tick on item hover; release executes hovered action or cancels if dropped in dead zone.
+2. **Undo / Revert Transformation Quick Action**:
+   - Positioned non-intrusive `UndoAction` directly at the bottom base of the button.
+   - Restores original input text before transformation was applied.
+3. **Vision Auto-Actions on Custom Prompts**:
+   - Screenshot attachment context, Camera feed context, OCR screen text extraction, and Accessibility visible text extraction context options when authoring new custom prompts.
+
+### Phase 7: Text-Only Model Resilience, Live Field Streaming & Responsive Scaling (v1.10.0) ✅ COMPLETE
+1. **Text-Only Model Resilience & Proactive Fallback**:
+   - Fixed crash (`NOT_FOUND: tf_lite_vision_encoder not found in the model`) when loading pure LLM models (e.g. `gemma-4-E2B-it-Uncensored-MAX.litertlm`, `DeepSeek-R1`, `Qwen`).
+   - Added 32KB model header inspection for `tf_lite_vision_encoder`.
+   - Proactively sets `visionBackend = null` and catches runtime missing encoder errors with text-only fallback retry.
+   - Displays clear "Text-Only" / "Vision" status badges in Model Hub and AI Chat.
+   - Safely warns the user and prevents native forward-pass crashes if vision actions are triggered on text-only models.
+2. **SAF Zero-Copy Symlink Resolver**:
+   - Resolved `INVALID_ARGUMENT: Unsupported or unknown file format` when opening SAF models from Downloads via `/proc/self/fd/$fd`.
+   - Resolves canonical target via `Os.readlink()` or creates a zero-copy `.litertlm` symlink in `cacheDir` (`model_mmap_${fd}.litertlm`) to satisfy native C++ JNI file extension validators.
+3. **Live Token Streaming Directly into Active Field**:
+   - Streamed generated tokens directly into the host app's active focused text field in real time.
+   - Throttled streaming (~80ms or sentence/newline breaks) to eliminate IPC binder flooding and UI lag.
+   - Supports instant Stop and Undo during generation.
+4. **"Always Show Floating Button" Toggle**:
+   - Added persistent toggle in Settings to keep assistant button visible continuously without requiring the soft keyboard to be up.
+5. **Radial Menu Sizing & Geometry Optimization**:
+   - Compact bubbles (`36dp` base / `44dp` hovered), reduced orbit radius (`95dp`).
+   - Slot distribution: Top 5 prompts in direct radial orbit, Slot 6 is "More Prompts 📂" (launches floating dialog with extended prompts), Slot 7 is "↩️ Undo".
+6. **Smooth Hardware Touch Coordinate Dragging**:
+   - Eliminated drag stutter/jitter by tracking hardware touch coordinates (`rawX`, `rawY`) via `setOnTouchListener` on `ComposeView` rather than oscillating local window bounds.
+7. **6-Dots Drag Handle Reordering**:
+   - Replaced Up/Down arrows in Custom Prompts with a sleek 6-dots drag handle (`Icons.Default.DragHandle`).
+   - Added visual separation and badges for "Direct Radial Quick-Actions (Top 5)" vs "Extended Prompts (Folder 📂 in Radial Menu)".
+8. **Universal Responsive Layouts (280p to 420p)**:
+   - Fixed text squashing and clipping across narrow device screens using responsive `FlowRow` layouts.
+
+### Phase 8: Future Roadmap & Next Iterations
+1. **Expanded On-Device Quantization Support**:
+   - Support for 8-bit / 4-bit INT quantization profiles in model catalog.
+2. **Custom Radial Quick-Slot Picker**:
+   - Direct drag-and-drop radial slot customization from the dashboard.
+3. **Context-Aware Voice Input**:
+   - On-device Whisper / Gemma audio transcription integration.

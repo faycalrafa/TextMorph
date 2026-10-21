@@ -111,10 +111,13 @@ class ProcessTextActivity : ComponentActivity() {
                     modifier = Modifier.padding(12.dp),
                     shape = RoundedCornerShape(20.dp)
                 ) {
+                    val sessionState by liteRtEngine.sessionState.collectAsState()
+
                     ProcessTextContent(
                         originalText = selectedText,
                         isReadOnly = isReadOnly,
                         prompts = prompts,
+                        isVisionCapable = sessionState.isVisionCapable,
                         onApplyResult = { transformed ->
                             if (!isReadOnly) {
                                 val resultIntent = Intent().apply {
@@ -162,6 +165,7 @@ private fun ProcessTextContent(
     originalText: String,
     isReadOnly: Boolean,
     prompts: List<PromptEntity>,
+    isVisionCapable: Boolean,
     onApplyResult: (String) -> Unit,
     onCancel: () -> Unit,
     engineProvider: () -> LlmEngine
@@ -366,13 +370,19 @@ private fun ProcessTextContent(
             Spacer(modifier = Modifier.width(4.dp))
             IconButton(
                 onClick = {
-                    photoPickerLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                    if (!isVisionCapable) {
+                        Toast.makeText(context, "Current model is pure text-only (vision not supported).", Toast.LENGTH_SHORT).show()
+                    } else {
+                        photoPickerLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                    }
                 }
             ) {
                 Icon(
                     imageVector = Icons.Default.AddPhotoAlternate,
                     contentDescription = "Attach Image",
-                    tint = if (selectedImageBytes != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                    tint = if (!isVisionCapable) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
+                    else if (selectedImageBytes != null) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
             IconButton(

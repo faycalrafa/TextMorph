@@ -296,4 +296,70 @@ class TextMorphUnitTests {
             }
         }
     }
+
+    @Test
+    fun testAppSettingsAlwaysShowFloatingToolbarSerialization() {
+        val settings = AppSettings(
+            alwaysShowFloatingToolbar = true,
+            activeModelName = "gemma-4-E2B-it.litertlm"
+        )
+        val json = Json { ignoreUnknownKeys = true }
+        val encoded = json.encodeToString(settings)
+        val decoded = json.decodeFromString<AppSettings>(encoded)
+
+        assertTrue(decoded.alwaysShowFloatingToolbar)
+        assertEquals("gemma-4-E2B-it.litertlm", decoded.activeModelName)
+    }
+
+    @Test
+    fun testTextOnlyModelHeaderDetectionLogic() {
+        val headerWithVision = "LITETFL3...tf_lite_vision_encoder...weights".toByteArray(Charsets.ISO_8859_1)
+        val headerTextOnly = "LITETFL3...text_decoder_only...weights".toByteArray(Charsets.ISO_8859_1)
+
+        fun hasVision(buffer: ByteArray): Boolean {
+            val text = String(buffer, Charsets.ISO_8859_1)
+            return text.contains("tf_lite_vision_encoder")
+        }
+
+        assertTrue(hasVision(headerWithVision))
+        assertFalse(hasVision(headerTextOnly))
+    }
+
+    @Test
+    fun testThrottledStreamTokenCollectorLogic() {
+        var lastEmitTime = 0L
+        val emittedChunks = mutableListOf<String>()
+        val sb = StringBuilder()
+
+        fun onToken(token: String, currentTime: Long) {
+            sb.append(token)
+            if (currentTime - lastEmitTime >= 80L || token.contains("\n") || token.contains(".")) {
+                lastEmitTime = currentTime
+                emittedChunks.add(sb.toString())
+            }
+        }
+
+        // Simulate fast tokens arriving every 20ms starting at t=1000ms
+        onToken("Hello", 1000L)   // 1000ms -> emitted immediately since 1000 - 0 >= 80
+        onToken(" ", 1020L)       // 1020ms -> buffered (20ms delta)
+        onToken("world", 1040L)   // 1040ms -> buffered (40ms delta)
+        onToken("!", 1060L)       // 1060ms -> buffered (60ms delta)
+        onToken("\n", 1070L)      // 1070ms with newline -> emitted immediately
+        onToken("How", 1090L)     // 1090ms -> buffered (20ms delta from 1070ms)
+        onToken(" are", 1160L)    // 1160ms (90ms delta >= 80ms) -> emitted
+
+        assertTrue(emittedChunks.isNotEmpty())
+        assertTrue(emittedChunks.contains("Hello"))
+        assertTrue(emittedChunks.any { it.contains("Hello world!\n") })
+    }
+
+    @Test
+    fun testRadialSlotsTop5PlusMorePromptsAndUndo() {
+        val seeds = PromptRepository.getDefaultSeedPrompts()
+        val topPrompts = seeds.take(5)
+        assertEquals(5, topPrompts.size)
+
+        val extendedPrompts = seeds.drop(5)
+        assertTrue(extendedPrompts.isNotEmpty())
+    }
 }

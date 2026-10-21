@@ -3,6 +3,7 @@ package com.textmorph.app.ui.chat
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -14,6 +15,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -69,6 +71,7 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.textmorph.app.data.repository.ModelStorageRepository
@@ -191,13 +194,32 @@ fun AiChatContent(
                     }
                     Spacer(modifier = Modifier.width(8.dp))
                     Column {
-                        Text(
-                            text = if (loadingProgress.isLoading) "Loading: ${sessionState.modelName}"
-                            else if (isModelLoaded) activeModelName
-                            else "No Local Model Loaded",
-                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
-                            maxLines = 1
-                        )
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(
+                                text = if (loadingProgress.isLoading) "Loading: ${sessionState.modelName}"
+                                else if (isModelLoaded) activeModelName
+                                else "No Local Model Loaded",
+                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            if (isModelLoaded) {
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = if (sessionState.isVisionCapable) Color(0x334CAF50) else Color(0x33FF9800)
+                                ) {
+                                    Text(
+                                        text = if (sessionState.isVisionCapable) "Vision" else "Text-Only",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (sessionState.isVisionCapable) Color(0xFF68D391) else Color(0xFFFFB74D),
+                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+                        }
                         Text(
                             text = if (loadingProgress.isLoading) loadingProgress.statusText
                             else if (isModelLoaded) "Backend: $activeBackend"
@@ -330,14 +352,23 @@ fun AiChatContent(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 // Insert Image Button (Photo Picker)
+                val isVisionCapable = sessionState.isVisionCapable
                 IconButton(
-                    onClick = { imagePickerLauncher.launch("image/*") },
+                    onClick = {
+                        if (!isVisionCapable) {
+                            Toast.makeText(context, "Current model ('$activeModelName') is text-only and does not support image input.", Toast.LENGTH_LONG).show()
+                        } else {
+                            imagePickerLauncher.launch("image/*")
+                        }
+                    },
                     modifier = Modifier.size(44.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.AddPhotoAlternate,
                         contentDescription = "Insert Image",
-                        tint = if (selectedBitmap != null) Color(0xFF68D391) else MaterialTheme.colorScheme.primary
+                        tint = if (!isVisionCapable) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
+                        else if (selectedBitmap != null) Color(0xFF68D391)
+                        else MaterialTheme.colorScheme.primary
                     )
                 }
 

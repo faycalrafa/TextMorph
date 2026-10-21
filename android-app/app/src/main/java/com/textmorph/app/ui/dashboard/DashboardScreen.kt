@@ -8,6 +8,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -36,6 +37,7 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -69,6 +71,7 @@ import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -78,7 +81,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -498,8 +505,63 @@ fun DashboardScreen(
                                 }
 
                                 itemsIndexed(filteredPrompts, key = { _, prompt -> prompt.id }) { index, prompt ->
+                                    if (index == 0 && selectedCategoryIndex == 0 && searchQuery.isBlank()) {
+                                        Card(
+                                            modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
+                                            shape = RoundedCornerShape(12.dp),
+                                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f))
+                                        ) {
+                                            Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                                Text(text = "🌟", fontSize = 20.sp)
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                Column {
+                                                    Text(
+                                                        text = "Direct Radial Quick-Actions (Top 5)",
+                                                        style = MaterialTheme.typography.titleSmall,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                                                    )
+                                                    Text(
+                                                        text = "Prompts #1 to #5 are directly accessible in the floating radial menu. Drag ⠿ handle to reorder.",
+                                                        style = MaterialTheme.typography.bodySmall,
+                                                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    } else if (index == 5 && selectedCategoryIndex == 0 && searchQuery.isBlank()) {
+                                        Card(
+                                            modifier = Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 6.dp),
+                                            shape = RoundedCornerShape(12.dp),
+                                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f))
+                                        ) {
+                                            Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                                Text(text = "📋", fontSize = 20.sp)
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                Column {
+                                                    Text(
+                                                        text = "Extended Prompts (Folder 📂 in Radial Menu)",
+                                                        style = MaterialTheme.typography.titleSmall,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                                                    )
+                                                    Text(
+                                                        text = "Prompts #6+ open in the 'More Prompts' floating dialog from the radial menu.",
+                                                        style = MaterialTheme.typography.bodySmall,
+                                                        color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f)
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    val isTop5 = index < 5 && selectedCategoryIndex == 0 && searchQuery.isBlank()
+                                    val slotLabel = if (isTop5) "⚡ Radial Slot #${index + 1}" else if (selectedCategoryIndex == 0 && searchQuery.isBlank()) "📂 Extended #${index - 4}" else null
+
                                     PromptItemCard(
                                         prompt = prompt,
+                                        slotLabel = slotLabel,
+                                        isTop5 = isTop5,
                                         canMoveUp = index > 0,
                                         canMoveDown = index < filteredPrompts.lastIndex,
                                         onMoveUp = {
@@ -704,6 +766,8 @@ fun DashboardScreen(
 @Composable
 private fun PromptItemCard(
     prompt: PromptEntity,
+    slotLabel: String?,
+    isTop5: Boolean,
     canMoveUp: Boolean,
     canMoveDown: Boolean,
     onMoveUp: () -> Unit,
@@ -712,77 +776,115 @@ private fun PromptItemCard(
     onDelete: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val haptic = LocalHapticFeedback.current
+    val density = LocalDensity.current
+    val dragThresholdPx = with(density) { 44.dp.toPx() }
+    var accumulatedDragY by remember { mutableFloatStateOf(0f) }
+
     Card(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        colors = CardDefaults.cardColors(
+            containerColor = if (isTop5) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.surface.copy(alpha = 0.9f)
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = if (isTop5) 2.dp else 1.dp)
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+        Column(modifier = Modifier.padding(14.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.weight(1f)
+                // 6-dots drag handle: grabs and moves prompt up or down intuitively
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .pointerInput(prompt.id, canMoveUp, canMoveDown) {
+                            detectVerticalDragGestures(
+                                onDragStart = { accumulatedDragY = 0f },
+                                onDragEnd = { accumulatedDragY = 0f },
+                                onDragCancel = { accumulatedDragY = 0f },
+                                onVerticalDrag = { change, dragAmount ->
+                                    change.consume()
+                                    accumulatedDragY += dragAmount
+                                    if (accumulatedDragY < -dragThresholdPx && canMoveUp) {
+                                        accumulatedDragY = 0f
+                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        onMoveUp()
+                                    } else if (accumulatedDragY > dragThresholdPx && canMoveDown) {
+                                        accumulatedDragY = 0f
+                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        onMoveDown()
+                                    }
+                                }
+                            )
+                        },
+                    contentAlignment = Alignment.Center
                 ) {
-                    Text(text = prompt.iconEmoji, fontSize = 24.sp)
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Column {
+                    Icon(
+                        imageVector = Icons.Default.DragHandle,
+                        contentDescription = "Drag ⠿ to reorder",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(text = prompt.iconEmoji, fontSize = 22.sp)
+                Spacer(modifier = Modifier.width(8.dp))
+
+                Column(modifier = Modifier.weight(1f)) {
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
                         Text(
                             text = prompt.title,
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Text(
-                                text = prompt.category.displayName,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                            if (prompt.contextAction != ContextAction.NONE) {
+                        if (slotLabel != null) {
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = if (isTop5) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.secondaryContainer
+                            ) {
                                 Text(
-                                    text = "• ${prompt.contextAction.displayName}",
+                                    text = slotLabel,
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.secondary,
-                                    fontWeight = FontWeight.SemiBold
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isTop5) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSecondaryContainer,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                    fontSize = 10.sp
                                 )
                             }
+                        }
+                    }
+
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
+                        Text(
+                            text = prompt.category.displayName,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        if (prompt.contextAction != ContextAction.NONE) {
+                            Text(
+                                text = "• ${prompt.contextAction.displayName}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.secondary,
+                                fontWeight = FontWeight.SemiBold
+                            )
                         }
                     }
                 }
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(
-                        onClick = onMoveUp,
-                        enabled = canMoveUp,
-                        modifier = Modifier.size(32.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.KeyboardArrowUp,
-                            contentDescription = "Move Up",
-                            tint = if (canMoveUp) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.25f),
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-                    IconButton(
-                        onClick = onMoveDown,
-                        enabled = canMoveDown,
-                        modifier = Modifier.size(32.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.KeyboardArrowDown,
-                            contentDescription = "Move Down",
-                            tint = if (canMoveDown) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.25f),
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
                     IconButton(onClick = onEdit, modifier = Modifier.size(32.dp)) {
                         Icon(
                             imageVector = Icons.Default.Edit,
@@ -802,13 +904,13 @@ private fun PromptItemCard(
                 }
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(6.dp))
 
             Text(
                 text = prompt.systemInstruction,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 3,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
         }

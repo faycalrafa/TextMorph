@@ -78,6 +78,10 @@ class SettingsRepository(private val context: Context) {
         it.copy(floatingToolbarEnabled = enabled)
     }
 
+    suspend fun setAlwaysShowFloatingToolbar(alwaysShow: Boolean) = updateSettings {
+        it.copy(alwaysShowFloatingToolbar = alwaysShow)
+    }
+
     suspend fun setAutoSuggestReplies(enabled: Boolean) = updateSettings {
         it.copy(autoSuggestReplies = enabled)
     }

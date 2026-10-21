@@ -16,6 +16,7 @@ import com.textmorph.app.data.repository.SettingsRepository
 import com.textmorph.app.llm.LiteRtLmEngine
 import com.textmorph.app.llm.OpenAiCloudEngine
 import com.textmorph.app.util.AppLogger
+import kotlinx.coroutines.launch
 import java.io.ByteArrayOutputStream
 import java.util.concurrent.Executors
 
@@ -28,6 +29,8 @@ class TextMorphAccessibilityService : AccessibilityService() {
     private lateinit var settingsRepository: SettingsRepository
     private lateinit var liteRtEngine: LiteRtLmEngine
     private lateinit var cloudEngine: OpenAiCloudEngine
+
+    private val serviceScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main + kotlinx.coroutines.SupervisorJob())
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -45,6 +48,19 @@ class TextMorphAccessibilityService : AccessibilityService() {
             liteRtEngine = liteRtEngine,
             cloudEngine = cloudEngine
         )
+
+        serviceScope.launch {
+            settingsRepository.settingsState.collect { settings ->
+                if (settings.alwaysShowFloatingToolbar && settings.floatingToolbarEnabled) {
+                    overlayManager?.show(
+                        onTakeScreenshot = { callback -> captureScreenContext(callback) },
+                        onExtractTranscript = { extractConversationTranscript() }
+                    )
+                } else if (!settings.floatingToolbarEnabled) {
+                    overlayManager?.hide()
+                }
+            }
+        }
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -57,6 +73,14 @@ class TextMorphAccessibilityService : AccessibilityService() {
 
         val source = event.source
         try {
+            if (settings.alwaysShowFloatingToolbar) {
+                overlayManager?.show(
+                    onTakeScreenshot = { callback -> captureScreenContext(callback) },
+                    onExtractTranscript = { extractConversationTranscript() }
+                )
+                return
+            }
+
             val keyboardVisible = isKeyboardVisible()
 
             if (keyboardVisible) {

@@ -65,6 +65,8 @@ class LiteRtLmEngine(private val context: Context) : LlmEngine {
 
     private var nativeEngine: Engine? = null
     private var activePfd: ParcelFileDescriptor? = null
+    private var createdSymlinkFile: File? = null
+    private var isModelVisionCapable = false
     private var currentModelPath: String? = null
     private var currentModelName: String = "No Model Loaded"
     private var isSessionActive = false
@@ -136,8 +138,47 @@ class LiteRtLmEngine(private val context: Context) : LlmEngine {
                         activePfd = pfd
                         val fd = pfd.fd
                         val procFdPath = "/proc/self/fd/$fd"
-                        effectivePath = procFdPath
-                        addProgressLog("Obtained open ParcelFileDescriptor fd=$fd ($procFdPath)", 0.35f, "Mapping tensors from descriptor...")
+
+                        // Check canonical path via readlink
+                        var validCanonicalPath: String? = null
+                        try {
+                            val canonical = android.system.Os.readlink(procFdPath)
+                            if (canonical != null && (canonical.endsWith(".litertlm", ignoreCase = true) || canonical.endsWith(".tflite", ignoreCase = true)) && File(canonical).exists() && File(canonical).canRead()) {
+                                validCanonicalPath = canonical
+                                addProgressLog("Canonical path resolved via readlink: $canonical", 0.3f)
+                            }
+                        } catch (readlinkEx: Exception) {
+                            AppLogger.d(TAG, "readlink /proc/self/fd/$fd: ${readlinkEx.message}")
+                        }
+
+                        if (validCanonicalPath != null) {
+                            effectivePath = validCanonicalPath
+                        } else {
+                            // Create zero-copy symlink in cacheDir with .litertlm extension for native JNI validator
+                            val safeName = effectiveName.replace(Regex("[^a-zA-Z0-9._-]"), "_")
+                            val linkName = if (safeName.endsWith(".litertlm", ignoreCase = true)) {
+                                "mmap_${fd}_$safeName"
+                            } else {
+                                "mmap_${fd}_${safeName}.litertlm"
+                            }
+                            val symlinkFile = File(context.cacheDir, linkName)
+                            if (symlinkFile.exists()) {
+                                symlinkFile.delete()
+                            }
+                            try {
+                                android.system.Os.symlink(procFdPath, symlinkFile.absolutePath)
+                                if (symlinkFile.exists()) {
+                                    effectivePath = symlinkFile.absolutePath
+                                    createdSymlinkFile = symlinkFile
+                                    addProgressLog("Created zero-copy symlink for SAF descriptor: ${symlinkFile.absolutePath}", 0.35f, "Mapping tensors from descriptor...")
+                                } else {
+                                    effectivePath = procFdPath
+                                }
+                            } catch (symlinkEx: Exception) {
+                                AppLogger.w(TAG, "Symlink creation failed (${symlinkEx.message}), using descriptor path.", symlinkEx)
+                                effectivePath = procFdPath
+                            }
+                        }
                     } else {
                         addProgressLog("[ERROR] Failed to open SAF file descriptor for: $modelUri")
                     }
@@ -150,8 +191,34 @@ class LiteRtLmEngine(private val context: Context) : LlmEngine {
                     currentModelPath = effectivePath
                     currentModelName = effectiveName
 
+                    // Inspect header for tf_lite_vision_encoder
+                    var hasVisionEncoder = false
+                    try {
+                        val fileToCheck = if (activePfd != null) {
+                            java.io.FileInputStream(activePfd!!.fileDescriptor)
+                        } else {
+                            File(effectivePath).inputStream()
+                        }
+                        fileToCheck.use { input ->
+                            val headerBuffer = ByteArray(32768)
+                            val read = input.read(headerBuffer)
+                            if (read > 0) {
+                                val headerText = String(headerBuffer, 0, read, Charsets.ISO_8859_1)
+                                hasVisionEncoder = headerText.contains("tf_lite_vision_encoder")
+                            }
+                        }
+                        addProgressLog(
+                            if (hasVisionEncoder) "Model contains vision encoder (Multimodal mode enabled)."
+                            else "Model is pure Text-Only (Vision encoder absent).",
+                            0.4f
+                        )
+                    } catch (inspectEx: Exception) {
+                        AppLogger.d(TAG, "Model header inspection notice: ${inspectEx.message}")
+                    }
+
                     var activeEng: Engine? = null
                     var resolvedBackend = ""
+                    var actualVisionCapable = false
 
                     val wantsGpu = preferredAccelerator.equals("GPU", ignoreCase = true) || preferredAccelerator.equals("AUTO", ignoreCase = true)
 
@@ -159,22 +226,17 @@ class LiteRtLmEngine(private val context: Context) : LlmEngine {
                     if (wantsGpu) {
                         addProgressLog("Probing GPU backend (Vulkan/OpenCL) for hardware acceleration...", 0.45f, "Compiling GPU shaders & weights...")
                         try {
-                            val gpuConfig = EngineConfig(
+                            val (gpuEng, isVision) = tryCreateAndInitEngine(
                                 modelPath = effectivePath,
                                 backend = Backend.GPU(),
-                                visionBackend = Backend.GPU(),
-                                cacheDir = context.cacheDir.absolutePath
+                                enableVision = hasVisionEncoder,
+                                backendLabel = "GPU"
                             )
-                            val eng = Engine(gpuConfig)
-                            eng.initialize()
-                            addProgressLog("Native GPU compilation succeeded. Running GPU liveliness probe...", 0.7f, "Testing GPU session...")
-
-                            val isGpuAlive = testEngineLiveliness(eng, "GPU")
-                            if (isGpuAlive) {
-                                activeEng = eng
+                            if (gpuEng != null) {
+                                activeEng = gpuEng
                                 resolvedBackend = "GPU (Vulkan/OpenCL)"
+                                actualVisionCapable = isVision
                             } else {
-                                eng.close()
                                 if (!preferredAccelerator.equals("GPU", ignoreCase = true)) {
                                     addProgressLog("[WARN] GPU liveliness probe failed. Falling back to multi-threaded CPU (XNNPACK)...", 0.6f, "Falling back to CPU...")
                                 }
@@ -193,22 +255,17 @@ class LiteRtLmEngine(private val context: Context) : LlmEngine {
                     if (activeEng == null && !preferredAccelerator.equals("GPU", ignoreCase = true)) {
                         addProgressLog("Initializing native CPU backend (multi-threaded XNNPACK)...", 0.75f, "Compiling CPU tensors...")
                         try {
-                            val cpuConfig = EngineConfig(
+                            val (cpuEng, isVision) = tryCreateAndInitEngine(
                                 modelPath = effectivePath,
                                 backend = Backend.CPU(),
-                                visionBackend = Backend.CPU(),
-                                cacheDir = context.cacheDir.absolutePath
+                                enableVision = hasVisionEncoder,
+                                backendLabel = "CPU"
                             )
-                            val eng = Engine(cpuConfig)
-                            eng.initialize()
-                            addProgressLog("Native CPU compilation succeeded. Running CPU liveliness probe...", 0.85f, "Testing CPU session...")
-
-                            val isCpuAlive = testEngineLiveliness(eng, "CPU")
-                            if (isCpuAlive) {
-                                activeEng = eng
+                            if (cpuEng != null) {
+                                activeEng = cpuEng
                                 resolvedBackend = "CPU (XNNPACK)"
+                                actualVisionCapable = isVision
                             } else {
-                                eng.close()
                                 addProgressLog("[ERROR] CPU liveliness probe failed.")
                             }
                         } catch (cpuEx: Throwable) {
@@ -221,6 +278,7 @@ class LiteRtLmEngine(private val context: Context) : LlmEngine {
                         nativeEngine = activeEng
                         activeBackend = resolvedBackend
                         isSessionActive = true
+                        isModelVisionCapable = actualVisionCapable
                         val elapsed = System.currentTimeMillis() - startTime
                         addProgressLog("Session active on $activeBackend in ${elapsed}ms!", 1.0f, "Model Ready")
 
@@ -230,7 +288,7 @@ class LiteRtLmEngine(private val context: Context) : LlmEngine {
                             modelName = currentModelName,
                             modelPath = effectivePath,
                             backend = activeBackend,
-                            isVisionCapable = currentModelName.contains("vision", true) || currentModelName.contains("gemma-4", true)
+                            isVisionCapable = actualVisionCapable
                         )
                         true
                     } else {
@@ -270,6 +328,63 @@ class LiteRtLmEngine(private val context: Context) : LlmEngine {
                     backend = "Standby (Simulated)"
                 )
                 false
+            }
+        }
+    }
+
+    private suspend fun tryCreateAndInitEngine(
+        modelPath: String,
+        backend: Backend,
+        enableVision: Boolean,
+        backendLabel: String
+    ): Pair<Engine?, Boolean> {
+        val initialVisionBackend = if (enableVision) backend else null
+        val config = EngineConfig(
+            modelPath = modelPath,
+            backend = backend,
+            visionBackend = initialVisionBackend,
+            cacheDir = context.cacheDir.absolutePath
+        )
+        val eng = Engine(config)
+        return try {
+            eng.initialize()
+            addProgressLog("Native $backendLabel compilation succeeded. Running liveliness probe...", 0.65f, "Testing $backendLabel session...")
+            val isAlive = testEngineLiveliness(eng, backendLabel)
+            if (isAlive) {
+                Pair(eng, enableVision)
+            } else {
+                eng.close()
+                Pair(null, false)
+            }
+        } catch (initEx: Throwable) {
+            eng.close()
+            val msg = initEx.message ?: ""
+            if (enableVision && (msg.contains("tf_lite_vision_encoder", ignoreCase = true) || msg.contains("NOT_FOUND", ignoreCase = true))) {
+                addProgressLog("[INFO] Model has no vision encoder ($msg). Retrying in pure Text-Only mode on $backendLabel...", 0.6f, "Falling back to text-only...")
+                val textConfig = EngineConfig(
+                    modelPath = modelPath,
+                    backend = backend,
+                    visionBackend = null,
+                    cacheDir = context.cacheDir.absolutePath
+                )
+                val textEng = Engine(textConfig)
+                try {
+                    textEng.initialize()
+                    addProgressLog("Text-only compilation succeeded on $backendLabel. Running liveliness probe...", 0.75f)
+                    val isTextAlive = testEngineLiveliness(textEng, backendLabel)
+                    if (isTextAlive) {
+                        Pair(textEng, false)
+                    } else {
+                        textEng.close()
+                        Pair(null, false)
+                    }
+                } catch (textEx: Throwable) {
+                    textEng.close()
+                    AppLogger.w(TAG, "Text-only fallback failed on $backendLabel: ${textEx.message}", textEx)
+                    throw textEx
+                }
+            } else {
+                throw initEx
             }
         }
     }
@@ -372,20 +487,24 @@ class LiteRtLmEngine(private val context: Context) : LlmEngine {
                 try {
                     val contents = mutableListOf<Content>()
                     if (imageBytes != null && imageBytes.isNotEmpty()) {
-                        val pngBytes = try {
-                            val bmp = BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
-                            if (bmp != null) {
-                                val stream = ByteArrayOutputStream()
-                                bmp.compress(Bitmap.CompressFormat.PNG, 100, stream)
-                                stream.toByteArray()
-                            } else {
+                        if (isModelVisionCapable) {
+                            val pngBytes = try {
+                                val bmp = BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
+                                if (bmp != null) {
+                                    val stream = ByteArrayOutputStream()
+                                    bmp.compress(Bitmap.CompressFormat.PNG, 100, stream)
+                                    stream.toByteArray()
+                                } else {
+                                    imageBytes
+                                }
+                            } catch (e: Exception) {
+                                AppLogger.w(TAG, "Image PNG conversion fallback: ${e.message}")
                                 imageBytes
                             }
-                        } catch (e: Exception) {
-                            AppLogger.w(TAG, "Image PNG conversion fallback: ${e.message}")
-                            imageBytes
+                            contents.add(Content.ImageBytes(pngBytes))
+                        } else {
+                            AppLogger.w(TAG, "Current model ($currentModelName) is pure text-only. Omitting image payload.")
                         }
-                        contents.add(Content.ImageBytes(pngBytes))
                     }
 
                     val userText = if (systemInstruction.isNullOrBlank()) {
@@ -453,7 +572,7 @@ class LiteRtLmEngine(private val context: Context) : LlmEngine {
                         usedConversation = false
                         session = eng.createSession()
                         val inputs = mutableListOf<InputData>()
-                        if (imageBytes != null && imageBytes.isNotEmpty()) {
+                        if (imageBytes != null && imageBytes.isNotEmpty() && isModelVisionCapable) {
                             inputs.add(InputData.Image(imageBytes))
                         }
                         inputs.add(InputData.Text(effectivePrompt))
@@ -617,6 +736,14 @@ class LiteRtLmEngine(private val context: Context) : LlmEngine {
             nativeEngine = null
             activePfd?.close()
             activePfd = null
+            createdSymlinkFile?.let { link ->
+                try {
+                    if (link.exists()) link.delete()
+                } catch (e: Exception) {
+                    AppLogger.w(TAG, "Error cleaning symlink: ${e.message}")
+                }
+                createdSymlinkFile = null
+            }
             isSessionActive = false
             currentModelPath = null
             _sessionState.value = ModelSessionState()

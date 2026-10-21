@@ -345,6 +345,26 @@ fun SettingsContent(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
+                        Text("Always Show Floating Button", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                        Text("Keep floating assistant visible on screen at all times, even without keyboard open", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Switch(
+                        checked = settings.alwaysShowFloatingToolbar,
+                        enabled = settings.floatingToolbarEnabled,
+                        onCheckedChange = { isChecked ->
+                            scope.launch { settingsRepository.setAlwaysShowFloatingToolbar(isChecked) }
+                        }
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
                         Text("Auto-Suggest Smart Replies", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                         Text("Suggest contextual replies from chat messages", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }

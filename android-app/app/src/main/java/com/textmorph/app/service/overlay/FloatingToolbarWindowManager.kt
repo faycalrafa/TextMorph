@@ -34,6 +34,14 @@ class FloatingToolbarWindowManager(
     private var userX: Int? = null
     private var userY: Int? = null
 
+    // Raw screen touch tracking to eliminate dragging lag / jitter
+    private var currentRawX = 0f
+    private var currentRawY = 0f
+    private var dragStartRawX = 0f
+    private var dragStartRawY = 0f
+    private var dragStartWinX = 0
+    private var dragStartWinY = 0
+
     fun show(
         onTakeScreenshot: (((ByteArray) -> Unit) -> Unit)? = null,
         onExtractTranscript: (() -> String)? = null
@@ -67,6 +75,12 @@ class FloatingToolbarWindowManager(
             }
 
             composeView = ComposeView(service).apply {
+                setOnTouchListener { _, ev ->
+                    currentRawX = ev.rawX
+                    currentRawY = ev.rawY
+                    false
+                }
+
                 setViewTreeLifecycleOwner(serviceLifecycleOwner)
                 setViewTreeSavedStateRegistryOwner(serviceLifecycleOwner)
                 setViewTreeViewModelStoreOwner(serviceLifecycleOwner)
@@ -74,11 +88,20 @@ class FloatingToolbarWindowManager(
                 setContent {
                     val settings = settingsRepository.settingsState.value
                     val prompts = promptRepository.promptsState.value
+                    val sessionState = liteRtEngine.sessionState.value
 
                     TextMorphTheme(themeMode = settings.theme) {
                         FloatingToolbarContent(
                             getLiveInputText = { service.getLiveInputText() },
                             prompts = prompts,
+                            isVisionCapable = {
+                                val currentSettings = settingsRepository.settingsState.value
+                                if (currentSettings.selectedEngine == EngineType.CLOUD_OPENAI) {
+                                    true
+                                } else {
+                                    sessionState.isVisionCapable
+                                }
+                            },
                             onInsertText = { result ->
                                 service.replaceLiveInputText(result)
                             },
@@ -93,8 +116,11 @@ class FloatingToolbarWindowManager(
                             onRadialStateChanged = { isOpen, offsetX, offsetY ->
                                 onRadialMenuStateChanged(isOpen, offsetX, offsetY)
                             },
-                            onDragDelta = { dx, dy ->
-                                onDragDelta(dx, dy, screenWidth, screenHeight)
+                            onDragStart = {
+                                onDragStart()
+                            },
+                            onDragMove = {
+                                onDragMove(screenWidth, screenHeight)
                             },
                             onTakeScreenshotContext = onTakeScreenshot,
                             onExtractTranscript = onExtractTranscript,
@@ -146,12 +172,24 @@ class FloatingToolbarWindowManager(
         }
     }
 
-    private fun onDragDelta(dx: Float, dy: Float, screenWidth: Int, screenHeight: Int) {
+    private fun onDragStart() {
+        dragStartRawX = currentRawX
+        dragStartRawY = currentRawY
+        val params = composeView?.layoutParams as? WindowManager.LayoutParams
+        if (params != null) {
+            dragStartWinX = params.x
+            dragStartWinY = params.y
+        }
+    }
+
+    private fun onDragMove(screenWidth: Int, screenHeight: Int) {
         try {
             val view = composeView ?: return
             val params = view.layoutParams as? WindowManager.LayoutParams ?: return
-            params.x = (params.x + dx.toInt()).coerceIn(0, (screenWidth - 80).coerceAtLeast(0))
-            params.y = (params.y + dy.toInt()).coerceIn(60, (screenHeight - 120).coerceAtLeast(60))
+            val dx = (currentRawX - dragStartRawX).toInt()
+            val dy = (currentRawY - dragStartRawY).toInt()
+            params.x = (dragStartWinX + dx).coerceIn(0, (screenWidth - 80).coerceAtLeast(0))
+            params.y = (dragStartWinY + dy).coerceIn(60, (screenHeight - 120).coerceAtLeast(60))
             userX = params.x
             userY = params.y
             windowManager.updateViewLayout(view, params)

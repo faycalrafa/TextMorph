@@ -176,9 +176,10 @@ fun ModelHubContent(
                         fontWeight = FontWeight.SemiBold
                     )
                     Spacer(modifier = Modifier.height(4.dp))
-                    Row(
+                    FlowRow(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         listOf("AUTO" to "Auto (GPU/CPU)", "GPU" to "Force GPU", "CPU" to "Force CPU").forEach { (mode, label) ->
                             val selected = settings.preferredAccelerator.equals(mode, ignoreCase = true)
@@ -319,7 +320,10 @@ private fun ModelCardItem(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
                         Text(
                             text = model.name,
                             style = MaterialTheme.typography.titleMedium,
@@ -327,7 +331,6 @@ private fun ModelCardItem(
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         if (isCurrentActive) {
-                            Spacer(modifier = Modifier.width(8.dp))
                             SuggestionChip(
                                 onClick = {},
                                 label = { Text("Active", fontWeight = FontWeight.Bold) }
@@ -395,18 +398,22 @@ private fun ModelCardItem(
             }
 
             // Bottom action row
-            Row(
+            FlowRow(
                 modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
+                verticalArrangement = Arrangement.spacedBy(4.dp),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text(
                     text = if (model.sizeBytes > 0) "${model.sizeBytes / (1024 * 1024)} MB" else "Catalog Entry",
                     style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(vertical = 4.dp)
                 )
 
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
                     if (isDownloading) {
                         OutlinedButton(
                             onClick = onCancelDownload,
