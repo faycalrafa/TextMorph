@@ -31,43 +31,19 @@ class FloatingOverlayContainer(
     private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop.coerceAtLeast(16)
 
     override fun onInterceptTouchEvent(ev: MotionEvent): Boolean {
-        // When expanded, let Compose handle chip scrolling and taps
+        // When expanded, let Compose handle horizontal chip scrolling and button taps
         if (isExpandedProvider()) {
             return false
         }
 
-        when (ev.actionMasked) {
-            MotionEvent.ACTION_DOWN -> {
-                downRawX = ev.rawX
-                downRawY = ev.rawY
-                isDragging = false
-                // Do not intercept ACTION_DOWN immediately so child view hierarchy is initialized,
-                // but we record the raw physical touch point.
-                return false
-            }
-            MotionEvent.ACTION_MOVE -> {
-                val dx = ev.rawX - downRawX
-                val dy = ev.rawY - downRawY
-                val dist = hypot(dx.toDouble(), dy.toDouble()).toFloat()
-                if (dist > touchSlop) {
-                    isDragging = true
-                    performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
-                    onDragStart()
-                    AppLogger.d(TAG, "Touch slop exceeded ($dist > $touchSlop): Intercepting touch for instant swipe")
-                    // Intercept gesture from child views! Android will deliver ACTION_CANCEL to children
-                    // and route all subsequent moves to onTouchEvent.
-                    return true
-                }
-            }
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                isDragging = false
-            }
-        }
-        return false
+        // When collapsed (36dp edge pill), intercept ALL touches so this container directly
+        // handles instant swipe dragging and instant taps without child pointer conflicts.
+        return true
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (event.actionMasked == MotionEvent.ACTION_OUTSIDE) {
+            AppLogger.d(TAG, "ACTION_OUTSIDE received on overlay container")
             onOutsideTap()
             return true
         }
@@ -81,6 +57,7 @@ class FloatingOverlayContainer(
                 downRawX = event.rawX
                 downRawY = event.rawY
                 isDragging = false
+                AppLogger.d(TAG, "Touch DOWN on collapsed companion at ($downRawX, $downRawY)")
                 return true
             }
             MotionEvent.ACTION_MOVE -> {
@@ -91,6 +68,7 @@ class FloatingOverlayContainer(
                 if (!isDragging && dist > touchSlop) {
                     isDragging = true
                     performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                    AppLogger.d(TAG, "Touch slop exceeded ($dist > $touchSlop): Starting instant swipe drag")
                     onDragStart()
                 }
 
@@ -98,14 +76,17 @@ class FloatingOverlayContainer(
                     onDragMove(dx, dy)
                     return true
                 }
+                return true
             }
             MotionEvent.ACTION_UP -> {
                 if (isDragging) {
                     isDragging = false
+                    AppLogger.d(TAG, "Drag released on ACTION_UP, completing snap")
                     onDragEnd()
                     return true
                 } else {
-                    // Touch released without exceeding slop -> clean, instant tap!
+                    AppLogger.i(TAG, "Clean tap detected on collapsed companion (dist < touchSlop)")
+                    performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
                     onSingleTap()
                     return true
                 }
@@ -113,9 +94,11 @@ class FloatingOverlayContainer(
             MotionEvent.ACTION_CANCEL -> {
                 if (isDragging) {
                     isDragging = false
+                    AppLogger.d(TAG, "Drag canceled on ACTION_CANCEL")
                     onDragEnd()
                     return true
                 }
+                return true
             }
         }
         return super.onTouchEvent(event)

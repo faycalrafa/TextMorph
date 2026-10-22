@@ -44,8 +44,10 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -144,9 +146,10 @@ fun FloatingToolbarContent(
         onExpandedStateChanged(expanded)
     }
 
-    // Connect handlers from WindowManager
-    LaunchedEffect(isExpanded, state) {
+    // Connect handlers from WindowManager synchronously on every recomposition commit
+    SideEffect {
         onRegisterSingleTapHandler?.invoke {
+            AppLogger.d(TAG, "singleTapHandler executed in Compose. state=$state, isExpanded=$isExpanded")
             when (state) {
                 FloatingButtonState.IDLE -> {
                     setExpanded(!isExpanded)
@@ -166,6 +169,7 @@ fun FloatingToolbarContent(
         }
 
         onRegisterCollapseHandler?.invoke {
+            AppLogger.d(TAG, "collapseHandler executed in Compose. isExpanded=$isExpanded")
             if (isExpanded) {
                 setExpanded(false)
             }
@@ -424,6 +428,26 @@ fun FloatingToolbarContent(
                 shadowElevation = if (isDragging) 12.dp else 6.dp,
                 modifier = Modifier
                     .size(36.dp)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) {
+                        AppLogger.d(TAG, "Collapsed companion pill clicked directly in Compose: state=$state")
+                        when (state) {
+                            FloatingButtonState.IDLE -> setExpanded(!isExpanded)
+                            FloatingButtonState.GENERATING -> {
+                                activeJob?.cancel()
+                                activeJob = null
+                                state = FloatingButtonState.REVERT_WINDOW
+                                Toast.makeText(context, "Generation stopped.", Toast.LENGTH_SHORT).show()
+                            }
+                            FloatingButtonState.REVERT_WINDOW -> {
+                                onRevertText()
+                                state = FloatingButtonState.IDLE
+                                Toast.makeText(context, "Text reverted.", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    }
                     .border(
                         width = 1.5.dp,
                         brush = Brush.linearGradient(

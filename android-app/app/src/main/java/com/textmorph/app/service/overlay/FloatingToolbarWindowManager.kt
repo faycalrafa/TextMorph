@@ -49,6 +49,7 @@ class FloatingToolbarWindowManager(
     private var userY: Int? = null
 
     private var isExpanded = false
+    private var lastExpandedTimeMs = 0L
     private val isDraggingState = mutableStateOf(false)
     private var isBusyState = false
     private var singleTapHandler: (() -> Unit)? = null
@@ -160,10 +161,23 @@ class FloatingToolbarWindowManager(
                     }
                 },
                 onSingleTap = {
-                    singleTapHandler?.invoke()
+                    AppLogger.d(TAG, "onSingleTap received from container. isExpanded=$isExpanded, singleTapHandlerSet=${singleTapHandler != null}")
+                    if (singleTapHandler != null) {
+                        singleTapHandler?.invoke()
+                    } else {
+                        AppLogger.w(TAG, "singleTapHandler not yet bound, toggling ribbon expansion directly")
+                        onRibbonExpansionChanged(!isExpanded)
+                    }
                 },
                 onOutsideTap = {
-                    collapseHandler?.invoke()
+                    val now = android.os.SystemClock.uptimeMillis()
+                    val elapsed = now - lastExpandedTimeMs
+                    if (elapsed > 400L) {
+                        AppLogger.d(TAG, "onOutsideTap triggered after ${elapsed}ms (> 400ms), collapsing ribbon")
+                        collapseHandler?.invoke() ?: onRibbonExpansionChanged(false)
+                    } else {
+                        AppLogger.d(TAG, "Ignoring outside tap during expansion debounce window (${elapsed}ms <= 400ms)")
+                    }
                 }
             ).apply {
                 setViewTreeLifecycleOwner(serviceLifecycleOwner)
@@ -282,6 +296,7 @@ class FloatingToolbarWindowManager(
             val maxY = (screenHeight - (56 * density).roundToInt() - (40 * density).roundToInt()).coerceAtLeast(minY)
 
             if (expanded) {
+                lastExpandedTimeMs = android.os.SystemClock.uptimeMillis()
                 // Expanded companion ribbon: horizontal dock with outside touch watch
                 val ribbonWidth = screenWidth - (marginPx * 2)
                 params.width = ribbonWidth
