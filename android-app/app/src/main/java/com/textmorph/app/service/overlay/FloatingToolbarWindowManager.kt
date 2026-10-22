@@ -165,7 +165,11 @@ class FloatingToolbarWindowManager(
                 onOutsideTap = {
                     collapseHandler?.invoke()
                 }
-            )
+            ).apply {
+                setViewTreeLifecycleOwner(serviceLifecycleOwner)
+                setViewTreeSavedStateRegistryOwner(serviceLifecycleOwner)
+                setViewTreeViewModelStoreOwner(serviceLifecycleOwner)
+            }
 
             composeView = ComposeView(service).apply {
                 setViewTreeLifecycleOwner(serviceLifecycleOwner)
