@@ -58,9 +58,21 @@ fun VersionHistoryScreen(
 
     val releaseLog = listOf(
         ReleaseItem(
-            version = "v1.12.0",
+            version = "v1.13.0",
             tag = "Latest Release",
             isLatest = true,
+            changes = listOf(
+                "Smooth Hardware-Digitizer Drag & Drop: Switched window repositioning to raw display coordinates (rawX, rawY), eliminating all jitter and coordinate drift.",
+                "Tactile Long-Press Activation: 260ms hold triggers tactile haptic feedback and elevates the floating button into 120Hz smooth dragging mode.",
+                "Reliable Single-Tap Toggle: Instantaneous tap disambiguation reliably toggles the radial circle menu open/closed.",
+                "Persistent Position Memory: Floating button coordinates are saved to persistent storage on drop and restored upon app restart, device reboot, or service reconnection.",
+                "Viewport Edge Clamping: Safe bounds checking prevents the floating button from getting clipped by screen edges or hidden beneath status and navigation bars."
+            )
+        ),
+        ReleaseItem(
+            version = "v1.12.0",
+            tag = "Recent Release",
+            isLatest = false,
             changes = listOf(
                 "Configurable Hardware Liveliness Probe Timeout: Added user input and quick preset chips (6s, 15s, 30s, 60s) in Settings under On-Device LiteRT-LM.",
                 "Extended default probe timeout to 60,000 ms on both GPU and CPU backends to prevent false timeouts on heavy local models with long time-to-first-token.",

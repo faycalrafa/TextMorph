@@ -26,5 +26,7 @@ data class AppSettings(
     val autoSuggestReplies: Boolean = true,
     val preferredAccelerator: String = "AUTO",
     val probeTimeoutMs: Long = 60000L,
+    val floatingToolbarX: Int? = null,
+    val floatingToolbarY: Int? = null,
     val hasShownProminentDisclosure: Boolean = false
 )

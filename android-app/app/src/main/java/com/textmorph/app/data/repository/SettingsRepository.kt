@@ -102,6 +102,10 @@ class SettingsRepository(private val context: Context) {
         it.copy(probeTimeoutMs = timeoutMs.coerceAtLeast(1000L))
     }
 
+    suspend fun setFloatingToolbarPosition(x: Int, y: Int) = updateSettings {
+        it.copy(floatingToolbarX = x, floatingToolbarY = y)
+    }
+
     private fun saveSettingsToDisk(settings: AppSettings) {
         try {
             val atomicFile = AtomicFile(settingsFile)

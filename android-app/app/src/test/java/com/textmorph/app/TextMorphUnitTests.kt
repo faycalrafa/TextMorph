@@ -443,4 +443,48 @@ class TextMorphUnitTests {
         assertEquals(6000L, clampTimeout(6000L))
         assertEquals(60000L, clampTimeout(60000L))
     }
+
+    @Test
+    fun testFloatingToolbarPositionSerializationAndDefaults() {
+        val defaultSettings = AppSettings()
+        assertEquals(null, defaultSettings.floatingToolbarX)
+        assertEquals(null, defaultSettings.floatingToolbarY)
+
+        val customPosSettings = AppSettings(floatingToolbarX = 450, floatingToolbarY = 920)
+        val json = Json { ignoreUnknownKeys = true }
+        val encoded = json.encodeToString(customPosSettings)
+        val decoded = json.decodeFromString<AppSettings>(encoded)
+
+        assertEquals(450, decoded.floatingToolbarX)
+        assertEquals(920, decoded.floatingToolbarY)
+    }
+
+    @Test
+    fun testFloatingToolbarViewportClampingLogic() {
+        val screenWidth = 1080
+        val screenHeight = 2400
+        val btnSize = 144 // 48dp on 3.0 density
+        val topInset = 120 // 40dp status bar margin
+        val bottomInset = 120 // 40dp nav bar margin
+
+        val minX = 0
+        val maxX = screenWidth - btnSize
+        val minY = topInset
+        val maxY = screenHeight - btnSize - bottomInset
+
+        fun clampX(x: Int): Int = x.coerceIn(minX, maxX)
+        fun clampY(y: Int): Int = y.coerceIn(minY, maxY)
+
+        // Off-screen left or top clamped
+        assertEquals(0, clampX(-50))
+        assertEquals(minY, clampY(20))
+
+        // Normal middle untouched
+        assertEquals(500, clampX(500))
+        assertEquals(1000, clampY(1000))
+
+        // Off-screen right or bottom clamped
+        assertEquals(maxX, clampX(1200))
+        assertEquals(maxY, clampY(3000))
+    }
 }

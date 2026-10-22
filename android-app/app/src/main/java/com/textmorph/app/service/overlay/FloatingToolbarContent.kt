@@ -113,10 +113,9 @@ fun FloatingToolbarContent(
     onRevertText: () -> Unit,
     hasUndo: () -> Boolean,
     isPlacedOnRight: () -> Boolean,
+    isDragging: Boolean = false,
+    onRegisterSingleTapHandler: (((() -> Unit)) -> Unit)? = null,
     onRadialStateChanged: (isOpen: Boolean, offsetX: Int, offsetY: Int) -> Unit,
-    onDragStart: () -> Unit,
-    onDragDelta: (dx: Float, dy: Float) -> Unit,
-    onDragEnd: () -> Unit,
     onTakeScreenshotContext: (((ByteArray) -> Unit) -> Unit)? = null,
     onExtractTranscript: (() -> String)? = null,
     onDismiss: () -> Unit,
@@ -136,7 +135,6 @@ fun FloatingToolbarContent(
     var showMorePromptsDialog by remember { mutableStateOf(false) }
     var hoveredIndex by remember { mutableIntStateOf(-1) }
     var touchPointerPos by remember { mutableStateOf(Offset.Zero) }
-    var isDragging by remember { mutableStateOf(false) }
 
     // Laser Animation for GENERATING state
     val infiniteTransition = rememberInfiniteTransition(label = "laser")
@@ -213,6 +211,28 @@ fun FloatingToolbarContent(
         } else {
             if (!showMorePromptsDialog) {
                 notifyExpandedState(false)
+            }
+        }
+    }
+
+    // Connect Single-Tap Handler from WindowManager
+    LaunchedEffect(state, isRadialOpen) {
+        onRegisterSingleTapHandler?.invoke {
+            when (state) {
+                FloatingButtonState.IDLE -> {
+                    notifyRadialState(!isRadialOpen)
+                }
+                FloatingButtonState.GENERATING -> {
+                    activeJob?.cancel()
+                    activeJob = null
+                    state = FloatingButtonState.REVERT_WINDOW
+                    Toast.makeText(context, "Generation stopped.", Toast.LENGTH_SHORT).show()
+                }
+                FloatingButtonState.REVERT_WINDOW -> {
+                    onRevertText()
+                    state = FloatingButtonState.IDLE
+                    Toast.makeText(context, "Text reverted.", Toast.LENGTH_SHORT).show()
+                }
             }
         }
     }
@@ -801,8 +821,14 @@ fun FloatingToolbarContent(
             }
         }
 
-        // Center Floating Action Button (48dp) with Gesture Disambiguation & 120fps Raw Dragging
+        // Center Floating Action Button (48dp)
         if (!showMorePromptsDialog) {
+            val dragScale by animateFloatAsState(
+                targetValue = if (isDragging) 1.15f else 1.0f,
+                animationSpec = spring(dampingRatio = 0.6f, stiffness = 500f),
+                label = "dragScale"
+            )
+
             Box(
                 modifier = Modifier
                     .offset {
@@ -813,112 +839,19 @@ fun FloatingToolbarContent(
                         }
                     }
                     .size(buttonSizeDp)
-                    .pointerInput(isRightSide, prompts, isRadialOpen, state) {
-                        awaitEachGesture {
-                            val down = awaitFirstDown(requireUnconsumed = false)
-                            val downTime = System.currentTimeMillis()
-                            var lastPointerPos = down.position
-                            val startPos = down.position
-                            var hasMovedBeforeLongPress = false
-
-                            // Long press detection: 320ms hold in place activates smooth drag mode!
-                            val longPressJob = scope.launch {
-                                delay(320)
-                                if (!hasMovedBeforeLongPress && !isRadialOpen && state == FloatingButtonState.IDLE) {
-                                    isDragging = true
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    onDragStart()
-                                }
+                    .scale(dragScale)
+                    .then(
+                        if (isRadialOpen) {
+                            Modifier.clickable(
+                                indication = null,
+                                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+                            ) {
+                                notifyRadialState(false)
                             }
-
-                            var pointerActive = true
-                            while (pointerActive) {
-                                val event = awaitPointerEvent()
-                                val pointerChange = event.changes.firstOrNull { it.id == down.id } ?: break
-
-                                if (!pointerChange.pressed) {
-                                    pointerActive = false
-                                    longPressJob.cancel()
-                                    pointerChange.consume()
-
-                                    val elapsed = System.currentTimeMillis() - downTime
-
-                                    if (isDragging) {
-                                        isDragging = false
-                                        onDragEnd()
-                                    } else if (isRadialOpen) {
-                                        // Release on Radial Item
-                                        if (hoveredIndex in radialItems.indices) {
-                                            val selectedItem = radialItems[hoveredIndex]
-                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                            executeRadialItem(selectedItem)
-                                        }
-                                        notifyRadialState(false)
-                                    } else if (elapsed < 320 && !hasMovedBeforeLongPress) {
-                                        // Single Click (< 320ms) -> Opens Circle Menu
-                                        when (state) {
-                                            FloatingButtonState.IDLE -> {
-                                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                notifyRadialState(true)
-                                            }
-                                            FloatingButtonState.GENERATING -> {
-                                                activeJob?.cancel()
-                                                activeJob = null
-                                                state = FloatingButtonState.REVERT_WINDOW
-                                                Toast.makeText(context, "Generation stopped.", Toast.LENGTH_SHORT).show()
-                                            }
-                                            FloatingButtonState.REVERT_WINDOW -> {
-                                                onRevertText()
-                                                state = FloatingButtonState.IDLE
-                                                Toast.makeText(context, "Text reverted.", Toast.LENGTH_SHORT).show()
-                                            }
-                                        }
-                                    }
-                                } else {
-                                    // Pointer is moving
-                                    val currentPos = pointerChange.position
-                                    val deltaSinceLast = currentPos - lastPointerPos
-                                    lastPointerPos = currentPos
-
-                                    if (isDragging) {
-                                        pointerChange.consume()
-                                        onDragDelta(deltaSinceLast.x, deltaSinceLast.y)
-                                    } else if (!isRadialOpen) {
-                                        val distFromStart = hypot(currentPos.x - startPos.x, currentPos.y - startPos.y)
-                                        if (distFromStart > with(density) { 14.dp.toPx() }) {
-                                            hasMovedBeforeLongPress = true
-                                            longPressJob.cancel()
-                                        }
-                                    } else {
-                                        // In Radial Menu Mode: Track Hover Position
-                                        pointerChange.consume()
-                                        val localX = buttonOffsetXPx + currentPos.x
-                                        val localY = buttonOffsetYPx + currentPos.y
-                                        touchPointerPos = Offset(localX, localY)
-
-                                        var closestIndex = -1
-                                        var minDistance = with(density) { 42.dp.toPx() }
-
-                                        radialItems.indices.forEach { i ->
-                                            val itemPos = getActionPosition(i, radialItems.size)
-                                            val dist = hypot(localX - itemPos.x, localY - itemPos.y)
-                                            if (dist < minDistance) {
-                                                minDistance = dist
-                                                closestIndex = i
-                                            }
-                                        }
-
-                                        if (closestIndex != hoveredIndex) {
-                                            hoveredIndex = closestIndex
-                                            if (closestIndex != -1) {
-                                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                            }
-                                        }
-                                    }
-                                }
-                            }
+                        } else {
+                            Modifier
                         }
-                    },
+                    ),
                 contentAlignment = Alignment.Center
             ) {
                 // Main Button Surface in Forest Clay Palette
@@ -927,16 +860,16 @@ fun FloatingToolbarContent(
                     color = when (state) {
                         FloatingButtonState.GENERATING -> Color(0xFF2C3930)
                         FloatingButtonState.REVERT_WINDOW -> Color(0xFF3F4F44)
-                        else -> Color(0xFF2C3930)
+                        else -> if (isDragging) Color(0xFF3F4F44) else Color(0xFF2C3930)
                     },
-                    shadowElevation = if (isRadialOpen || isDragging) 14.dp else 8.dp,
+                    shadowElevation = if (isDragging) 16.dp else if (isRadialOpen) 14.dp else 8.dp,
                     modifier = Modifier
                         .size(buttonSizeDp)
-                        .scale(if (isDragging) 1.14f else 1.0f)
                         .border(
-                            width = 2.dp,
+                            width = if (isDragging) 2.5.dp else 2.dp,
                             brush = Brush.linearGradient(
-                                listOf(Color(0xFFA27B5C), Color(0xFFC59B76))
+                                if (isDragging) listOf(Color(0xFFFFF8E7), Color(0xFFA27B5C))
+                                else listOf(Color(0xFFA27B5C), Color(0xFFC59B76))
                             ),
                             shape = CircleShape
                         )
