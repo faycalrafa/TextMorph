@@ -58,9 +58,19 @@ fun VersionHistoryScreen(
 
     val releaseLog = listOf(
         ReleaseItem(
-            version = "v1.11.0",
+            version = "v1.12.0",
             tag = "Latest Release",
             isLatest = true,
+            changes = listOf(
+                "Configurable Hardware Liveliness Probe Timeout: Added user input and quick preset chips (6s, 15s, 30s, 60s) in Settings under On-Device LiteRT-LM.",
+                "Extended default probe timeout to 60,000 ms on both GPU and CPU backends to prevent false timeouts on heavy local models with long time-to-first-token.",
+                "Real-time timeout display in model loading logs and diagnostic export metadata."
+            )
+        ),
+        ReleaseItem(
+            version = "v1.11.0",
+            tag = "Recent Release",
+            isLatest = false,
             changes = listOf(
                 "Redesigned Floating Toolbar in Forest Clay theme palette with warm clay terracotta & gold accents.",
                 "Smooth long-press drag & drop: user can hold and move the floating button anywhere across the screen.",

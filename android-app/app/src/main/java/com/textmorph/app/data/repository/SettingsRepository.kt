@@ -98,6 +98,10 @@ class SettingsRepository(private val context: Context) {
         it.copy(preferredAccelerator = accelerator)
     }
 
+    suspend fun setProbeTimeout(timeoutMs: Long) = updateSettings {
+        it.copy(probeTimeoutMs = timeoutMs.coerceAtLeast(1000L))
+    }
+
     private fun saveSettingsToDisk(settings: AppSettings) {
         try {
             val atomicFile = AtomicFile(settingsFile)

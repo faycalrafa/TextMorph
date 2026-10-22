@@ -19,6 +19,7 @@ import com.google.ai.edge.litertlm.ResponseCallback
 import com.google.ai.edge.litertlm.SamplerConfig
 import com.google.ai.edge.litertlm.Session
 import com.google.ai.edge.litertlm.ThinkingConfig
+import com.textmorph.app.data.repository.SettingsRepository
 import com.textmorph.app.util.AppLogger
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -92,13 +93,14 @@ class LiteRtLmEngine(private val context: Context) : LlmEngine {
         }
     }
 
-    override suspend fun initialize(modelPath: String?): Boolean = initialize(modelPath, null, null, "AUTO")
+    override suspend fun initialize(modelPath: String?): Boolean = initialize(modelPath, null, null, "AUTO", null)
 
     suspend fun initialize(
         modelPath: String?,
         modelName: String? = null,
         modelUri: Uri? = null,
-        preferredAccelerator: String = "AUTO"
+        preferredAccelerator: String = "AUTO",
+        probeTimeoutMs: Long? = null
     ): Boolean = withContext(Dispatchers.IO) {
         inferenceMutex.withLock {
             _loadingProgress.value = ModelLoadingProgress(
@@ -112,8 +114,12 @@ class LiteRtLmEngine(private val context: Context) : LlmEngine {
             val startTime = System.currentTimeMillis()
 
             try {
+                val effectiveTimeout = probeTimeoutMs
+                    ?: runCatching { SettingsRepository.getInstance(context).settingsState.value.probeTimeoutMs }.getOrNull()
+                    ?: 60000L
+
                 val effectiveName = modelName ?: modelPath?.let { File(it).name } ?: modelUri?.lastPathSegment ?: "Custom Model"
-                addProgressLog("Initializing LiteRT-LM session for: $effectiveName (Accelerator: $preferredAccelerator)", 0.1f, "Inspecting model file...")
+                addProgressLog("Initializing LiteRT-LM session for: $effectiveName (Accelerator: $preferredAccelerator, Probe Timeout: ${effectiveTimeout}ms)", 0.1f, "Inspecting model file...")
 
                 // Clean previous engine if any
                 unloadInternal()
@@ -230,7 +236,8 @@ class LiteRtLmEngine(private val context: Context) : LlmEngine {
                                 modelPath = effectivePath,
                                 backend = Backend.GPU(),
                                 enableVision = hasVisionEncoder,
-                                backendLabel = "GPU"
+                                backendLabel = "GPU",
+                                timeoutMs = effectiveTimeout
                             )
                             if (gpuEng != null) {
                                 activeEng = gpuEng
@@ -259,7 +266,8 @@ class LiteRtLmEngine(private val context: Context) : LlmEngine {
                                 modelPath = effectivePath,
                                 backend = Backend.CPU(),
                                 enableVision = hasVisionEncoder,
-                                backendLabel = "CPU"
+                                backendLabel = "CPU",
+                                timeoutMs = effectiveTimeout
                             )
                             if (cpuEng != null) {
                                 activeEng = cpuEng
@@ -336,7 +344,8 @@ class LiteRtLmEngine(private val context: Context) : LlmEngine {
         modelPath: String,
         backend: Backend,
         enableVision: Boolean,
-        backendLabel: String
+        backendLabel: String,
+        timeoutMs: Long
     ): Pair<Engine?, Boolean> {
         val initialVisionBackend = if (enableVision) backend else null
         val config = EngineConfig(
@@ -348,8 +357,8 @@ class LiteRtLmEngine(private val context: Context) : LlmEngine {
         val eng = Engine(config)
         return try {
             eng.initialize()
-            addProgressLog("Native $backendLabel compilation succeeded. Running liveliness probe...", 0.65f, "Testing $backendLabel session...")
-            val isAlive = testEngineLiveliness(eng, backendLabel)
+            addProgressLog("Native $backendLabel compilation succeeded. Running liveliness probe (Timeout: ${timeoutMs}ms)...", 0.65f, "Testing $backendLabel session...")
+            val isAlive = testEngineLiveliness(eng, backendLabel, timeoutMs)
             if (isAlive) {
                 Pair(eng, enableVision)
             } else {
@@ -370,8 +379,8 @@ class LiteRtLmEngine(private val context: Context) : LlmEngine {
                 val textEng = Engine(textConfig)
                 try {
                     textEng.initialize()
-                    addProgressLog("Text-only compilation succeeded on $backendLabel. Running liveliness probe...", 0.75f)
-                    val isTextAlive = testEngineLiveliness(textEng, backendLabel)
+                    addProgressLog("Text-only compilation succeeded on $backendLabel. Running liveliness probe (Timeout: ${timeoutMs}ms)...", 0.75f)
+                    val isTextAlive = testEngineLiveliness(textEng, backendLabel, timeoutMs)
                     if (isTextAlive) {
                         Pair(textEng, false)
                     } else {
@@ -389,9 +398,9 @@ class LiteRtLmEngine(private val context: Context) : LlmEngine {
         }
     }
 
-    private suspend fun testEngineLiveliness(eng: Engine, backendLabel: String): Boolean {
+    private suspend fun testEngineLiveliness(eng: Engine, backendLabel: String, timeoutMs: Long): Boolean {
         val testPrompt = "hi how do you feel?"
-        addProgressLog("[TEST] Probing $backendLabel liveliness with prompt: '$testPrompt'", null, "Verifying liveliness on $backendLabel...")
+        addProgressLog("[TEST] Probing $backendLabel liveliness (Timeout: ${timeoutMs}ms) with prompt: '$testPrompt'", null, "Verifying liveliness on $backendLabel...")
 
         val testInstruction = "You are a helpful AI assistant. Answer directly in one concise sentence without thinking traces or conversational intro."
         val promptWithTags = buildString {
@@ -427,7 +436,7 @@ class LiteRtLmEngine(private val context: Context) : LlmEngine {
                     }
                 })
 
-                withTimeout(15000L) {
+                withTimeout(timeoutMs) {
                     completionDeferred.await()
                 }
 
@@ -450,7 +459,7 @@ class LiteRtLmEngine(private val context: Context) : LlmEngine {
                 }
             }
         } catch (t: Throwable) {
-            AppLogger.w(TAG, "Liveliness evaluation on $backendLabel failed: ${t.message}", t)
+            AppLogger.w(TAG, "Liveliness evaluation on $backendLabel failed after ${timeoutMs}ms: ${t.message}", t)
             addProgressLog("[WARN] $backendLabel liveliness check failed: ${t.message}")
             false
         }

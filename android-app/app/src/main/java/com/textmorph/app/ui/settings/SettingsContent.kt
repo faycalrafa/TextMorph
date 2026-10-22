@@ -88,6 +88,7 @@ fun SettingsContent(
     var cloudModel by remember(settings.cloudModelId) { mutableStateOf(settings.cloudModelId) }
     var serverPort by remember(settings.localServerPort) { mutableStateOf(settings.localServerPort.toString()) }
     var serverToken by remember(settings.localServerBearerToken) { mutableStateOf(settings.localServerBearerToken) }
+    var probeTimeoutInput by remember(settings.probeTimeoutMs) { mutableStateOf(settings.probeTimeoutMs.toString()) }
 
     val cloudEngine = remember { OpenAiCloudEngine() }
     var isFetchingModels by remember { mutableStateOf(false) }
@@ -187,6 +188,77 @@ fun SettingsContent(
                                     }
                                 },
                                 label = { Text(label) }
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+                    Text(
+                        text = "Hardware Liveliness Probe Timeout",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Timeout limit in milliseconds for hardware liveliness verification (e.g. 60000 ms for 60s). Prevents false timeouts during slow CPU/GPU tensor compilation.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = probeTimeoutInput,
+                            onValueChange = { input ->
+                                if (input.all { it.isDigit() } && input.length <= 7) {
+                                    probeTimeoutInput = input
+                                }
+                            },
+                            label = { Text("Probe Timeout (ms)") },
+                            placeholder = { Text("60000") },
+                            trailingIcon = {
+                                Text(
+                                    "ms",
+                                    modifier = Modifier.padding(end = 12.dp),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true,
+                            shape = RoundedCornerShape(10.dp)
+                        )
+                        OutlinedButton(
+                            onClick = {
+                                val ms = probeTimeoutInput.toLongOrNull() ?: 60000L
+                                scope.launch {
+                                    settingsRepository.setProbeTimeout(ms)
+                                    Toast.makeText(context, "Probe timeout saved: ${ms}ms", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Text("Save")
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        listOf(6000L to "6s (6000ms)", 15000L to "15s", 30000L to "30s", 60000L to "60s (Default)").forEach { (presetMs, label) ->
+                            FilterChip(
+                                selected = settings.probeTimeoutMs == presetMs,
+                                onClick = {
+                                    probeTimeoutInput = presetMs.toString()
+                                    scope.launch {
+                                        settingsRepository.setProbeTimeout(presetMs)
+                                    }
+                                },
+                                label = { Text(label, style = MaterialTheme.typography.labelSmall) }
                             )
                         }
                     }

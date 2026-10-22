@@ -25,5 +25,6 @@ data class AppSettings(
     val alwaysShowFloatingToolbar: Boolean = false,
     val autoSuggestReplies: Boolean = true,
     val preferredAccelerator: String = "AUTO",
+    val probeTimeoutMs: Long = 60000L,
     val hasShownProminentDisclosure: Boolean = false
 )

@@ -420,4 +420,27 @@ class TextMorphUnitTests {
         assertFalse(emittedProgress.contains(2))
         assertFalse(emittedProgress.contains(3))
     }
+
+    @Test
+    fun testAppSettingsProbeTimeoutMsDefaultAndSerialization() {
+        val defaultSettings = AppSettings()
+        assertEquals(60000L, defaultSettings.probeTimeoutMs)
+
+        val customSettings = AppSettings(probeTimeoutMs = 6000L)
+        val json = Json { ignoreUnknownKeys = true }
+        val encoded = json.encodeToString(customSettings)
+        val decoded = json.decodeFromString<AppSettings>(encoded)
+
+        assertEquals(6000L, decoded.probeTimeoutMs)
+    }
+
+    @Test
+    fun testProbeTimeoutClampingLogic() {
+        fun clampTimeout(inputMs: Long): Long = inputMs.coerceAtLeast(1000L)
+
+        assertEquals(1000L, clampTimeout(0L))
+        assertEquals(1000L, clampTimeout(-500L))
+        assertEquals(6000L, clampTimeout(6000L))
+        assertEquals(60000L, clampTimeout(60000L))
+    }
 }

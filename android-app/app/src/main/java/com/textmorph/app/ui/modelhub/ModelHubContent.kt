@@ -108,7 +108,7 @@ fun ModelHubContent(
                 val registered = modelRepository.registerSafModelUri(uri)
                 if (registered != null) {
                     settingsRepository.setActiveModel(registered.name, registered.path, registered.uriString)
-                    liteRtEngine.initialize(registered.path, registered.name, uri, settings.preferredAccelerator)
+                    liteRtEngine.initialize(registered.path, registered.name, uri, settings.preferredAccelerator, settings.probeTimeoutMs)
                     Toast.makeText(context, "Loading: ${registered.name}", Toast.LENGTH_SHORT).show()
                 }
             }
@@ -253,7 +253,7 @@ fun ModelHubContent(
                     scope.launch {
                         val uri = model.uriString?.let { Uri.parse(it) }
                         settingsRepository.setActiveModel(model.name, model.path, model.uriString)
-                        liteRtEngine.initialize(model.path, model.name, uri, settings.preferredAccelerator)
+                        liteRtEngine.initialize(model.path, model.name, uri, settings.preferredAccelerator, settings.probeTimeoutMs)
                         Toast.makeText(context, "Loading: ${model.name}...", Toast.LENGTH_SHORT).show()
                     }
                 },
