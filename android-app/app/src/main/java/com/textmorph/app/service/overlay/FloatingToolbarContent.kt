@@ -432,9 +432,6 @@ fun FloatingToolbarContent(
                         ),
                         shape = CircleShape
                     )
-                    .clickable {
-                        setExpanded(true)
-                    }
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     when (state) {

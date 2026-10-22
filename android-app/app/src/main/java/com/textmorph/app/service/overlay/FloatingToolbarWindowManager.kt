@@ -5,8 +5,6 @@ import android.content.res.Configuration
 import android.graphics.PixelFormat
 import android.view.Gravity
 import android.view.HapticFeedbackConstants
-import android.view.MotionEvent
-import android.view.ViewConfiguration
 import android.view.WindowManager
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.platform.ComposeView
@@ -25,12 +23,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
-import kotlin.math.hypot
 import kotlin.math.roundToInt
 
 /**
- * Manages the window lifecycle, overlay layout params, and touch routing
- * for the TextMorph Companion (Collapsed Edge Pill & Expanded Horizontal Ribbon).
+ * Manages the window lifecycle and layout updates for the TextMorph Companion overlay.
+ * Uses FloatingOverlayContainer to guarantee touch gesture interception for instant swipe dragging.
  */
 class FloatingToolbarWindowManager(
     private val service: TextMorphAccessibilityService,
@@ -42,6 +39,7 @@ class FloatingToolbarWindowManager(
 
     private val TAG = "FloatingWindowManager"
     private val windowManager = service.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+    private var overlayContainer: FloatingOverlayContainer? = null
     private var composeView: ComposeView? = null
     private var serviceLifecycleOwner: ServiceLifecycleOwner? = null
     private var isShowing = false
@@ -56,12 +54,10 @@ class FloatingToolbarWindowManager(
     private var singleTapHandler: (() -> Unit)? = null
     private var collapseHandler: (() -> Unit)? = null
 
-    // Touch tracking for instant swipe drag & edge snapping
-    private var startRawX = 0f
-    private var startRawY = 0f
-    private var startWinX = 0
-    private var startWinY = 0
-    private var isDragging = false
+    // Window layout params reference
+    private var windowParams: WindowManager.LayoutParams? = null
+    private var startDragWinX = 0
+    private var startDragWinY = 0
 
     fun isBusy(): Boolean = isBusyState
 
@@ -70,7 +66,7 @@ class FloatingToolbarWindowManager(
         onExtractTranscript: (() -> String)? = null
     ) {
         try {
-            if (isShowing && composeView != null) {
+            if (isShowing && overlayContainer != null) {
                 return
             }
 
@@ -110,108 +106,71 @@ class FloatingToolbarWindowManager(
                 x = initialX
                 y = initialY
             }
+            windowParams = params
+
+            overlayContainer = FloatingOverlayContainer(
+                context = service,
+                isExpandedProvider = { isExpanded },
+                onDragStart = {
+                    startDragWinX = params.x
+                    startDragWinY = params.y
+                    isDraggingState.value = true
+                },
+                onDragMove = { deltaX, deltaY ->
+                    val curMetrics = service.resources.displayMetrics
+                    val curWidth = curMetrics.widthPixels
+                    val curHeight = curMetrics.heightPixels
+                    val btnPx = (36 * curMetrics.density).roundToInt()
+                    val mPx = (6 * curMetrics.density).roundToInt()
+                    val boundMinX = mPx
+                    val boundMaxX = (curWidth - btnPx - mPx).coerceAtLeast(boundMinX)
+                    val boundMinY = (40 * curMetrics.density).roundToInt()
+                    val boundMaxY = (curHeight - btnPx - (40 * curMetrics.density).roundToInt()).coerceAtLeast(boundMinY)
+
+                    params.x = (startDragWinX + deltaX).roundToInt().coerceIn(boundMinX, boundMaxX)
+                    params.y = (startDragWinY + deltaY).roundToInt().coerceIn(boundMinY, boundMaxY)
+                    userX = params.x
+                    userY = params.y
+                    overlayContainer?.let { windowManager.updateViewLayout(it, params) }
+                },
+                onDragEnd = {
+                    val curMetrics = service.resources.displayMetrics
+                    val curWidth = curMetrics.widthPixels
+                    val btnPx = (36 * curMetrics.density).roundToInt()
+                    val mPx = (6 * curMetrics.density).roundToInt()
+                    val boundMinX = mPx
+                    val boundMaxX = (curWidth - btnPx - mPx).coerceAtLeast(boundMinX)
+
+                    val snapX = if (params.x < curWidth / 2) boundMinX else boundMaxX
+                    params.x = snapX
+                    userX = snapX
+                    isDraggingState.value = false
+                    overlayContainer?.let {
+                        windowManager.updateViewLayout(it, params)
+                        it.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                    }
+
+                    windowScope.launch(Dispatchers.IO) {
+                        try {
+                            settingsRepository.setFloatingToolbarPosition(snapX, params.y)
+                            AppLogger.i(TAG, "Persisted snapped companion position: ($snapX, ${params.y})")
+                        } catch (e: Exception) {
+                            AppLogger.e(TAG, "Failed persisting companion position: ${e.message}", e)
+                        }
+                    }
+                },
+                onSingleTap = {
+                    singleTapHandler?.invoke()
+                },
+                onOutsideTap = {
+                    collapseHandler?.invoke()
+                }
+            )
 
             composeView = ComposeView(service).apply {
                 setViewTreeLifecycleOwner(serviceLifecycleOwner)
                 setViewTreeSavedStateRegistryOwner(serviceLifecycleOwner)
                 setViewTreeViewModelStoreOwner(serviceLifecycleOwner)
-
-                setOnTouchListener { _, event ->
-                    // Handle outside tap when ribbon is expanded to dismiss smoothly
-                    if (event.actionMasked == MotionEvent.ACTION_OUTSIDE) {
-                        AppLogger.d(TAG, "ACTION_OUTSIDE detected: collapsing companion ribbon")
-                        collapseHandler?.invoke()
-                        return@setOnTouchListener true
-                    }
-
-                    if (isExpanded) {
-                        // When ribbon is open, let Compose handle clicks on horizontal action chips
-                        return@setOnTouchListener false
-                    }
-
-                    when (event.actionMasked) {
-                        MotionEvent.ACTION_DOWN -> {
-                            startRawX = event.rawX
-                            startRawY = event.rawY
-                            val p = (layoutParams as? WindowManager.LayoutParams) ?: params
-                            startWinX = p.x
-                            startWinY = p.y
-                            isDragging = false
-                            isDraggingState.value = false
-                            true
-                        }
-                        MotionEvent.ACTION_MOVE -> {
-                            val dx = event.rawX - startRawX
-                            val dy = event.rawY - startRawY
-                            val touchSlop = ViewConfiguration.get(service).scaledTouchSlop.coerceAtLeast(16)
-
-                            if (!isDragging) {
-                                val dist = hypot(dx.toDouble(), dy.toDouble()).toFloat()
-                                if (dist > touchSlop) {
-                                    isDragging = true
-                                    isDraggingState.value = true
-                                    composeView?.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
-                                    AppLogger.d(TAG, "Instant swipe threshold crossed: Drag mode engaged")
-                                }
-                            }
-
-                            if (isDragging) {
-                                val curMetrics = service.resources.displayMetrics
-                                val curWidth = curMetrics.widthPixels
-                                val curHeight = curMetrics.heightPixels
-                                val btnPx = (36 * curMetrics.density).roundToInt()
-                                val mPx = (6 * curMetrics.density).roundToInt()
-                                val boundMinX = mPx
-                                val boundMaxX = (curWidth - btnPx - mPx).coerceAtLeast(boundMinX)
-                                val boundMinY = (40 * curMetrics.density).roundToInt()
-                                val boundMaxY = (curHeight - btnPx - (40 * curMetrics.density).roundToInt()).coerceAtLeast(boundMinY)
-
-                                val p = (layoutParams as? WindowManager.LayoutParams) ?: params
-                                p.x = (startWinX + dx).roundToInt().coerceIn(boundMinX, boundMaxX)
-                                p.y = (startWinY + dy).roundToInt().coerceIn(boundMinY, boundMaxY)
-                                userX = p.x
-                                userY = p.y
-                                windowManager.updateViewLayout(this, p)
-                            }
-                            true
-                        }
-                        MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                            if (isDragging) {
-                                isDragging = false
-                                isDraggingState.value = false
-                                val curMetrics = service.resources.displayMetrics
-                                val curWidth = curMetrics.widthPixels
-                                val btnPx = (36 * curMetrics.density).roundToInt()
-                                val mPx = (6 * curMetrics.density).roundToInt()
-                                val boundMinX = mPx
-                                val boundMaxX = (curWidth - btnPx - mPx).coerceAtLeast(boundMinX)
-
-                                val p = (layoutParams as? WindowManager.LayoutParams) ?: params
-                                // Magnetic snap to nearest edge
-                                val snapX = if (p.x < curWidth / 2) boundMinX else boundMaxX
-                                p.x = snapX
-                                userX = p.x
-                                userY = p.y
-                                windowManager.updateViewLayout(this, p)
-                                composeView?.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
-
-                                windowScope.launch(Dispatchers.IO) {
-                                    try {
-                                        settingsRepository.setFloatingToolbarPosition(p.x, p.y)
-                                        AppLogger.i(TAG, "Persisted snapped companion position: (${p.x}, ${p.y})")
-                                    } catch (e: Exception) {
-                                        AppLogger.e(TAG, "Failed persisting companion position: ${e.message}", e)
-                                    }
-                                }
-                            } else if (event.actionMasked == MotionEvent.ACTION_UP) {
-                                // Instant single tap with zero delay!
-                                singleTapHandler?.invoke()
-                            }
-                            true
-                        }
-                        else -> false
-                    }
-                }
 
                 setContent {
                     val curSettings = settingsRepository.settingsState.value
@@ -295,7 +254,8 @@ class FloatingToolbarWindowManager(
                 }
             }
 
-            windowManager.addView(composeView, params)
+            overlayContainer?.addView(composeView)
+            windowManager.addView(overlayContainer, params)
             isShowing = true
             AppLogger.d(TAG, "TextMorph companion displayed successfully at ($initialX, $initialY)")
         } catch (e: Exception) {
@@ -306,8 +266,8 @@ class FloatingToolbarWindowManager(
     private fun onRibbonExpansionChanged(expanded: Boolean) {
         try {
             isExpanded = expanded
-            val view = composeView ?: return
-            val params = view.layoutParams as? WindowManager.LayoutParams ?: return
+            val container = overlayContainer ?: return
+            val params = windowParams ?: return
             val displayMetrics = service.resources.displayMetrics
             val screenWidth = displayMetrics.widthPixels
             val screenHeight = displayMetrics.heightPixels
@@ -324,7 +284,6 @@ class FloatingToolbarWindowManager(
                 params.height = WindowManager.LayoutParams.WRAP_CONTENT
                 params.flags = params.flags or WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH
                 params.x = marginPx
-                // Keep y near the user's selected height, safely clamped
                 params.y = (userY ?: (screenHeight / 2)).coerceIn(minY, maxY)
             } else {
                 // Collapsed edge pill
@@ -334,7 +293,7 @@ class FloatingToolbarWindowManager(
                 params.x = userX ?: (screenWidth - (40 * density).roundToInt())
                 params.y = (userY ?: (screenHeight / 2)).coerceIn(minY, maxY)
             }
-            windowManager.updateViewLayout(view, params)
+            windowManager.updateViewLayout(container, params)
             AppLogger.d(TAG, "Ribbon expansion changed to $expanded: layout at (${params.x}, ${params.y}) w=${params.width}")
         } catch (e: Exception) {
             AppLogger.e(TAG, "Failed updating view layout for companion expansion: ${e.message}", e)
@@ -357,8 +316,8 @@ class FloatingToolbarWindowManager(
             userX = (userX ?: maxX).coerceIn(minX, maxX)
             userY = (userY ?: (screenHeight / 2)).coerceIn(minY, maxY)
 
-            val view = composeView ?: return
-            val params = view.layoutParams as? WindowManager.LayoutParams ?: return
+            val container = overlayContainer ?: return
+            val params = windowParams ?: return
 
             if (isExpanded) {
                 val ribbonWidth = screenWidth - (8 * displayMetrics.density).roundToInt() * 2
@@ -369,7 +328,7 @@ class FloatingToolbarWindowManager(
                 params.x = userX ?: maxX
                 params.y = userY ?: (screenHeight / 2)
             }
-            windowManager.updateViewLayout(view, params)
+            windowManager.updateViewLayout(container, params)
             AppLogger.i(TAG, "Adapted companion layout to new orientation (${newConfig.orientation}): (${params.x}, ${params.y})")
         } catch (e: Exception) {
             AppLogger.e(TAG, "Error adapting to configuration change: ${e.message}", e)
@@ -379,7 +338,7 @@ class FloatingToolbarWindowManager(
     fun setOverlayVisible(visible: Boolean) {
         service.mainHandler.post {
             try {
-                composeView?.visibility = if (visible) android.view.View.VISIBLE else android.view.View.INVISIBLE
+                overlayContainer?.visibility = if (visible) android.view.View.VISIBLE else android.view.View.INVISIBLE
             } catch (e: Exception) {
                 AppLogger.e(TAG, "Failed setting overlay visibility to $visible: ${e.message}", e)
             }
@@ -389,15 +348,16 @@ class FloatingToolbarWindowManager(
     fun isShowing(): Boolean = isShowing
 
     fun hide() {
-        if (!isShowing || composeView == null) return
+        if (!isShowing || overlayContainer == null) return
         try {
-            isDragging = false
             isDraggingState.value = false
             isExpanded = false
             singleTapHandler = null
             collapseHandler = null
-            windowManager.removeView(composeView)
+            windowParams = null
+            overlayContainer?.let { windowManager.removeView(it) }
             composeView = null
+            overlayContainer = null
             serviceLifecycleOwner?.destroy()
             serviceLifecycleOwner = null
             isShowing = false
