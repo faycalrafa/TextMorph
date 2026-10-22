@@ -14,7 +14,8 @@ enum class ContextAction(val displayName: String, val description: String) {
     SCREENSHOT("Add Screenshot", "Captures active screen and sends image to multimodal AI"),
     CAMERA("Open Camera", "Opens rear camera feed to capture a real-world photo"),
     OCR("Screen OCR", "Extracts readable text from the screen and appends to prompt"),
-    ACCESSIBILITY_TEXT("Accessibility Screen Text", "Extracts visible screen text and conversation chat bubbles")
+    ACCESSIBILITY_TEXT("Accessibility Screen Text", "Extracts visible screen text and conversation chat bubbles"),
+    CLIPBOARD("Add Clipboard", "Adds clipboard contents to the request")
 }
 
 @Serializable

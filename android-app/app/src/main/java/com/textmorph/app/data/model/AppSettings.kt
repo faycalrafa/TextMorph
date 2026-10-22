@@ -29,5 +29,6 @@ data class AppSettings(
     val floatingToolbarX: Int? = null,
     val floatingToolbarY: Int? = null,
     val hasShownProminentDisclosure: Boolean = false,
-    val compactChipsMode: Boolean = false
+    val compactChipsMode: Boolean = false,
+    val alwaysOpenBarWithKeyboard: Boolean = true
 )

@@ -507,6 +507,26 @@ fun SettingsContent(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
+                        Text("Auto-Open Bar with Keyboard", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                        Text("Automatically expand the assistant bar whenever the keyboard appears", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Switch(
+                        checked = settings.alwaysOpenBarWithKeyboard,
+                        enabled = settings.floatingToolbarEnabled,
+                        onCheckedChange = { isChecked ->
+                            scope.launch { settingsRepository.setAlwaysOpenBarWithKeyboard(isChecked) }
+                        }
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
                         Text("Auto-Suggest Smart Replies", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                         Text("Suggest contextual replies from chat messages", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }

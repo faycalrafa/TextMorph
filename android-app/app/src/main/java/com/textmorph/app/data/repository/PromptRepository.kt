@@ -209,6 +209,16 @@ class PromptRepository(private val context: Context) {
                 sortOrder = 4,
                 contextAction = ContextAction.NONE
             ),
+            PromptEntity(
+                id = "seed_clipboard_context",
+                title = "Process Clipboard",
+                systemInstruction = "Analyze or polish the clipboard content provided.",
+                iconEmoji = "📋",
+                category = PromptCategory.TEXT_TRANSFORM,
+                requiresVision = false,
+                sortOrder = 5,
+                contextAction = ContextAction.CLIPBOARD
+            ),
 
             // Smart Reply Prompts
             PromptEntity(

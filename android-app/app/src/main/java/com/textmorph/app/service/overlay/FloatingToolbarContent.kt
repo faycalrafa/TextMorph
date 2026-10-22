@@ -17,6 +17,8 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -438,6 +440,27 @@ fun FloatingToolbarContent(
                     startSmartReplyGeneration(prompt.systemInstruction)
                 }
             }
+            ContextAction.CLIPBOARD -> {
+                val clipboardManager = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
+                val clipData = clipboardManager?.primaryClip
+                val clipText = if (clipData != null && clipData.itemCount > 0) {
+                    clipData.getItemAt(0)?.text?.toString()
+                } else null
+
+                if (clipText.isNullOrBlank()) {
+                    Toast.makeText(context, "Clipboard is empty. Copy text first.", Toast.LENGTH_SHORT).show()
+                    return
+                }
+
+                val liveText = getLiveInputText()
+                val combinedInput = if (liveText.isNotBlank()) {
+                    "Clipboard Content:\n$clipText\n\nUser Input:\n$liveText"
+                } else {
+                    "Clipboard Content:\n$clipText"
+                }
+
+                startGeneration(prompt.systemInstruction, directExecute = false, contextInput = combinedInput)
+            }
             ContextAction.NONE -> startGeneration(prompt.systemInstruction, directExecute = false)
         }
     }
@@ -542,118 +565,119 @@ fun FloatingToolbarContent(
             }
         }
     } else {
-        Column(modifier = Modifier.fillMaxWidth()) {
-            // Inline Quick Edit Prompt Card
-            if (editingPromptInline != null) {
-                val currentPrompt = editingPromptInline!!
-                var editTitle by remember(currentPrompt.id) { mutableStateOf(currentPrompt.title) }
-                var editInstruction by remember(currentPrompt.id) { mutableStateOf(currentPrompt.systemInstruction) }
+        if (editingPromptInline != null) {
+            // Inline Quick Edit Prompt Card taking up the upper half of the screen
+            val currentPrompt = editingPromptInline!!
+            var editTitle by remember(currentPrompt.id) { mutableStateOf(currentPrompt.title) }
+            var editInstruction by remember(currentPrompt.id) { mutableStateOf(currentPrompt.systemInstruction) }
 
-                Card(
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color(0xF22C3930)),
-                    border = BorderStroke(1.5.dp, Color(0xFFA27B5C)),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xF22C3930)),
+                border = BorderStroke(1.5.dp, Color(0xFFA27B5C)),
+                elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
+                modifier = Modifier.fillMaxSize()
+            ) {
+                Column(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 6.dp)
+                        .fillMaxSize()
+                        .padding(14.dp)
+                        .verticalScroll(rememberScrollState())
                 ) {
-                    Column(modifier = Modifier.padding(12.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "✏️ Quick Edit Prompt",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFFFFF8E7)
+                        )
+                        IconButton(
+                            onClick = {
+                                editingPromptInline = null
+                                onEditorFocusMode(false)
+                            },
+                            modifier = Modifier.size(28.dp)
                         ) {
-                            Text(
-                                text = "✏️ Quick Edit Prompt",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = Color(0xFFFFF8E7)
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Close Edit",
+                                tint = Color(0xFFDCD7C9),
+                                modifier = Modifier.size(18.dp)
                             )
-                            IconButton(
-                                onClick = {
-                                    editingPromptInline = null
-                                    onEditorFocusMode(false)
-                                },
-                                modifier = Modifier.size(24.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Close,
-                                    contentDescription = "Close Edit",
-                                    tint = Color(0xFFDCD7C9),
-                                    modifier = Modifier.size(16.dp)
-                                )
-                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    OutlinedTextField(
+                        value = editTitle,
+                        onValueChange = { editTitle = it },
+                        label = { Text("Prompt Title", color = Color(0xFFDCD7C9)) },
+                        singleLine = true,
+                        textStyle = TextStyle(color = Color(0xFFFFF8E7), fontSize = 14.sp),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    OutlinedTextField(
+                        value = editInstruction,
+                        onValueChange = { editInstruction = it },
+                        label = { Text("System Instruction", color = Color(0xFFDCD7C9)) },
+                        maxLines = 4,
+                        textStyle = TextStyle(color = Color(0xFFFFF8E7), fontSize = 13.sp),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                onQuickEditDelete(currentPrompt.id)
+                                editingPromptInline = null
+                                onEditorFocusMode(false)
+                                Toast.makeText(context, "Prompt deleted", Toast.LENGTH_SHORT).show()
+                            },
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFE57373)),
+                            border = BorderStroke(1.dp, Color(0x66E57373)),
+                            modifier = Modifier.padding(end = 8.dp)
+                        ) {
+                            Text("Delete", fontSize = 12.sp)
                         }
 
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        OutlinedTextField(
-                            value = editTitle,
-                            onValueChange = { editTitle = it },
-                            label = { Text("Prompt Title", color = Color(0xFFDCD7C9)) },
-                            singleLine = true,
-                            textStyle = TextStyle(color = Color(0xFFFFF8E7), fontSize = 14.sp),
-                            modifier = Modifier.fillMaxWidth()
-                        )
-
-                        Spacer(modifier = Modifier.height(6.dp))
-
-                        OutlinedTextField(
-                            value = editInstruction,
-                            onValueChange = { editInstruction = it },
-                            label = { Text("System Instruction", color = Color(0xFFDCD7C9)) },
-                            maxLines = 3,
-                            textStyle = TextStyle(color = Color(0xFFFFF8E7), fontSize = 13.sp),
-                            modifier = Modifier.fillMaxWidth()
-                        )
-
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.End,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            OutlinedButton(
-                                onClick = {
-                                    onQuickEditDelete(currentPrompt.id)
+                        Button(
+                            onClick = {
+                                if (editTitle.isNotBlank() && editInstruction.isNotBlank()) {
+                                    val updated = currentPrompt.copy(
+                                        title = editTitle.trim(),
+                                        systemInstruction = editInstruction.trim()
+                                    )
+                                    onQuickEditSave(updated)
                                     editingPromptInline = null
                                     onEditorFocusMode(false)
-                                    Toast.makeText(context, "Prompt deleted", Toast.LENGTH_SHORT).show()
-                                },
-                                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFE57373)),
-                                border = BorderStroke(1.dp, Color(0x66E57373)),
-                                modifier = Modifier.padding(end = 8.dp)
-                            ) {
-                                Text("Delete", fontSize = 12.sp)
-                            }
-
-                            Button(
-                                onClick = {
-                                    if (editTitle.isNotBlank() && editInstruction.isNotBlank()) {
-                                        val updated = currentPrompt.copy(
-                                            title = editTitle.trim(),
-                                            systemInstruction = editInstruction.trim()
-                                        )
-                                        onQuickEditSave(updated)
-                                        editingPromptInline = null
-                                        onEditorFocusMode(false)
-                                        Toast.makeText(context, "Prompt updated!", Toast.LENGTH_SHORT).show()
-                                    }
-                                },
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = Color(0xFFA27B5C),
-                                    contentColor = Color(0xFFFFF8E7)
-                                )
-                            ) {
-                                Text("Save", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                            }
+                                    Toast.makeText(context, "Prompt updated!", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFFA27B5C),
+                                contentColor = Color(0xFFFFF8E7)
+                            )
+                        ) {
+                            Text("Save", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
             }
-
+        } else {
             // EXPANDED COMPANION RIBBON (44dp single-row dock)
             val liveText = getLiveInputText()
             val latestIncoming = getLatestIncomingMessage()
@@ -845,26 +869,43 @@ fun FloatingToolbarContent(
                                     }
                                 }
 
-                                // Direct Text Execution Chip (when text is present)
-                                if (liveText.isNotBlank()) {
-                                    item {
-                                        CompanionActionChip(
-                                            label = "⚡ Execute / Run",
-                                            accent = true,
-                                            onClick = {
-                                                startGeneration("", directExecute = true)
-                                            }
-                                        )
-                                    }
+                                // AI Smart Reply Toggle Chip inside the bar
+                                item {
+                                    CompanionActionChip(
+                                        label = if (autoSuggestReplies) "✨ AI ON" else "⚪ AI OFF",
+                                        accent = autoSuggestReplies,
+                                        onClick = {
+                                            val next = !autoSuggestReplies
+                                            onToggleAutoSuggestReplies(next)
+                                            Toast.makeText(
+                                                context,
+                                                if (next) "Smart Replies: ON" else "Smart Replies: OFF",
+                                                Toast.LENGTH_SHORT
+                                            ).show()
+                                        }
+                                    )
                                 }
 
                                 // Standard Transform Prompts
                                 items(prompts) { prompt ->
+                                    val requiresInput = prompt.contextAction == ContextAction.NONE ||
+                                            (prompt.category == PromptCategory.TEXT_TRANSFORM && prompt.contextAction != ContextAction.CLIPBOARD)
+                                    val isGrayed = requiresInput && liveText.isBlank()
+
                                     CompanionActionChip(
                                         label = if (isCompactMode) prompt.iconEmoji else "${prompt.iconEmoji} ${prompt.title}",
                                         accent = false,
+                                        grayedOut = isGrayed,
                                         onClick = {
-                                            executePrompt(prompt)
+                                            if (isGrayed) {
+                                                Toast.makeText(
+                                                    context,
+                                                    "No text entered or selected. Please type or place cursor in a text field first.",
+                                                    Toast.LENGTH_SHORT
+                                                ).show()
+                                            } else {
+                                                executePrompt(prompt)
+                                            }
                                         },
                                         onLongClick = {
                                             editingPromptInline = prompt
@@ -891,51 +932,12 @@ fun FloatingToolbarContent(
 
                     Spacer(modifier = Modifier.width(6.dp))
 
-                    // Right Controls: Smart Reply Quick Toggle, Undo, Collapse, and Far-Right Execute
+                    // Right Controls: Permanent Undo, Quick Execute, and Collapse ('x') Button
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        // 1. Smart Reply High-Contrast Badge Toggle
-                        Surface(
-                            shape = RoundedCornerShape(10.dp),
-                            color = if (autoSuggestReplies) Color(0xFF2E7D32) else Color(0x333F4F44),
-                            border = BorderStroke(
-                                1.dp,
-                                if (autoSuggestReplies) Color(0xFF81C784) else Color(0x66A27B5C)
-                            ),
-                            modifier = Modifier.clickable {
-                                val next = !autoSuggestReplies
-                                onToggleAutoSuggestReplies(next)
-                                Toast.makeText(
-                                    context,
-                                    if (next) "Smart Replies: ON" else "Smart Replies: OFF",
-                                    Toast.LENGTH_SHORT
-                                ).show()
-                            }
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Filled.Chat,
-                                    contentDescription = "Smart Replies",
-                                    tint = if (autoSuggestReplies) Color.White else Color(0x88DCD7C9),
-                                    modifier = Modifier.size(12.dp)
-                                )
-                                Spacer(modifier = Modifier.width(3.dp))
-                                Text(
-                                    text = if (autoSuggestReplies) "AI ON" else "AI OFF",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (autoSuggestReplies) Color.White else Color(0x88DCD7C9)
-                                )
-                            }
-                        }
-
-                        // 2. Fixed Permanent Undo Button (next to collapse)
+                        // 1. Fixed Permanent Undo Button
                         val canUndo = hasUndo() || state == FloatingButtonState.REVERT_WINDOW
                         IconButton(
                             onClick = {
@@ -954,7 +956,37 @@ fun FloatingToolbarContent(
                             )
                         }
 
-                        // 3. Collapse Button
+                        // 2. Quick Execute / Run Button (to the left of 'x')
+                        val hasInput = liveText.isNotBlank()
+                        IconButton(
+                            onClick = {
+                                if (!hasInput) {
+                                    Toast.makeText(context, "No text entered or selected to execute.", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    startGeneration("", directExecute = true)
+                                }
+                            },
+                            modifier = Modifier
+                                .size(28.dp)
+                                .background(
+                                    if (hasInput) Color(0x44A27B5C) else Color(0x1A3F4F44),
+                                    CircleShape
+                                )
+                                .border(
+                                    1.dp,
+                                    if (hasInput) Color(0xFFA27B5C) else Color(0x22DCD7C9),
+                                    CircleShape
+                                )
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Bolt,
+                                contentDescription = "Quick Execute",
+                                tint = if (hasInput) Color(0xFFFFD54F) else Color(0x44DCD7C9),
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+
+                        // 3. Collapse ('x') Button
                         IconButton(
                             onClick = {
                                 if (editingPromptInline != null) {
@@ -969,24 +1001,6 @@ fun FloatingToolbarContent(
                                 imageVector = Icons.Default.Close,
                                 contentDescription = "Collapse",
                                 tint = Color(0xFFDCD7C9),
-                                modifier = Modifier.size(16.dp)
-                            )
-                        }
-
-                        // 4. Far-Right Execute / Run Button
-                        IconButton(
-                            onClick = {
-                                startGeneration("", directExecute = true)
-                            },
-                            modifier = Modifier
-                                .size(28.dp)
-                                .background(Color(0x44A27B5C), CircleShape)
-                                .border(1.dp, Color(0xFFA27B5C), CircleShape)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Bolt,
-                                contentDescription = "Execute / Run",
-                                tint = Color(0xFFFFD54F),
                                 modifier = Modifier.size(16.dp)
                             )
                         }
@@ -1005,16 +1019,30 @@ fun FloatingToolbarContent(
 fun CompanionActionChip(
     label: String,
     accent: Boolean = false,
+    grayedOut: Boolean = false,
     onClick: () -> Unit,
     onLongClick: (() -> Unit)? = null
 ) {
+    val backgroundColor = when {
+        grayedOut -> Color(0x1A3F4F44)
+        accent -> Color(0x44A27B5C)
+        else -> Color(0x333F4F44)
+    }
+    val borderColor = when {
+        grayedOut -> Color(0x22DCD7C9)
+        accent -> Color(0xFFA27B5C)
+        else -> Color(0x66A27B5C)
+    }
+    val textColor = when {
+        grayedOut -> Color(0x44DCD7C9)
+        accent -> Color(0xFFFFF8E7)
+        else -> Color(0xFFDCD7C9)
+    }
+
     Surface(
         shape = RoundedCornerShape(12.dp),
-        color = if (accent) Color(0x44A27B5C) else Color(0x333F4F44),
-        border = BorderStroke(
-            1.dp,
-            if (accent) Color(0xFFA27B5C) else Color(0x66A27B5C)
-        ),
+        color = backgroundColor,
+        border = BorderStroke(1.dp, borderColor),
         modifier = Modifier.combinedClickable(
             onClick = onClick,
             onLongClick = onLongClick
@@ -1027,8 +1055,8 @@ fun CompanionActionChip(
             Text(
                 text = label,
                 style = MaterialTheme.typography.labelSmall,
-                fontWeight = if (accent) FontWeight.Bold else FontWeight.Medium,
-                color = if (accent) Color(0xFFFFF8E7) else Color(0xFFDCD7C9),
+                fontWeight = if (accent && !grayedOut) FontWeight.Bold else FontWeight.Medium,
+                color = textColor,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )

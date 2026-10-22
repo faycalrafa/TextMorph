@@ -33,7 +33,18 @@ class TextMorphAccessibilityService : AccessibilityService() {
     private lateinit var cloudEngine: OpenAiCloudEngine
 
     private var wasRibbonOpenBeforeKeyboardClosed = false
+    private var userDismissedRibbonForCurrentKeyboardSession = false
     private val serviceScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main + kotlinx.coroutines.SupervisorJob())
+
+    fun onRibbonManuallyDismissed() {
+        userDismissedRibbonForCurrentKeyboardSession = true
+        AppLogger.d(TAG, "Ribbon manually dismissed during keyboard session.")
+    }
+
+    fun onRibbonManuallyOpened() {
+        userDismissedRibbonForCurrentKeyboardSession = false
+        AppLogger.d(TAG, "Ribbon manually opened during keyboard session.")
+    }
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -77,39 +88,40 @@ class TextMorphAccessibilityService : AccessibilityService() {
 
         val source = event.source
         try {
-            if (settings.alwaysShowFloatingToolbar) {
-                overlayManager?.show(
-                    autoExpand = false,
-                    onTakeScreenshot = { callback -> captureScreenContext(callback) },
-                    onExtractTranscript = { extractConversationTranscript() }
-                )
-                return
-            }
-
             val keyboardVisible = isKeyboardVisible()
 
-            if (keyboardVisible) {
-                // Keyboard is open, verify if there is an editable field
-                val isEditable = source?.isEditable == true || isCurrentInputEditable()
-                if (isEditable) {
-                    val shouldAutoExpand = wasRibbonOpenBeforeKeyboardClosed || settings.autoSuggestReplies
+            if (!keyboardVisible) {
+                userDismissedRibbonForCurrentKeyboardSession = false
+                if (overlayManager?.isBusy() != true) {
+                    overlayManager?.collapse()
+                    if (!settings.alwaysShowFloatingToolbar) {
+                        overlayManager?.hide()
+                    }
+                }
+                if (settings.alwaysShowFloatingToolbar) {
                     overlayManager?.show(
-                        autoExpand = shouldAutoExpand,
+                        autoExpand = false,
                         onTakeScreenshot = { callback -> captureScreenContext(callback) },
                         onExtractTranscript = { extractConversationTranscript() }
                     )
-                } else if (overlayManager?.isBusy() != true) {
-                    if (overlayManager?.isExpanded() == true) {
-                        wasRibbonOpenBeforeKeyboardClosed = true
-                    }
+                }
+                return
+            }
+
+            // Keyboard is visible: check if active field is editable
+            val isEditable = source?.isEditable == true || isCurrentInputEditable()
+            if (isEditable) {
+                val shouldAutoExpand = settings.alwaysOpenBarWithKeyboard && !userDismissedRibbonForCurrentKeyboardSession
+                overlayManager?.show(
+                    autoExpand = shouldAutoExpand,
+                    onTakeScreenshot = { callback -> captureScreenContext(callback) },
+                    onExtractTranscript = { extractConversationTranscript() }
+                )
+            } else if (overlayManager?.isBusy() != true) {
+                overlayManager?.collapse()
+                if (!settings.alwaysShowFloatingToolbar) {
                     overlayManager?.hide()
                 }
-            } else if (overlayManager?.isBusy() != true) {
-                // Keyboard dismissed or not open: remember if user left ribbon open, then hide immediately
-                if (overlayManager?.isExpanded() == true) {
-                    wasRibbonOpenBeforeKeyboardClosed = true
-                }
-                overlayManager?.hide()
             }
         } catch (e: Exception) {
             AppLogger.e(TAG, "Error processing accessibility event: ${e.message}", e)

@@ -552,5 +552,51 @@ class TextMorphUnitTests {
         assertTrue(processGesture(15f, 15f)) // hypot = 21.21 > 16
         assertTrue(processGesture(100f, 50f))
     }
+
+    @Test
+    fun testClipboardContextActionEnumAndSerialization() {
+        val action = com.textmorph.app.data.model.ContextAction.CLIPBOARD
+        assertEquals("Add Clipboard", action.displayName)
+        assertTrue(action.description.contains("clipboard", ignoreCase = true))
+
+        val prompt = PromptEntity(
+            id = "test_clip",
+            title = "Clipboard Test",
+            systemInstruction = "Process clipboard text",
+            contextAction = com.textmorph.app.data.model.ContextAction.CLIPBOARD
+        )
+        val json = Json { ignoreUnknownKeys = true }
+        val encoded = json.encodeToString(prompt)
+        val decoded = json.decodeFromString<PromptEntity>(encoded)
+        assertEquals(com.textmorph.app.data.model.ContextAction.CLIPBOARD, decoded.contextAction)
+    }
+
+    @Test
+    fun testAlwaysOpenBarWithKeyboardSettingSerialization() {
+        val defaultSettings = AppSettings()
+        assertTrue(defaultSettings.alwaysOpenBarWithKeyboard)
+
+        val customSettings = defaultSettings.copy(alwaysOpenBarWithKeyboard = false)
+        val json = Json { ignoreUnknownKeys = true }
+        val encoded = json.encodeToString(customSettings)
+        val decoded = json.decodeFromString<AppSettings>(encoded)
+        assertFalse(decoded.alwaysOpenBarWithKeyboard)
+    }
+
+    @Test
+    fun testSeedClipboardPromptExists() {
+        val seeds = PromptRepository.getDefaultSeedPrompts()
+        val clipSeed = seeds.firstOrNull { it.id == "seed_clipboard_context" }
+        assertNotNull(clipSeed)
+        assertEquals(com.textmorph.app.data.model.ContextAction.CLIPBOARD, clipSeed?.contextAction)
+    }
+
+    @Test
+    fun testUpperHalfScreenPopupDimensions() {
+        val screenHeight = 2400
+        val upperHalfHeight = (screenHeight * 0.48f).toInt()
+        assertEquals(1152, upperHalfHeight)
+        assertTrue(upperHalfHeight < screenHeight / 2 + 10)
+    }
 }
 

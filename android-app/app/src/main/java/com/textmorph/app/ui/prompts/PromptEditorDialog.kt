@@ -170,6 +170,7 @@ fun PromptEditorDialog(
                             ContextAction.CAMERA -> "📷"
                             ContextAction.OCR -> "📄"
                             ContextAction.ACCESSIBILITY_TEXT -> "🔤"
+                            ContextAction.CLIPBOARD -> "📋"
                         }
                         FilterChip(
                             selected = contextAction == action,

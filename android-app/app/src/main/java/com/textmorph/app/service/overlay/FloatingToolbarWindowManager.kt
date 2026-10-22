@@ -63,17 +63,54 @@ class FloatingToolbarWindowManager(
     fun isBusy(): Boolean = isBusyState
     fun isExpanded(): Boolean = isExpanded
 
+    fun collapse() {
+        service.mainHandler.post {
+            try {
+                if (isExpanded) {
+                    collapseHandler?.invoke() ?: onRibbonExpansionChanged(false)
+                }
+            } catch (e: Exception) {
+                AppLogger.e(TAG, "Failed collapsing ribbon: ${e.message}", e)
+            }
+        }
+    }
+
     fun setEditorFocusMode(enabled: Boolean) {
         val container = overlayContainer ?: return
         val params = windowParams ?: return
         try {
+            val displayMetrics = service.resources.displayMetrics
+            val screenWidth = displayMetrics.widthPixels
+            val screenHeight = displayMetrics.heightPixels
+            val density = displayMetrics.density
+            val marginPx = (8 * density).roundToInt()
+            val minY = (40 * density).roundToInt()
+            val maxY = (screenHeight - (56 * density).roundToInt() - (40 * density).roundToInt()).coerceAtLeast(minY)
+
             if (enabled) {
                 params.flags = params.flags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE.inv()
+                params.gravity = Gravity.TOP or Gravity.START
+                params.x = marginPx
+                params.y = (24 * density).roundToInt()
+                params.width = screenWidth - (marginPx * 2)
+                params.height = (screenHeight * 0.48f).roundToInt()
             } else {
                 params.flags = params.flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                params.gravity = Gravity.TOP or Gravity.START
+                if (isExpanded) {
+                    params.width = screenWidth - (marginPx * 2)
+                    params.height = WindowManager.LayoutParams.WRAP_CONTENT
+                    params.x = marginPx
+                    params.y = (userY ?: (screenHeight / 2)).coerceIn(minY, maxY)
+                } else {
+                    params.width = WindowManager.LayoutParams.WRAP_CONTENT
+                    params.height = WindowManager.LayoutParams.WRAP_CONTENT
+                    params.x = userX ?: (screenWidth - (40 * density).roundToInt())
+                    params.y = (userY ?: (screenHeight / 2)).coerceIn(minY, maxY)
+                }
             }
             windowManager.updateViewLayout(container, params)
-            AppLogger.d(TAG, "Overlay editor focus mode updated to: $enabled")
+            AppLogger.d(TAG, "Overlay editor focus mode updated to: $enabled (bounds: ${params.width}x${params.height} at y=${params.y})")
         } catch (e: Exception) {
             AppLogger.e(TAG, "Failed updating editor focus mode: ${e.message}", e)
         }
@@ -191,14 +228,7 @@ class FloatingToolbarWindowManager(
                     }
                 },
                 onOutsideTap = {
-                    val now = android.os.SystemClock.uptimeMillis()
-                    val elapsed = now - lastExpandedTimeMs
-                    if (elapsed > 400L) {
-                        AppLogger.d(TAG, "onOutsideTap triggered after ${elapsed}ms (> 400ms), collapsing ribbon")
-                        collapseHandler?.invoke() ?: onRibbonExpansionChanged(false)
-                    } else {
-                        AppLogger.d(TAG, "Ignoring outside tap during expansion debounce window (${elapsed}ms <= 400ms)")
-                    }
+                    AppLogger.d(TAG, "onOutsideTap received on overlay container; keeping assistant ribbon open while typing")
                 }
             ).apply {
                 setViewTreeLifecycleOwner(serviceLifecycleOwner)
@@ -254,6 +284,11 @@ class FloatingToolbarWindowManager(
                             },
                             onExpandedStateChanged = { expanded ->
                                 onRibbonExpansionChanged(expanded)
+                                if (expanded) {
+                                    service.onRibbonManuallyOpened()
+                                } else {
+                                    service.onRibbonManuallyDismissed()
+                                }
                             },
                             onBusyStateChanged = { busy ->
                                 isBusyState = busy
@@ -345,11 +380,11 @@ class FloatingToolbarWindowManager(
 
             if (expanded) {
                 lastExpandedTimeMs = android.os.SystemClock.uptimeMillis()
-                // Expanded companion ribbon: horizontal dock with outside touch watch
+                // Expanded companion ribbon: horizontal dock without outside touch watch to stay open while typing
                 val ribbonWidth = screenWidth - (marginPx * 2)
                 params.width = ribbonWidth
                 params.height = WindowManager.LayoutParams.WRAP_CONTENT
-                params.flags = params.flags or WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH
+                params.flags = params.flags and WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH.inv()
                 params.x = marginPx
                 params.y = (userY ?: (screenHeight / 2)).coerceIn(minY, maxY)
             } else {

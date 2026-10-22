@@ -110,6 +110,10 @@ class SettingsRepository(private val context: Context) {
         it.copy(compactChipsMode = compact)
     }
 
+    suspend fun setAlwaysOpenBarWithKeyboard(enabled: Boolean) = updateSettings {
+        it.copy(alwaysOpenBarWithKeyboard = enabled)
+    }
+
     private fun saveSettingsToDisk(settings: AppSettings) {
         try {
             val atomicFile = AtomicFile(settingsFile)
