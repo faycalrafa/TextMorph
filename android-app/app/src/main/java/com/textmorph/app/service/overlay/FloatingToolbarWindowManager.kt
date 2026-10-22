@@ -15,6 +15,8 @@ import com.textmorph.app.data.model.EngineType
 import com.textmorph.app.data.repository.PromptRepository
 import com.textmorph.app.data.repository.SettingsRepository
 import com.textmorph.app.llm.LiteRtLmEngine
+import com.textmorph.app.llm.LlamaCppEngine
+import com.textmorph.app.llm.LlamaCppEngineManager
 import com.textmorph.app.llm.OpenAiCloudEngine
 import com.textmorph.app.theme.TextMorphTheme
 import com.textmorph.app.util.AppLogger
@@ -34,7 +36,8 @@ class FloatingToolbarWindowManager(
     private val promptRepository: PromptRepository,
     private val settingsRepository: SettingsRepository,
     private val liteRtEngine: LiteRtLmEngine,
-    private val cloudEngine: OpenAiCloudEngine
+    private val cloudEngine: OpenAiCloudEngine,
+    private val llamaCppEngine: LlamaCppEngine = LlamaCppEngineManager.getInstance(service)
 ) {
 
     private val TAG = "FloatingWindowManager"
@@ -254,10 +257,10 @@ class FloatingToolbarWindowManager(
                             prompts = prompts,
                             isVisionCapable = {
                                 val s = settingsRepository.settingsState.value
-                                if (s.selectedEngine == EngineType.CLOUD_OPENAI) {
-                                    true
-                                } else {
-                                    sessionState.isVisionCapable
+                                when (s.selectedEngine) {
+                                    EngineType.CLOUD_OPENAI -> true
+                                    EngineType.ON_DEVICE_LLAMA_CPP -> llamaCppEngine.sessionState.value.isVisionCapable
+                                    else -> sessionState.isVisionCapable
                                 }
                             },
                             onInsertText = { result, isIntermediate ->
@@ -340,6 +343,8 @@ class FloatingToolbarWindowManager(
                                         s.cloudModelId
                                     )
                                     cloudEngine
+                                } else if (s.selectedEngine == EngineType.ON_DEVICE_LLAMA_CPP) {
+                                    llamaCppEngine
                                 } else {
                                     liteRtEngine
                                 }

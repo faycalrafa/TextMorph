@@ -598,5 +598,83 @@ class TextMorphUnitTests {
         assertEquals(1152, upperHalfHeight)
         assertTrue(upperHalfHeight < screenHeight / 2 + 10)
     }
+
+    @Test
+    fun testModelFileTypeDetectionExtensions() {
+        assertEquals(com.textmorph.app.data.model.ModelFileType.GGUF, com.textmorph.app.data.model.ModelFileType.detect("smollm2.gguf"))
+        assertEquals(com.textmorph.app.data.model.ModelFileType.GGUF, com.textmorph.app.data.model.ModelFileType.detect("/sdcard/Download/Llama-3.2-3B.GGUF"))
+        assertEquals(com.textmorph.app.data.model.ModelFileType.LITERT_LM, com.textmorph.app.data.model.ModelFileType.detect("gemma-4-E2B-it.litertlm"))
+        assertEquals(com.textmorph.app.data.model.ModelFileType.LITERT_LM, com.textmorph.app.data.model.ModelFileType.detect("classifier.tflite"))
+        assertEquals(com.textmorph.app.data.model.ModelFileType.UNKNOWN, com.textmorph.app.data.model.ModelFileType.detect("weights.bin"))
+    }
+
+    @Test
+    fun testModelFileTypeDetectionMagicBytes() {
+        val ggufBytes = byteArrayOf(0x47.toByte(), 0x47.toByte(), 0x55.toByte(), 0x46.toByte(), 0x03.toByte())
+        assertEquals(com.textmorph.app.data.model.ModelFileType.GGUF, com.textmorph.app.data.model.ModelFileType.detect("unknown_file", ggufBytes))
+
+        val tfl3Bytes = byteArrayOf(0x00, 0x00, 0x00, 0x00, 0x54.toByte(), 0x46.toByte(), 0x4C.toByte(), 0x33.toByte())
+        assertEquals(com.textmorph.app.data.model.ModelFileType.LITERT_LM, com.textmorph.app.data.model.ModelFileType.detect("custom_model", tfl3Bytes))
+    }
+
+    @Test
+    fun testEngineTypeSelectionAndRouting() {
+        assertEquals("On-Device (llama.cpp GGUF)", com.textmorph.app.data.model.EngineType.ON_DEVICE_LLAMA_CPP.displayName)
+        assertEquals("On-Device (LiteRT-LM)", com.textmorph.app.data.model.EngineType.ON_DEVICE_LITERT.displayName)
+        assertEquals("Cloud OpenAI Compatible", com.textmorph.app.data.model.EngineType.CLOUD_OPENAI.displayName)
+
+        fun resolveEngineForModel(name: String): com.textmorph.app.data.model.EngineType = when {
+            name.endsWith(".gguf", ignoreCase = true) -> com.textmorph.app.data.model.EngineType.ON_DEVICE_LLAMA_CPP
+            name.endsWith(".litertlm", ignoreCase = true) || name.endsWith(".tflite", ignoreCase = true) -> com.textmorph.app.data.model.EngineType.ON_DEVICE_LITERT
+            else -> com.textmorph.app.data.model.EngineType.ON_DEVICE_LITERT
+        }
+
+        assertEquals(com.textmorph.app.data.model.EngineType.ON_DEVICE_LLAMA_CPP, resolveEngineForModel("SmolLM2-360M-Instruct-Q4_K_M.gguf"))
+        assertEquals(com.textmorph.app.data.model.EngineType.ON_DEVICE_LITERT, resolveEngineForModel("gemma-4-E2B-it.litertlm"))
+    }
+
+    @Test
+    fun testModelInfoWithMmprojProjectorSerialization() {
+        val model = com.textmorph.app.data.model.ModelInfo(
+            id = "test_gguf_vision",
+            name = "SmolLM2-360M-Instruct-Q4_K_M.gguf",
+            path = "/sdcard/Download/SmolLM2.gguf",
+            modelFileType = com.textmorph.app.data.model.ModelFileType.GGUF,
+            mmprojName = "mmproj-f16.gguf",
+            mmprojPath = "/sdcard/Download/mmproj-f16.gguf",
+            mmprojUriString = "content://media/external/file/456",
+            isVisionCapable = true
+        )
+        val json = Json { ignoreUnknownKeys = true }
+        val encoded = json.encodeToString(model)
+        val decoded = json.decodeFromString<com.textmorph.app.data.model.ModelInfo>(encoded)
+
+        assertEquals("SmolLM2-360M-Instruct-Q4_K_M.gguf", decoded.name)
+        assertEquals(com.textmorph.app.data.model.ModelFileType.GGUF, decoded.modelFileType)
+        assertEquals("mmproj-f16.gguf", decoded.mmprojName)
+        assertEquals("/sdcard/Download/mmproj-f16.gguf", decoded.mmprojPath)
+        assertEquals("content://media/external/file/456", decoded.mmprojUriString)
+        assertTrue(decoded.isVisionCapable)
+    }
+
+    @Test
+    fun testAppSettingsMmprojFieldsSerialization() {
+        val settings = AppSettings(
+            selectedEngine = com.textmorph.app.data.model.EngineType.ON_DEVICE_LLAMA_CPP,
+            activeModelName = "qwen-2.5-coder.gguf",
+            activeMmprojName = "mmproj-qwen-f16.gguf",
+            activeMmprojPath = "/sdcard/Download/mmproj-qwen-f16.gguf",
+            activeMmprojUri = "content://com.android.providers.downloads.documents/document/999"
+        )
+        val json = Json { ignoreUnknownKeys = true }
+        val encoded = json.encodeToString(settings)
+        val decoded = json.decodeFromString<AppSettings>(encoded)
+
+        assertEquals(com.textmorph.app.data.model.EngineType.ON_DEVICE_LLAMA_CPP, decoded.selectedEngine)
+        assertEquals("qwen-2.5-coder.gguf", decoded.activeModelName)
+        assertEquals("mmproj-qwen-f16.gguf", decoded.activeMmprojName)
+        assertEquals("/sdcard/Download/mmproj-qwen-f16.gguf", decoded.activeMmprojPath)
+        assertEquals("content://com.android.providers.downloads.documents/document/999", decoded.activeMmprojUri)
+    }
 }
 

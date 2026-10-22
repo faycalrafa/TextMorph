@@ -12,6 +12,7 @@ import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
+import com.textmorph.app.data.model.ModelFileType
 import com.textmorph.app.data.model.ModelInfo
 import com.textmorph.app.util.AppLogger
 import com.textmorph.app.worker.DownloadWorker
@@ -64,8 +65,21 @@ class ModelStorageRepository(private val context: Context) {
             isDownloaded = false,
             isBuiltInCatalog = true,
             isVisionCapable = true,
+            modelFileType = ModelFileType.LITERT_LM,
             description = "High-capability multimodal Gemma 4 model. Recommended for 8GB–12GB+ RAM devices.",
             downloadUrl = "https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm/resolve/main/gemma-4-E4B-it.litertlm"
+        )
+
+        val CATALOG_SMOL_GGUF = ModelInfo(
+            id = "catalog_smol_gguf",
+            name = "SmolLM2-1.7B-Instruct-Q4_K_M.gguf",
+            sizeBytes = 1_060_000_000L, // ~1.0 GB
+            isDownloaded = false,
+            isBuiltInCatalog = true,
+            isVisionCapable = false,
+            modelFileType = ModelFileType.GGUF,
+            description = "Lightweight on-device GGUF model powered by llama.cpp. Compatible with optional mmproj vision extension.",
+            downloadUrl = "https://huggingface.co/HuggingFaceTB/SmolLM2-1.7B-Instruct-GGUF/resolve/main/smollm2-1.7b-instruct-q4_k_m.gguf"
         )
     }
 
@@ -85,11 +99,13 @@ class ModelStorageRepository(private val context: Context) {
                 val seenPaths = mutableSetOf<String>()
                 for (dir in searchDirs) {
                     val files = dir.listFiles { file ->
-                        file.isFile && file.name.endsWith(".litertlm", ignoreCase = true)
+                        file.isFile && (file.name.endsWith(".litertlm", ignoreCase = true) ||
+                                (file.name.endsWith(".gguf", ignoreCase = true) && !file.name.startsWith("mmproj", ignoreCase = true)))
                     }
                     files?.forEach { file ->
                         val canonical = file.canonicalPath
                         if (seenPaths.add(canonical)) {
+                            val detectedType = ModelFileType.detect(file.name)
                             list.add(
                                 ModelInfo(
                                     id = "ext_${canonical.hashCode()}",
@@ -99,7 +115,8 @@ class ModelStorageRepository(private val context: Context) {
                                     isDownloaded = true,
                                     isBuiltInCatalog = false,
                                     isExternalStorage = true,
-                                    isVisionCapable = file.name.contains("gemma-4", ignoreCase = true) || file.name.contains("vision", ignoreCase = true),
+                                    isVisionCapable = detectedType == ModelFileType.LITERT_LM || file.name.contains("vision", ignoreCase = true) || file.name.contains("llava", ignoreCase = true),
+                                    modelFileType = detectedType,
                                     description = "Zero-copy memory-mapped from ${file.parentFile?.name ?: "storage"}/"
                                 )
                             )
@@ -114,8 +131,10 @@ class ModelStorageRepository(private val context: Context) {
                 internalModelsDir.mkdirs()
             }
             internalModelsDir.listFiles { file ->
-                file.isFile && file.name.endsWith(".litertlm", ignoreCase = true)
+                file.isFile && (file.name.endsWith(".litertlm", ignoreCase = true) ||
+                        (file.name.endsWith(".gguf", ignoreCase = true) && !file.name.startsWith("mmproj", ignoreCase = true)))
             }?.forEach { file ->
+                val detectedType = ModelFileType.detect(file.name)
                 list.add(
                     ModelInfo(
                         id = "int_${file.name}",
@@ -125,15 +144,16 @@ class ModelStorageRepository(private val context: Context) {
                         isDownloaded = true,
                         isBuiltInCatalog = false,
                         isExternalStorage = false,
-                        isVisionCapable = true,
+                        isVisionCapable = detectedType == ModelFileType.LITERT_LM || file.name.contains("vision", ignoreCase = true),
+                        modelFileType = detectedType,
                         description = "Located in App Private Storage."
                     )
                 )
             }
 
             // 3. Include catalog entries (mark as downloaded if file with matching name was found)
-            val foundNames = list.map { it.name }.toSet()
-            val catalogModels = listOf(CATALOG_E2B, CATALOG_E4B).map { catalog ->
+            val catalogList = listOf(CATALOG_E2B, CATALOG_E4B, CATALOG_SMOL_GGUF)
+            val catalogModels = catalogList.map { catalog ->
                 val matched = list.firstOrNull { it.name.equals(catalog.name, ignoreCase = true) }
                 if (matched != null) {
                     catalog.copy(
@@ -149,7 +169,7 @@ class ModelStorageRepository(private val context: Context) {
             // Merge unique entries
             val finalList = mutableListOf<ModelInfo>()
             finalList.addAll(catalogModels)
-            list.filterNot { it.name.equals(CATALOG_E2B.name, ignoreCase = true) || it.name.equals(CATALOG_E4B.name, ignoreCase = true) }
+            list.filterNot { item -> catalogList.any { it.name.equals(item.name, ignoreCase = true) } }
                 .forEach { finalList.add(it) }
 
             _availableModels.value = finalList
@@ -213,6 +233,7 @@ class ModelStorageRepository(private val context: Context) {
                 }
             }
 
+            val detectedType = ModelFileType.detect(displayName)
             val modelInfo = ModelInfo(
                 id = "saf_${uri.toString().hashCode()}",
                 name = displayName,
@@ -222,8 +243,9 @@ class ModelStorageRepository(private val context: Context) {
                 isDownloaded = true,
                 isBuiltInCatalog = false,
                 isExternalStorage = true,
-                isVisionCapable = displayName.contains("gemma-4", ignoreCase = true) || displayName.contains("vision", ignoreCase = true),
-                description = if (directPath != null) "Direct Mmap: $displayName" else "SAF Zero-Copy Model: $displayName"
+                isVisionCapable = detectedType == ModelFileType.LITERT_LM || displayName.contains("gemma-4", ignoreCase = true) || displayName.contains("vision", ignoreCase = true),
+                modelFileType = detectedType,
+                description = if (directPath != null) "Direct Mmap (${detectedType.displayName}): $displayName" else "SAF Zero-Copy (${detectedType.displayName}): $displayName"
             )
 
             val updated = _availableModels.value.toMutableList()
@@ -231,12 +253,71 @@ class ModelStorageRepository(private val context: Context) {
             updated.add(0, modelInfo)
             _availableModels.value = updated
 
-            AppLogger.i(TAG, "Successfully registered SAF model: $displayName (directPath=$directPath, uri=$uri, size=$size bytes)")
+            AppLogger.i(TAG, "Successfully registered SAF model: $displayName (format=${detectedType.displayName}, directPath=$directPath, uri=$uri, size=$size bytes)")
             modelInfo
         } catch (e: Exception) {
             AppLogger.e(TAG, "Failed to register SAF model URI: ${e.message}", e)
             null
         }
+    }
+
+    suspend fun registerSafMmprojUri(uri: Uri): Pair<String, String?> = withContext(Dispatchers.IO) {
+        try {
+            val takeFlags: Int = Intent.FLAG_GRANT_READ_URI_PERMISSION
+            context.contentResolver.takePersistableUriPermission(uri, takeFlags)
+
+            var displayName = "mmproj.gguf"
+            context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                if (cursor.moveToFirst() && nameIndex != -1) {
+                    displayName = cursor.getString(nameIndex) ?: displayName
+                }
+            }
+
+            var directPath: String? = null
+            if (uri.scheme == "file") {
+                directPath = uri.path
+            } else {
+                val docId = try { android.provider.DocumentsContract.getDocumentId(uri) } catch (e: Exception) { null }
+                if (docId != null && docId.startsWith("primary:")) {
+                    val relativePath = docId.removePrefix("primary:")
+                    val directFile = File(Environment.getExternalStorageDirectory(), relativePath)
+                    if (directFile.exists() && directFile.canRead()) directPath = directFile.absolutePath
+                }
+            }
+            AppLogger.i(TAG, "Registered SAF mmproj: $displayName (directPath=$directPath)")
+            Pair(displayName, directPath)
+        } catch (e: Exception) {
+            AppLogger.e(TAG, "Failed to register SAF mmproj URI: ${e.message}", e)
+            Pair("mmproj.gguf", null)
+        }
+    }
+
+    /**
+     * Associates or disassociates an optional mmproj multimodal projector with a model card.
+     */
+    fun attachMmprojToModel(modelId: String, mmprojName: String?, mmprojPath: String?, mmprojUri: String?): ModelInfo? {
+        val current = _availableModels.value.toMutableList()
+        val idx = current.indexOfFirst { it.id == modelId }
+        return if (idx != -1) {
+            val old = current[idx]
+            val updated = old.copy(
+                mmprojName = mmprojName,
+                mmprojPath = mmprojPath,
+                mmprojUriString = mmprojUri,
+                isVisionCapable = !mmprojPath.isNullOrBlank() || !mmprojUri.isNullOrBlank()
+            )
+            current[idx] = updated
+            _availableModels.value = current
+            AppLogger.i(TAG, "Attached mmproj ($mmprojName) to model: ${old.name}")
+            updated
+        } else {
+            null
+        }
+    }
+
+    fun detachMmprojFromModel(modelId: String): ModelInfo? {
+        return attachMmprojToModel(modelId, null, null, null)
     }
 
     /**

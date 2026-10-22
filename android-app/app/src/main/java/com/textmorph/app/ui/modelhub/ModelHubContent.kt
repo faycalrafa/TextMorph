@@ -42,6 +42,8 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -58,8 +60,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -68,11 +72,15 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.textmorph.app.data.model.EngineType
+import com.textmorph.app.data.model.ModelFileType
 import com.textmorph.app.data.model.ModelInfo
 import com.textmorph.app.data.repository.ModelStorageRepository
 import com.textmorph.app.data.repository.SettingsRepository
 import com.textmorph.app.llm.LiteRtLmEngine
 import com.textmorph.app.llm.LiteRtLmEngineManager
+import com.textmorph.app.llm.LlamaCppEngine
+import com.textmorph.app.llm.LlamaCppEngineManager
 import com.textmorph.app.llm.ModelLoadingProgress
 import com.textmorph.app.llm.ModelSessionState
 import kotlinx.coroutines.launch
@@ -83,6 +91,7 @@ fun ModelHubContent(
     modelRepository: ModelStorageRepository,
     settingsRepository: SettingsRepository,
     liteRtEngine: LiteRtLmEngine = LiteRtLmEngineManager.getInstance(LocalContext.current),
+    llamaCppEngine: LlamaCppEngine = LlamaCppEngineManager.getInstance(LocalContext.current),
     onNavigateToChat: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -92,14 +101,41 @@ fun ModelHubContent(
     val isScanning by modelRepository.isScanning.collectAsState()
     val settings by settingsRepository.settingsState.collectAsState()
 
-    val loadingProgress by liteRtEngine.loadingProgress.collectAsState()
-    val sessionState by liteRtEngine.sessionState.collectAsState()
+    val liteRtLoadingProgress by liteRtEngine.loadingProgress.collectAsState()
+    val liteRtSessionState by liteRtEngine.sessionState.collectAsState()
+    val llamaLoadingProgress by llamaCppEngine.loadingProgress.collectAsState()
+    val llamaSessionState by llamaCppEngine.sessionState.collectAsState()
+
+    val isLlamaActive = settings.selectedEngine == EngineType.ON_DEVICE_LLAMA_CPP
+    val activeLoadingProgress = if (isLlamaActive || llamaLoadingProgress.isLoading) llamaLoadingProgress else liteRtLoadingProgress
+    val activeSessionState = if (isLlamaActive) llamaSessionState else liteRtSessionState
+    val consoleTitle = if (isLlamaActive || llamaLoadingProgress.isLoading) "LLAMA.CPP GGUF INFERENCE CONSOLE" else "LITERT-LM INFERENCE CONSOLE"
+
+    var pendingMmprojModelId by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) {
         modelRepository.refreshModels()
     }
 
-    // SAF Picker Launcher
+    // SAF Picker Launcher for mmproj Multimodal Projector
+    val mmprojSafLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        val targetModelId = pendingMmprojModelId
+        if (uri != null && targetModelId != null) {
+            scope.launch {
+                val (name, path) = modelRepository.registerSafMmprojUri(uri)
+                val updatedModel = modelRepository.attachMmprojToModel(targetModelId, name, path, uri.toString())
+                if (updatedModel != null && (settings.activeModelPath == updatedModel.path || settings.activeModelName == updatedModel.name)) {
+                    settingsRepository.setActiveMmproj(name, path, uri.toString())
+                }
+                Toast.makeText(context, "Attached vision extension: $name", Toast.LENGTH_SHORT).show()
+            }
+        }
+        pendingMmprojModelId = null
+    }
+
+    // SAF Picker Launcher for Models
     val safLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
@@ -107,8 +143,24 @@ fun ModelHubContent(
             scope.launch {
                 val registered = modelRepository.registerSafModelUri(uri)
                 if (registered != null) {
+                    val isGguf = registered.modelFileType == ModelFileType.GGUF || registered.name.endsWith(".gguf", ignoreCase = true)
                     settingsRepository.setActiveModel(registered.name, registered.path, registered.uriString)
-                    liteRtEngine.initialize(registered.path, registered.name, uri, settings.preferredAccelerator, settings.probeTimeoutMs)
+                    if (isGguf) {
+                        settingsRepository.setSelectedEngine(EngineType.ON_DEVICE_LLAMA_CPP)
+                        settingsRepository.setActiveMmproj(registered.mmprojName, registered.mmprojPath, registered.mmprojUriString)
+                        llamaCppEngine.initialize(
+                            modelPath = registered.path,
+                            modelName = registered.name,
+                            modelUri = uri,
+                            mmprojPath = registered.mmprojPath,
+                            mmprojUri = registered.mmprojUriString?.let { Uri.parse(it) },
+                            preferredAccelerator = settings.preferredAccelerator,
+                            probeTimeoutMs = settings.probeTimeoutMs
+                        )
+                    } else {
+                        settingsRepository.setSelectedEngine(EngineType.ON_DEVICE_LITERT)
+                        liteRtEngine.initialize(registered.path, registered.name, uri, settings.preferredAccelerator, settings.probeTimeoutMs)
+                    }
                     Toast.makeText(context, "Loading: ${registered.name}", Toast.LENGTH_SHORT).show()
                 }
             }
@@ -163,7 +215,7 @@ fun ModelHubContent(
                     Spacer(modifier = Modifier.height(8.dp))
 
                     Text(
-                        text = "Load multi-gigabyte .litertlm models directly from your Downloads folder with zero file copying and instant mmap.",
+                        text = "Load multi-gigabyte .litertlm and .gguf models directly from your Downloads folder with zero file copying and instant mmap.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -210,7 +262,7 @@ fun ModelHubContent(
                         ) {
                             Icon(Icons.Default.FileOpen, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("Browse .litertlm File")
+                            Text("Browse Model (.gguf / .litertlm)")
                         }
 
                         OutlinedButton(
@@ -229,8 +281,9 @@ fun ModelHubContent(
         // Live Model Loading Progress & Dark Monospace Console Card
         item {
             ModelLoadingConsoleCard(
-                loadingProgress = loadingProgress,
-                sessionState = sessionState
+                loadingProgress = activeLoadingProgress,
+                sessionState = activeSessionState,
+                consoleTitle = consoleTitle
             )
         }
 
@@ -244,17 +297,53 @@ fun ModelHubContent(
         }
 
         items(availableModels, key = { it.id }) { model ->
-            val isCurrentActive = sessionState.isLoaded && sessionState.modelName == model.name
+            val isGguf = model.modelFileType == ModelFileType.GGUF || model.name.endsWith(".gguf", ignoreCase = true)
+            val isCurrentActive = if (isGguf) {
+                llamaSessionState.isLoaded && (llamaSessionState.modelName == model.name || settings.activeModelName == model.name)
+            } else {
+                liteRtSessionState.isLoaded && (liteRtSessionState.modelName == model.name || settings.activeModelName == model.name)
+            }
+            val isLoadingThis = if (isGguf) llamaLoadingProgress.isLoading else liteRtLoadingProgress.isLoading
+
             ModelCardItem(
                 model = model,
                 isCurrentActive = isCurrentActive,
-                isLoadingEngine = loadingProgress.isLoading,
+                isLoadingEngine = isLoadingThis,
                 onActivate = {
                     scope.launch {
                         val uri = model.uriString?.let { Uri.parse(it) }
+                        val mmprojUri = model.mmprojUriString?.let { Uri.parse(it) }
                         settingsRepository.setActiveModel(model.name, model.path, model.uriString)
-                        liteRtEngine.initialize(model.path, model.name, uri, settings.preferredAccelerator, settings.probeTimeoutMs)
+                        if (isGguf) {
+                            settingsRepository.setSelectedEngine(EngineType.ON_DEVICE_LLAMA_CPP)
+                            settingsRepository.setActiveMmproj(model.mmprojName, model.mmprojPath, model.mmprojUriString)
+                            llamaCppEngine.initialize(
+                                modelPath = model.path,
+                                modelName = model.name,
+                                modelUri = uri,
+                                mmprojPath = model.mmprojPath,
+                                mmprojUri = mmprojUri,
+                                preferredAccelerator = settings.preferredAccelerator,
+                                probeTimeoutMs = settings.probeTimeoutMs
+                            )
+                        } else {
+                            settingsRepository.setSelectedEngine(EngineType.ON_DEVICE_LITERT)
+                            liteRtEngine.initialize(model.path, model.name, uri, settings.preferredAccelerator, settings.probeTimeoutMs)
+                        }
                         Toast.makeText(context, "Loading: ${model.name}...", Toast.LENGTH_SHORT).show()
+                    }
+                },
+                onAttachMmproj = {
+                    pendingMmprojModelId = model.id
+                    mmprojSafLauncher.launch(arrayOf("*/*"))
+                },
+                onDetachMmproj = {
+                    scope.launch {
+                        modelRepository.detachMmprojFromModel(model.id)
+                        if (settings.activeModelName == model.name || settings.activeModelPath == model.path) {
+                            settingsRepository.setActiveMmproj(null, null, null)
+                        }
+                        Toast.makeText(context, "Detached vision projector", Toast.LENGTH_SHORT).show()
                     }
                 },
                 onDownload = {
@@ -294,6 +383,8 @@ private fun ModelCardItem(
     isCurrentActive: Boolean,
     isLoadingEngine: Boolean,
     onActivate: () -> Unit,
+    onAttachMmproj: () -> Unit = {},
+    onDetachMmproj: () -> Unit = {},
     onDownload: () -> Unit,
     onCancelDownload: () -> Unit,
     onDelete: () -> Unit,
@@ -304,6 +395,7 @@ private fun ModelCardItem(
 ) {
     val workInfo by modelRepository.getDownloadWorkInfo(model.id).collectAsState(initial = null)
     val isDownloading = workInfo?.state == WorkInfo.State.RUNNING || workInfo?.state == WorkInfo.State.ENQUEUED
+    val isGguf = model.modelFileType == ModelFileType.GGUF || model.name.endsWith(".gguf", ignoreCase = true)
 
     Card(
         modifier = modifier.fillMaxWidth(),
@@ -330,6 +422,10 @@ private fun ModelCardItem(
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurface
                         )
+                        SuggestionChip(
+                            onClick = {},
+                            label = { Text(if (isGguf) "GGUF" else "LiteRT-LM", fontSize = 11.sp, fontWeight = FontWeight.SemiBold) }
+                        )
                         if (isCurrentActive) {
                             SuggestionChip(
                                 onClick = {},
@@ -352,6 +448,63 @@ private fun ModelCardItem(
                             tint = MaterialTheme.colorScheme.error,
                             modifier = Modifier.size(20.dp)
                         )
+                    }
+                }
+            }
+
+            // Multimodal Vision Projector (Optional) for GGUF models
+            if (isGguf && model.isDownloaded) {
+                Spacer(modifier = Modifier.height(10.dp))
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Multimodal Vision Projector",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Text(
+                                text = if (!model.mmprojName.isNullOrBlank()) "Projector: ${model.mmprojName}" else "No mmproj attached (Text Only)",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1
+                            )
+                        }
+                        if (!model.mmprojName.isNullOrBlank()) {
+                            IconButton(
+                                onClick = onDetachMmproj,
+                                modifier = Modifier.size(28.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Detach Vision Projector",
+                                    tint = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        } else {
+                            OutlinedButton(
+                                onClick = onAttachMmproj,
+                                shape = RoundedCornerShape(6.dp),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                modifier = Modifier.height(28.dp)
+                            ) {
+                                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(14.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Add mmproj", fontSize = 11.sp)
+                            }
+                        }
                     }
                 }
             }
@@ -477,6 +630,7 @@ private fun ModelCardItem(
 private fun ModelLoadingConsoleCard(
     loadingProgress: ModelLoadingProgress,
     sessionState: ModelSessionState,
+    consoleTitle: String = "LITERT-LM INFERENCE CONSOLE",
     modifier: Modifier = Modifier
 ) {
     Card(
@@ -573,7 +727,7 @@ private fun ModelLoadingConsoleCard(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "LITERT-LM INFERENCE CONSOLE",
+                            text = consoleTitle,
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Bold,
                             fontSize = 11.sp,
@@ -612,7 +766,7 @@ private fun ModelLoadingConsoleCard(
                             val lines = loadingProgress.logLines.takeLast(12)
                             if (lines.isEmpty()) {
                                 Text(
-                                    text = "> System ready. Select or scan a .litertlm model to begin live zero-copy execution.",
+                                    text = "> System ready. Select or scan a .litertlm or .gguf model to begin live zero-copy execution.",
                                     fontFamily = FontFamily.Monospace,
                                     fontSize = 11.sp,
                                     color = Color(0xFF718096)

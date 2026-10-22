@@ -155,25 +155,29 @@ fun SettingsContent(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                Row(
+                FlowRow(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     FilterChip(
                         selected = settings.selectedEngine == EngineType.ON_DEVICE_LITERT,
                         onClick = { scope.launch { settingsRepository.setEngine(EngineType.ON_DEVICE_LITERT) } },
-                        label = { Text("On-Device (LiteRT-LM)") },
-                        modifier = Modifier.weight(1f)
+                        label = { Text("LiteRT-LM") }
+                    )
+                    FilterChip(
+                        selected = settings.selectedEngine == EngineType.ON_DEVICE_LLAMA_CPP,
+                        onClick = { scope.launch { settingsRepository.setEngine(EngineType.ON_DEVICE_LLAMA_CPP) } },
+                        label = { Text("llama.cpp (GGUF)") }
                     )
                     FilterChip(
                         selected = settings.selectedEngine == EngineType.CLOUD_OPENAI,
                         onClick = { scope.launch { settingsRepository.setEngine(EngineType.CLOUD_OPENAI) } },
-                        label = { Text("Cloud OpenAI") },
-                        modifier = Modifier.weight(1f)
+                        label = { Text("Cloud OpenAI") }
                     )
                 }
 
-                if (settings.selectedEngine == EngineType.ON_DEVICE_LITERT) {
+                if (settings.selectedEngine == EngineType.ON_DEVICE_LITERT || settings.selectedEngine == EngineType.ON_DEVICE_LLAMA_CPP) {
                     Spacer(modifier = Modifier.height(14.dp))
                     Text(
                         text = "Hardware Acceleration",
@@ -268,6 +272,25 @@ fun SettingsContent(
                                 label = { Text(label, style = MaterialTheme.typography.labelSmall) }
                             )
                         }
+                    }
+
+                    if (settings.selectedEngine == EngineType.ON_DEVICE_LLAMA_CPP) {
+                        Spacer(modifier = Modifier.height(14.dp))
+                        Text(
+                            text = "GGUF Multimodal Projector (mmproj)",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = if (!settings.activeMmprojName.isNullOrBlank()) {
+                                "Active vision projector: ${settings.activeMmprojName}"
+                            } else {
+                                "No vision projector attached (Text inference only). You can attach an mmproj-*.gguf projector in the Models tab."
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 }
             }

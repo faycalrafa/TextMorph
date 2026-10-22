@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.core.util.AtomicFile
 import com.textmorph.app.data.model.AppSettings
 import com.textmorph.app.data.model.EngineType
+import com.textmorph.app.data.model.ModelFileType
 import com.textmorph.app.theme.ThemeMode
 import com.textmorph.app.util.AppLogger
 import kotlinx.coroutines.Dispatchers
@@ -65,9 +66,31 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setEngine(engine: EngineType) = updateSettings { it.copy(selectedEngine = engine) }
 
+    suspend fun setSelectedEngine(engine: EngineType) = setEngine(engine)
+
     suspend fun setActiveModel(name: String, path: String?, uriString: String? = null) = updateSettings {
         val sanitizedPath = if (path != null && path.startsWith("/proc/self/fd/")) null else path
-        it.copy(activeModelName = name, activeModelPath = sanitizedPath, activeModelUri = uriString)
+        val detected = ModelFileType.detect(name)
+        val autoEngine = when (detected) {
+            ModelFileType.GGUF -> EngineType.ON_DEVICE_LLAMA_CPP
+            ModelFileType.LITERT_LM -> EngineType.ON_DEVICE_LITERT
+            else -> it.selectedEngine
+        }
+        it.copy(
+            activeModelName = name,
+            activeModelPath = sanitizedPath,
+            activeModelUri = uriString,
+            selectedEngine = if (it.selectedEngine != EngineType.CLOUD_OPENAI) autoEngine else it.selectedEngine
+        )
+    }
+
+    suspend fun setActiveMmproj(name: String?, path: String?, uriString: String? = null) = updateSettings {
+        val sanitizedPath = if (path != null && path.startsWith("/proc/self/fd/")) null else path
+        it.copy(
+            activeMmprojName = name,
+            activeMmprojPath = sanitizedPath,
+            activeMmprojUri = uriString
+        )
     }
 
     suspend fun setLocalServer(enabled: Boolean, port: Int = 8080, token: String = "") = updateSettings {

@@ -1,7 +1,7 @@
 package com.textmorph.app.server
 
 import android.util.Base64
-import com.textmorph.app.llm.LiteRtLmEngine
+import com.textmorph.app.llm.LlmEngine
 import com.textmorph.app.util.AppLogger
 import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
@@ -37,7 +37,7 @@ import kotlinx.serialization.json.put
 import java.util.UUID
 
 class LocalHttpServer(
-    private val llmEngine: LiteRtLmEngine,
+    private val llmEngine: LlmEngine,
     private val port: Int = 8080,
     private val bearerToken: String = "",
     private val activeModelName: String = "gemma-4-E2B-it.litertlm"

@@ -14,8 +14,13 @@ import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import com.textmorph.app.MainActivity
 import com.textmorph.app.R
+import com.textmorph.app.data.model.EngineType
 import com.textmorph.app.data.repository.SettingsRepository
 import com.textmorph.app.llm.LiteRtLmEngine
+import com.textmorph.app.llm.LiteRtLmEngineManager
+import com.textmorph.app.llm.LlamaCppEngine
+import com.textmorph.app.llm.LlamaCppEngineManager
+import com.textmorph.app.llm.LlmEngine
 import com.textmorph.app.server.LocalHttpServer
 import com.textmorph.app.util.AppLogger
 import kotlinx.coroutines.CoroutineScope
@@ -33,20 +38,24 @@ class LlmForegroundService : Service() {
     private val binder = LocalBinder()
 
     private lateinit var settingsRepository: SettingsRepository
-    private lateinit var engine: LiteRtLmEngine
+    private lateinit var liteRtEngine: LiteRtLmEngine
+    private lateinit var llamaCppEngine: LlamaCppEngine
     private var httpServer: LocalHttpServer? = null
     private var wakeLock: PowerManager.WakeLock? = null
 
     inner class LocalBinder : Binder() {
         fun getService(): LlmForegroundService = this@LlmForegroundService
-        fun getEngine(): LiteRtLmEngine = engine
+        fun getLiteRtEngine(): LiteRtLmEngine = liteRtEngine
+        fun getLlamaCppEngine(): LlamaCppEngine = llamaCppEngine
+        fun getActiveEngine(): LlmEngine = if (settingsRepository.settingsState.value.selectedEngine == EngineType.ON_DEVICE_LLAMA_CPP) llamaCppEngine else liteRtEngine
     }
 
     override fun onCreate() {
         super.onCreate()
         AppLogger.i(TAG, "LlmForegroundService onCreate")
         settingsRepository = SettingsRepository.getInstance(applicationContext)
-        engine = com.textmorph.app.llm.LiteRtLmEngineManager.getInstance(applicationContext)
+        liteRtEngine = LiteRtLmEngineManager.getInstance(applicationContext)
+        llamaCppEngine = LlamaCppEngineManager.getInstance(applicationContext)
 
         acquireWakeLock()
         createNotificationChannel()
@@ -54,13 +63,14 @@ class LlmForegroundService : Service() {
 
         // Observe settings for model changes and local server toggle
         settingsRepository.settingsState.onEach { settings ->
-            AppLogger.d(TAG, "Observed settings update: localServer=${settings.localServerEnabled}, model=${settings.activeModelName}")
+            AppLogger.d(TAG, "Observed settings update: localServer=${settings.localServerEnabled}, model=${settings.activeModelName}, engine=${settings.selectedEngine}")
             
             // Manage Local Server
             if (settings.localServerEnabled) {
                 if (httpServer == null) {
+                    val activeEngine = if (settings.selectedEngine == EngineType.ON_DEVICE_LLAMA_CPP) llamaCppEngine else liteRtEngine
                     httpServer = LocalHttpServer(
-                        llmEngine = engine,
+                        llmEngine = activeEngine,
                         port = settings.localServerPort,
                         bearerToken = settings.localServerBearerToken,
                         activeModelName = settings.activeModelName
@@ -74,10 +84,29 @@ class LlmForegroundService : Service() {
             }
 
             // Warm up model session if path or URI is specified
-            if ((settings.activeModelPath != null || settings.activeModelUri != null) && !engine.isLoaded()) {
-                serviceScope.launch {
-                    val uri = settings.activeModelUri?.let { android.net.Uri.parse(it) }
-                    engine.initialize(settings.activeModelPath, settings.activeModelName, uri, settings.preferredAccelerator, settings.probeTimeoutMs)
+            val isLlama = settings.selectedEngine == EngineType.ON_DEVICE_LLAMA_CPP
+            if (isLlama) {
+                if ((settings.activeModelPath != null || settings.activeModelUri != null) && !llamaCppEngine.isLoaded()) {
+                    serviceScope.launch {
+                        val uri = settings.activeModelUri?.let { android.net.Uri.parse(it) }
+                        val mmprojUri = settings.activeMmprojUri?.let { android.net.Uri.parse(it) }
+                        llamaCppEngine.initialize(
+                            modelPath = settings.activeModelPath,
+                            modelName = settings.activeModelName,
+                            modelUri = uri,
+                            mmprojPath = settings.activeMmprojPath,
+                            mmprojUri = mmprojUri,
+                            preferredAccelerator = settings.preferredAccelerator,
+                            probeTimeoutMs = settings.probeTimeoutMs
+                        )
+                    }
+                }
+            } else {
+                if ((settings.activeModelPath != null || settings.activeModelUri != null) && !liteRtEngine.isLoaded()) {
+                    serviceScope.launch {
+                        val uri = settings.activeModelUri?.let { android.net.Uri.parse(it) }
+                        liteRtEngine.initialize(settings.activeModelPath, settings.activeModelName, uri, settings.preferredAccelerator, settings.probeTimeoutMs)
+                    }
                 }
             }
         }.launchIn(serviceScope)
@@ -96,7 +125,8 @@ class LlmForegroundService : Service() {
         httpServer?.stop()
         httpServer = null
         serviceScope.launch {
-            engine.unload()
+            liteRtEngine.unload()
+            llamaCppEngine.unload()
         }
         serviceScope.cancel()
         releaseWakeLock()

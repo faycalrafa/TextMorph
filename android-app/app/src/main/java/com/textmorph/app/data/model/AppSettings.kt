@@ -3,9 +3,10 @@ package com.textmorph.app.data.model
 import com.textmorph.app.theme.ThemeMode
 import kotlinx.serialization.Serializable
 
-enum class EngineType {
-    ON_DEVICE_LITERT,
-    CLOUD_OPENAI
+enum class EngineType(val displayName: String) {
+    ON_DEVICE_LITERT("On-Device (LiteRT-LM)"),
+    ON_DEVICE_LLAMA_CPP("On-Device (llama.cpp GGUF)"),
+    CLOUD_OPENAI("Cloud OpenAI Compatible")
 }
 
 @Serializable
@@ -15,6 +16,9 @@ data class AppSettings(
     val activeModelPath: String? = null,
     val activeModelUri: String? = null,
     val activeModelName: String = "gemma-4-E2B-it.litertlm",
+    val activeMmprojPath: String? = null,
+    val activeMmprojUri: String? = null,
+    val activeMmprojName: String? = null,
     val localServerEnabled: Boolean = false,
     val localServerPort: Int = 8080,
     val localServerBearerToken: String = "",

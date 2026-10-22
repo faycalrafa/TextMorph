@@ -74,6 +74,8 @@ import com.textmorph.app.data.repository.PromptRepository
 import com.textmorph.app.data.repository.SettingsRepository
 import com.textmorph.app.llm.LiteRtLmEngine
 import com.textmorph.app.llm.LiteRtLmEngineManager
+import com.textmorph.app.llm.LlamaCppEngine
+import com.textmorph.app.llm.LlamaCppEngineManager
 import com.textmorph.app.llm.LlmEngine
 import com.textmorph.app.llm.OpenAiCloudEngine
 import com.textmorph.app.theme.TextMorphTheme
@@ -87,6 +89,7 @@ class ProcessTextActivity : ComponentActivity() {
     private lateinit var promptRepository: PromptRepository
     private lateinit var settingsRepository: SettingsRepository
     private lateinit var liteRtEngine: LiteRtLmEngine
+    private lateinit var llamaCppEngine: LlamaCppEngine
     private lateinit var cloudEngine: OpenAiCloudEngine
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -99,6 +102,7 @@ class ProcessTextActivity : ComponentActivity() {
         promptRepository = PromptRepository.getInstance(applicationContext)
         settingsRepository = SettingsRepository.getInstance(applicationContext)
         liteRtEngine = LiteRtLmEngineManager.getInstance(applicationContext)
+        llamaCppEngine = LlamaCppEngineManager.getInstance(applicationContext)
         cloudEngine = OpenAiCloudEngine()
 
         setContent {
@@ -111,13 +115,18 @@ class ProcessTextActivity : ComponentActivity() {
                     modifier = Modifier.padding(12.dp),
                     shape = RoundedCornerShape(20.dp)
                 ) {
-                    val sessionState by liteRtEngine.sessionState.collectAsState()
+                    val liteRtSessionState by liteRtEngine.sessionState.collectAsState()
+                    val llamaSessionState by llamaCppEngine.sessionState.collectAsState()
+                    val isVisionCapable = when (settings.selectedEngine) {
+                        EngineType.ON_DEVICE_LLAMA_CPP -> llamaSessionState.isVisionCapable
+                        else -> liteRtSessionState.isVisionCapable
+                    }
 
                     ProcessTextContent(
                         originalText = selectedText,
                         isReadOnly = isReadOnly,
                         prompts = prompts,
-                        isVisionCapable = sessionState.isVisionCapable,
+                        isVisionCapable = isVisionCapable,
                         onApplyResult = { transformed ->
                             if (!isReadOnly) {
                                 val resultIntent = Intent().apply {
@@ -148,6 +157,8 @@ class ProcessTextActivity : ComponentActivity() {
                                     currentSettings.cloudModelId
                                 )
                                 cloudEngine
+                            } else if (currentSettings.selectedEngine == EngineType.ON_DEVICE_LLAMA_CPP) {
+                                llamaCppEngine
                             } else {
                                 liteRtEngine
                             }

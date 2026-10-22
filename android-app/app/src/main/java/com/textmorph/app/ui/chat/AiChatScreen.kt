@@ -98,6 +98,7 @@ fun AiChatContent(
     liteRtEngine: LiteRtLmEngine,
     settingsRepository: SettingsRepository,
     modelRepository: ModelStorageRepository,
+    llamaCppEngine: com.textmorph.app.llm.LlamaCppEngine = com.textmorph.app.llm.LlamaCppEngineManager.getInstance(LocalContext.current),
     onNavigateToModelHub: () -> Unit
 ) {
     val TAG = "AiChatContent"
@@ -106,6 +107,9 @@ fun AiChatContent(
     val keyboardController = LocalSoftwareKeyboardController.current
     val listState = rememberLazyListState()
 
+    val settings by settingsRepository.settingsState.collectAsState()
+    val isLlamaActive = settings.selectedEngine == com.textmorph.app.data.model.EngineType.ON_DEVICE_LLAMA_CPP
+
     val messages = remember { mutableStateListOf<ChatMessage>() }
     var inputText by remember { mutableStateOf("") }
     var selectedBitmap by remember { mutableStateOf<Bitmap?>(null) }
@@ -113,8 +117,13 @@ fun AiChatContent(
     var isGenerating by remember { mutableStateOf(false) }
     var currentJob by remember { mutableStateOf<Job?>(null) }
 
-    val sessionState by liteRtEngine.sessionState.collectAsState()
-    val loadingProgress by liteRtEngine.loadingProgress.collectAsState()
+    val liteRtSessionState by liteRtEngine.sessionState.collectAsState()
+    val liteRtLoadingProgress by liteRtEngine.loadingProgress.collectAsState()
+    val llamaSessionState by llamaCppEngine.sessionState.collectAsState()
+    val llamaLoadingProgress by llamaCppEngine.loadingProgress.collectAsState()
+
+    val sessionState = if (isLlamaActive) llamaSessionState else liteRtSessionState
+    val loadingProgress = if (isLlamaActive) llamaLoadingProgress else liteRtLoadingProgress
 
     val isModelLoaded = sessionState.isLoaded
     val activeModelName = sessionState.modelName
@@ -394,7 +403,9 @@ fun AiChatContent(
                                     prompt = inputText,
                                     image = selectedImageBytes,
                                     imageBmp = selectedBitmap,
+                                    isLlamaActive = isLlamaActive,
                                     liteRtEngine = liteRtEngine,
+                                    llamaCppEngine = llamaCppEngine,
                                     messages = messages,
                                     scope = scope,
                                     onStart = {
@@ -437,7 +448,9 @@ fun AiChatContent(
                                     prompt = inputText,
                                     image = selectedImageBytes,
                                     imageBmp = selectedBitmap,
+                                    isLlamaActive = isLlamaActive,
                                     liteRtEngine = liteRtEngine,
+                                    llamaCppEngine = llamaCppEngine,
                                     messages = messages,
                                     scope = scope,
                                     onStart = {
@@ -471,7 +484,9 @@ private fun executePrompt(
     prompt: String,
     image: ByteArray?,
     imageBmp: Bitmap?,
+    isLlamaActive: Boolean,
     liteRtEngine: LiteRtLmEngine,
+    llamaCppEngine: com.textmorph.app.llm.LlamaCppEngine,
     messages: androidx.compose.runtime.snapshots.SnapshotStateList<ChatMessage>,
     scope: kotlinx.coroutines.CoroutineScope,
     onStart: () -> Unit,
@@ -504,17 +519,33 @@ private fun executePrompt(
             var currentText = ""
             var latestMetrics: InferenceMetrics? = null
 
-            liteRtEngine.generateStreamWithMetrics(
-                prompt = prompt,
-                imageBytes = image,
-                onMetricsUpdated = { metrics ->
-                    latestMetrics = metrics
-                    val idx = messages.indexOfFirst { it.id == aiMsgId }
-                    if (idx != -1) {
-                        messages[idx] = messages[idx].copy(metrics = metrics)
+            val stream = if (isLlamaActive) {
+                llamaCppEngine.generateStreamWithMetrics(
+                    prompt = prompt,
+                    imageBytes = image,
+                    onMetricsUpdated = { metrics ->
+                        latestMetrics = metrics
+                        val idx = messages.indexOfFirst { it.id == aiMsgId }
+                        if (idx != -1) {
+                            messages[idx] = messages[idx].copy(metrics = metrics)
+                        }
                     }
-                }
-            ).collect { chunk ->
+                )
+            } else {
+                liteRtEngine.generateStreamWithMetrics(
+                    prompt = prompt,
+                    imageBytes = image,
+                    onMetricsUpdated = { metrics ->
+                        latestMetrics = metrics
+                        val idx = messages.indexOfFirst { it.id == aiMsgId }
+                        if (idx != -1) {
+                            messages[idx] = messages[idx].copy(metrics = metrics)
+                        }
+                    }
+                )
+            }
+
+            stream.collect { chunk ->
                 currentText += chunk
                 val idx = messages.indexOfFirst { it.id == aiMsgId }
                 if (idx != -1) {

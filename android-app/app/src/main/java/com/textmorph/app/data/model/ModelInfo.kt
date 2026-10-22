@@ -14,5 +14,9 @@ data class ModelInfo(
     val isExternalStorage: Boolean = false,
     val isVisionCapable: Boolean = true,
     val description: String = "",
-    val downloadUrl: String? = null
+    val downloadUrl: String? = null,
+    val modelFileType: ModelFileType = ModelFileType.LITERT_LM,
+    val mmprojPath: String? = null,
+    val mmprojUriString: String? = null,
+    val mmprojName: String? = null
 )

@@ -139,6 +139,7 @@ fun DashboardScreen(
     val scope = rememberCoroutineScope()
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val liteRtEngine = remember { com.textmorph.app.llm.LiteRtLmEngineManager.getInstance(context) }
+    val llamaCppEngine = remember { com.textmorph.app.llm.LlamaCppEngineManager.getInstance(context) }
 
     var currentDestination by remember { mutableStateOf(AppDestination.PROMPTS) }
 
@@ -206,11 +207,19 @@ fun DashboardScreen(
                     }
                 }
 
-                val activeModelTitle = if (curSettings.selectedEngine == com.textmorph.app.data.model.EngineType.CLOUD_OPENAI) {
-                    "Cloud: ${curSettings.cloudModelId}"
-                } else {
-                    val cleanName = curSettings.activeModelName.removeSuffix(".litertlm")
-                    "On-Device: $cleanName (${curSettings.preferredAccelerator})"
+                val activeModelTitle = when (curSettings.selectedEngine) {
+                    com.textmorph.app.data.model.EngineType.CLOUD_OPENAI -> {
+                        "Cloud: ${curSettings.cloudModelId}"
+                    }
+                    com.textmorph.app.data.model.EngineType.ON_DEVICE_LLAMA_CPP -> {
+                        val cleanName = curSettings.activeModelName.removeSuffix(".gguf")
+                        val visionSuffix = if (!curSettings.activeMmprojName.isNullOrBlank()) " + Vision" else ""
+                        "GGUF: $cleanName$visionSuffix (${curSettings.preferredAccelerator})"
+                    }
+                    else -> {
+                        val cleanName = curSettings.activeModelName.removeSuffix(".litertlm")
+                        "LiteRT: $cleanName (${curSettings.preferredAccelerator})"
+                    }
                 }
 
                 Column(
@@ -686,6 +695,7 @@ fun DashboardScreen(
                                 modelRepository = modelRepository,
                                 settingsRepository = settingsRepository,
                                 liteRtEngine = liteRtEngine,
+                                llamaCppEngine = llamaCppEngine,
                                 onNavigateToChat = { currentDestination = AppDestination.CHAT }
                             )
                         }
@@ -695,6 +705,7 @@ fun DashboardScreen(
                                 liteRtEngine = liteRtEngine,
                                 settingsRepository = settingsRepository,
                                 modelRepository = modelRepository,
+                                llamaCppEngine = llamaCppEngine,
                                 onNavigateToModelHub = { currentDestination = AppDestination.MODEL_HUB }
                             )
                         }

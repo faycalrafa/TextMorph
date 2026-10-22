@@ -58,9 +58,22 @@ fun VersionHistoryScreen(
 
     val releaseLog = listOf(
         ReleaseItem(
-            version = "v1.13.0",
-            tag = "Latest Release",
+            version = "v2.0.0",
+            tag = "Major Release (v2)",
             isLatest = true,
+            changes = listOf(
+                "Native GGUF Support via llama.cpp: Full on-device inference for quantized GGUF models alongside LiteRT-LM.",
+                "Automatic Model Format Detection: Instant identification of .gguf and .litertlm models with automatic engine routing.",
+                "Multimodal Vision Projector (mmproj): Attach optional mmproj-*.gguf files to GGUF models for image understanding.",
+                "Zero-Copy SAF & Mmap Streaming: High-speed direct mapping from device storage without copying gigabytes to internal memory.",
+                "Assistant Bar Enhancements: Action buttons remain always active and responsive, quick execute pinned next to close button, and clipboard context action.",
+                "Adaptive Screen Layouts: Half-screen quick edit sheet and persistent keyboard alignment."
+            )
+        ),
+        ReleaseItem(
+            version = "v1.13.0",
+            tag = "Previous Release",
+            isLatest = false,
             changes = listOf(
                 "Smooth Hardware-Digitizer Drag & Drop: Switched window repositioning to raw display coordinates (rawX, rawY), eliminating all jitter and coordinate drift.",
                 "Tactile Long-Press Activation: 260ms hold triggers tactile haptic feedback and elevates the floating button into 120Hz smooth dragging mode.",

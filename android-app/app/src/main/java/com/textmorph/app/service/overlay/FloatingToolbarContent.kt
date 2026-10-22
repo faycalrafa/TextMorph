@@ -888,24 +888,11 @@ fun FloatingToolbarContent(
 
                                 // Standard Transform Prompts
                                 items(prompts) { prompt ->
-                                    val requiresInput = prompt.contextAction == ContextAction.NONE ||
-                                            (prompt.category == PromptCategory.TEXT_TRANSFORM && prompt.contextAction != ContextAction.CLIPBOARD)
-                                    val isGrayed = requiresInput && liveText.isBlank()
-
                                     CompanionActionChip(
                                         label = if (isCompactMode) prompt.iconEmoji else "${prompt.iconEmoji} ${prompt.title}",
                                         accent = false,
-                                        grayedOut = isGrayed,
                                         onClick = {
-                                            if (isGrayed) {
-                                                Toast.makeText(
-                                                    context,
-                                                    "No text entered or selected. Please type or place cursor in a text field first.",
-                                                    Toast.LENGTH_SHORT
-                                                ).show()
-                                            } else {
-                                                executePrompt(prompt)
-                                            }
+                                            executePrompt(prompt)
                                         },
                                         onLongClick = {
                                             editingPromptInline = prompt
@@ -957,31 +944,19 @@ fun FloatingToolbarContent(
                         }
 
                         // 2. Quick Execute / Run Button (to the left of 'x')
-                        val hasInput = liveText.isNotBlank()
                         IconButton(
                             onClick = {
-                                if (!hasInput) {
-                                    Toast.makeText(context, "No text entered or selected to execute.", Toast.LENGTH_SHORT).show()
-                                } else {
-                                    startGeneration("", directExecute = true)
-                                }
+                                startGeneration("", directExecute = true)
                             },
                             modifier = Modifier
                                 .size(28.dp)
-                                .background(
-                                    if (hasInput) Color(0x44A27B5C) else Color(0x1A3F4F44),
-                                    CircleShape
-                                )
-                                .border(
-                                    1.dp,
-                                    if (hasInput) Color(0xFFA27B5C) else Color(0x22DCD7C9),
-                                    CircleShape
-                                )
+                                .background(Color(0x44A27B5C), CircleShape)
+                                .border(1.dp, Color(0xFFA27B5C), CircleShape)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Bolt,
                                 contentDescription = "Quick Execute",
-                                tint = if (hasInput) Color(0xFFFFD54F) else Color(0x44DCD7C9),
+                                tint = Color(0xFFFFD54F),
                                 modifier = Modifier.size(16.dp)
                             )
                         }
