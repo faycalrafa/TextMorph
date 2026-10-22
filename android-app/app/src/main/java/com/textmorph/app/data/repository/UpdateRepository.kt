@@ -113,46 +113,75 @@ class UpdateRepository(private val context: Context) {
         }
     }
 
-    fun downloadApk(downloadUrl: String): Flow<DownloadState> = flow {
-        try {
-            AppLogger.i(TAG, "Downloading APK from $downloadUrl...")
-            val url = URL(downloadUrl)
-            val conn = (url.openConnection() as HttpURLConnection).apply {
-                connectTimeout = 15000
-                readTimeout = 30000
-                instanceFollowRedirects = true
-            }
+    @Volatile
+    private var cachedDownloadedApkFile: File? = null
 
-            // Follow redirect if needed
-            val redirectedConn = if (conn.responseCode in 300..399) {
-                val newUrl = conn.getHeaderField("Location")
-                (URL(newUrl).openConnection() as HttpURLConnection).apply {
+    fun downloadApk(downloadUrl: String): Flow<DownloadState> = flow {
+        var activeConnection: HttpURLConnection? = null
+        try {
+            AppLogger.i(TAG, "Starting high-speed APK download from $downloadUrl...")
+
+            var currentUrl = downloadUrl
+            var redirectHops = 0
+            var finalConnection: HttpURLConnection? = null
+
+            while (redirectHops < 6) {
+                val url = URL(currentUrl)
+                val conn = (url.openConnection() as HttpURLConnection).apply {
                     connectTimeout = 15000
                     readTimeout = 30000
+                    instanceFollowRedirects = false
+                    setRequestProperty("User-Agent", "TextMorph-Android")
                 }
-            } else {
-                conn
+                activeConnection = conn
+                val code = conn.responseCode
+                if (code in 300..399) {
+                    val location = conn.getHeaderField("Location")
+                    if (location.isNullOrBlank()) {
+                        break
+                    }
+                    currentUrl = location
+                    redirectHops++
+                    conn.disconnect()
+                } else if (code in 200..299) {
+                    finalConnection = conn
+                    break
+                } else {
+                    val err = conn.errorStream?.bufferedReader()?.use { it.readText() } ?: "HTTP $code"
+                    throw Exception("Server returned HTTP $code: $err")
+                }
             }
 
-            val totalBytes = redirectedConn.contentLengthLong
+            val targetConn = finalConnection ?: throw Exception("Failed to resolve download URL after redirects.")
+            activeConnection = targetConn
+
+            val totalBytes = targetConn.contentLengthLong
             val cacheDir = File(context.cacheDir, "updates")
             if (!cacheDir.exists()) cacheDir.mkdirs()
             val apkFile = File(cacheDir, "TextMorph-update.apk")
             if (apkFile.exists()) apkFile.delete()
 
-            redirectedConn.inputStream.use { input ->
-                FileOutputStream(apkFile).use { output ->
-                    val buffer = ByteArray(8 * 1024)
+            // 64KB high-speed stream buffering
+            val bufferSize = 64 * 1024
+            java.io.BufferedInputStream(targetConn.inputStream, bufferSize).use { input ->
+                java.io.BufferedOutputStream(FileOutputStream(apkFile), bufferSize).use { output ->
+                    val buffer = ByteArray(bufferSize)
                     var bytesRead: Int
                     var totalRead = 0L
                     var lastPercent = -1
+                    var lastEmitTime = 0L
 
                     while (input.read(buffer).also { bytesRead = it } != -1) {
                         output.write(buffer, 0, bytesRead)
                         totalRead += bytesRead
+
                         val percent = if (totalBytes > 0) ((totalRead * 100) / totalBytes).toInt() else 0
-                        if (percent != lastPercent) {
+                        val now = System.currentTimeMillis()
+
+                        // Throttle progress updates to at most once per 150ms or 2%+ delta to prevent Compose jank
+                        if ((percent >= lastPercent + 2 && now - lastEmitTime >= 150L) || percent == 100 || (lastPercent == -1 && percent > 0)) {
                             lastPercent = percent
+                            lastEmitTime = now
                             emit(DownloadState.Progress(percent, totalRead, totalBytes))
                         }
                     }
@@ -160,18 +189,28 @@ class UpdateRepository(private val context: Context) {
                 }
             }
 
-            AppLogger.i(TAG, "APK download completed: ${apkFile.absolutePath} (${apkFile.length()} bytes)")
+            cachedDownloadedApkFile = if (apkFile.exists() && apkFile.length() > 0) apkFile else null
+            AppLogger.i(TAG, "APK download completed smoothly: ${apkFile.absolutePath} (${apkFile.length()} bytes)")
             emit(DownloadState.Completed(apkFile))
         } catch (e: Exception) {
             AppLogger.e(TAG, "Failed downloading update APK: ${e.message}", e)
             emit(DownloadState.Error(e.message ?: "Download failed"))
+        } finally {
+            try {
+                activeConnection?.disconnect()
+            } catch (_: Exception) {}
         }
     }.flowOn(Dispatchers.IO)
 
     fun getDownloadedApkFile(): File? {
+        val cached = cachedDownloadedApkFile
+        if (cached != null && cached.exists()) return cached
+
         val cacheDir = File(context.cacheDir, "updates")
         val apkFile = File(cacheDir, "TextMorph-update.apk")
-        return if (apkFile.exists() && apkFile.length() > 0) apkFile else null
+        val result = if (apkFile.exists() && apkFile.length() > 0) apkFile else null
+        cachedDownloadedApkFile = result
+        return result
     }
 
     fun installApk(file: File): Boolean {

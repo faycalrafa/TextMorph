@@ -40,6 +40,54 @@ class OpenAiCloudEngine(
         AppLogger.i(TAG, "Cloud config updated: url=$baseUrl, model=$modelId, ready=$isReady")
     }
 
+    suspend fun fetchAvailableModels(rawBaseUrl: String, rawApiKey: String): Result<List<String>> = withContext(Dispatchers.IO) {
+        val cleanBase = rawBaseUrl.trim().trimEnd('/')
+        if (cleanBase.isEmpty()) {
+            return@withContext Result.failure(IllegalArgumentException("Base URL cannot be blank."))
+        }
+        val endpoint = if (cleanBase.endsWith("/models")) cleanBase else "$cleanBase/models"
+        AppLogger.i(TAG, "Fetching models from: $endpoint")
+
+        try {
+            val url = URL(endpoint)
+            val conn = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                connectTimeout = 12000
+                readTimeout = 20000
+                setRequestProperty("Accept", "application/json")
+                if (rawApiKey.isNotBlank()) {
+                    setRequestProperty("Authorization", "Bearer ${rawApiKey.trim()}")
+                }
+            }
+
+            val responseCode = conn.responseCode
+            if (responseCode !in 200..299) {
+                val errorMsg = conn.errorStream?.bufferedReader()?.use { it.readText() } ?: "HTTP $responseCode"
+                AppLogger.w(TAG, "Fetching models failed with HTTP $responseCode: $errorMsg")
+                return@withContext Result.failure(Exception("HTTP $responseCode: $errorMsg"))
+            }
+
+            val body = conn.inputStream.bufferedReader().use { it.readText() }
+            val parsed = json.parseToJsonElement(body).jsonObject
+            val dataArray = parsed["data"]?.jsonArray ?: parsed["models"]?.jsonArray
+            val modelList = mutableListOf<String>()
+
+            dataArray?.forEach { elem ->
+                val id = elem.jsonObject["id"]?.jsonPrimitive?.content
+                if (!id.isNullOrBlank()) {
+                    modelList.add(id)
+                }
+            }
+
+            modelList.sort()
+            AppLogger.i(TAG, "Successfully fetched ${modelList.size} models from $endpoint")
+            Result.success(modelList)
+        } catch (e: Exception) {
+            AppLogger.e(TAG, "Exception while fetching models from $endpoint: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
     override suspend fun initialize(modelPath: String?): Boolean = withContext(Dispatchers.IO) {
         isReady = apiKey.isNotEmpty() || baseUrl.contains("localhost") || baseUrl.contains("127.0.0.1")
         isReady

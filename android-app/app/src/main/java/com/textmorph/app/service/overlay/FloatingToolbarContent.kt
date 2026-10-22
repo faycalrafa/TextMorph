@@ -98,6 +98,7 @@ enum class FloatingButtonState {
 }
 
 sealed class RadialActionItem {
+    data object DirectExecuteAction : RadialActionItem()
     data class PromptAction(val prompt: PromptEntity) : RadialActionItem()
     data object MorePromptsAction : RadialActionItem()
     data object UndoAction : RadialActionItem()
@@ -114,7 +115,8 @@ fun FloatingToolbarContent(
     isPlacedOnRight: () -> Boolean,
     onRadialStateChanged: (isOpen: Boolean, offsetX: Int, offsetY: Int) -> Unit,
     onDragStart: () -> Unit,
-    onDragMove: () -> Unit,
+    onDragDelta: (dx: Float, dy: Float) -> Unit,
+    onDragEnd: () -> Unit,
     onTakeScreenshotContext: (((ByteArray) -> Unit) -> Unit)? = null,
     onExtractTranscript: (() -> String)? = null,
     onDismiss: () -> Unit,
@@ -134,6 +136,7 @@ fun FloatingToolbarContent(
     var showMorePromptsDialog by remember { mutableStateOf(false) }
     var hoveredIndex by remember { mutableIntStateOf(-1) }
     var touchPointerPos by remember { mutableStateOf(Offset.Zero) }
+    var isDragging by remember { mutableStateOf(false) }
 
     // Laser Animation for GENERATING state
     val infiniteTransition = rememberInfiniteTransition(label = "laser")
@@ -162,10 +165,10 @@ fun FloatingToolbarContent(
         }
     }
 
-    // Prepare radial items: Top 5 prompts + "More Prompts 📂" (Slot 6) + "Undo ↩️" (Slot 7)
+    // Prepare radial items: Execute Cmd (Top / Slot 0) + Top 5 prompts + "More Prompts 📂" + "Undo ↩️"
     val radialItems: List<RadialActionItem> = remember(prompts) {
         val topPrompts = prompts.take(5).map { RadialActionItem.PromptAction(it) }
-        topPrompts + listOf(
+        listOf(RadialActionItem.DirectExecuteAction) + topPrompts + listOf(
             RadialActionItem.MorePromptsAction,
             RadialActionItem.UndoAction
         )
@@ -372,6 +375,9 @@ fun FloatingToolbarContent(
 
     fun executeRadialItem(item: RadialActionItem) {
         when (item) {
+            is RadialActionItem.DirectExecuteAction -> {
+                startGeneration("", directExecute = true)
+            }
             is RadialActionItem.UndoAction -> {
                 if (hasUndo()) {
                     onRevertText()
@@ -415,7 +421,16 @@ fun FloatingToolbarContent(
     // Outer container: when idle, 48dp. When radial open or dialog showing, expands to container size.
     Box(
         modifier = if (isContainerExpanded) {
-            Modifier.size(containerWidthDp, containerHeightDp)
+            Modifier
+                .size(containerWidthDp, containerHeightDp)
+                .clickable(
+                    indication = null,
+                    interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+                ) {
+                    if (isRadialOpen && !showMorePromptsDialog) {
+                        notifyRadialState(false)
+                    }
+                }
         } else {
             Modifier.size(buttonSizeDp)
         }
@@ -446,10 +461,10 @@ fun FloatingToolbarContent(
                 if (hoveredIndex in radialItems.indices) {
                     val targetPos = getActionPosition(hoveredIndex, radialItems.size)
 
-                    // Outer laser glow
+                    // Outer laser glow in warm Forest Clay
                     drawLine(
                         brush = Brush.linearGradient(
-                            colors = listOf(Color(0x8800E5FF), Color(0xCCFFD54F))
+                            colors = listOf(Color(0xBBA27B5C), Color(0xCCDCD7C9))
                         ),
                         start = buttonCenter,
                         end = targetPos,
@@ -459,7 +474,7 @@ fun FloatingToolbarContent(
 
                     // Inner bright laser core
                     drawLine(
-                        color = Color.White,
+                        color = Color(0xFFFFF8E7),
                         start = buttonCenter,
                         end = targetPos,
                         strokeWidth = 2.dp.toPx(),
@@ -468,7 +483,7 @@ fun FloatingToolbarContent(
 
                     // Node highlight aura
                     drawCircle(
-                        color = Color(0x3300E5FF),
+                        color = Color(0x33A27B5C),
                         radius = with(density) { 26.dp.toPx() },
                         center = targetPos
                     )
@@ -503,19 +518,53 @@ fun FloatingToolbarContent(
                     contentAlignment = Alignment.Center
                 ) {
                     when (item) {
+                        is RadialActionItem.DirectExecuteAction -> {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .shadow(elevation = if (isHovered) 10.dp else 4.dp, shape = CircleShape)
+                                    .background(
+                                        Brush.linearGradient(
+                                            listOf(Color(0xFFA27B5C), Color(0xFF8C6445))
+                                        ),
+                                        shape = CircleShape
+                                    )
+                                    .border(
+                                        width = if (isHovered) 2.dp else 1.dp,
+                                        color = if (isHovered) Color(0xFFFFF8E7) else Color(0xCCDCD7C9),
+                                        shape = CircleShape
+                                    )
+                                    .clickable {
+                                        executeRadialItem(item)
+                                        notifyRadialState(false)
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.AutoAwesome,
+                                    contentDescription = "Execute Command",
+                                    tint = Color(0xFFFFF8E7),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
                         is RadialActionItem.UndoAction -> {
                             val enabled = hasUndo()
                             Surface(
                                 shape = CircleShape,
-                                color = if (enabled) Color(0xFFFF7043) else Color(0x66FF7043),
+                                color = if (enabled) Color(0xFFB87333) else Color(0x66B87333),
                                 shadowElevation = if (isHovered) 10.dp else 4.dp,
                                 modifier = Modifier
                                     .fillMaxSize()
                                     .border(
                                         width = if (isHovered) 2.dp else 1.dp,
-                                        color = if (isHovered) Color.White else Color(0xAAFFD54F),
+                                        color = if (isHovered) Color.White else Color(0x88DCD7C9),
                                         shape = CircleShape
                                     )
+                                    .clickable(enabled = enabled) {
+                                        executeRadialItem(item)
+                                        notifyRadialState(false)
+                                    }
                             ) {
                                 Box(contentAlignment = Alignment.Center) {
                                     Icon(
@@ -530,21 +579,24 @@ fun FloatingToolbarContent(
                         is RadialActionItem.MorePromptsAction -> {
                             Surface(
                                 shape = CircleShape,
-                                color = Color(0xFF2E7D32),
+                                color = Color(0xFF3F4F44),
                                 shadowElevation = if (isHovered) 10.dp else 4.dp,
                                 modifier = Modifier
                                     .fillMaxSize()
                                     .border(
                                         width = if (isHovered) 2.dp else 1.dp,
-                                        color = if (isHovered) Color(0xFF00E5FF) else Color(0x8881C784),
+                                        color = if (isHovered) Color(0xFFDCD7C9) else Color(0x88A27B5C),
                                         shape = CircleShape
                                     )
+                                    .clickable {
+                                        executeRadialItem(item)
+                                    }
                             ) {
                                 Box(contentAlignment = Alignment.Center) {
                                     Icon(
                                         imageVector = Icons.Default.Widgets,
                                         contentDescription = "More Prompts",
-                                        tint = Color.White,
+                                        tint = Color(0xFFDCD7C9),
                                         modifier = Modifier.size(18.dp)
                                     )
                                 }
@@ -556,15 +608,9 @@ fun FloatingToolbarContent(
                             val visionDisabled = isVision && !isVisionCapable()
 
                             val bubbleGradient = if (visionDisabled) {
-                                listOf(Color(0xFF555555), Color(0xFF333333))
+                                listOf(Color(0xFF4A4A4A), Color(0xFF2A2A2A))
                             } else {
-                                when (prompt.contextAction) {
-                                    ContextAction.SCREENSHOT -> listOf(Color(0xFF0288D1), Color(0xFF01579B))
-                                    ContextAction.CAMERA -> listOf(Color(0xFFFF8F00), Color(0xFFE65100))
-                                    ContextAction.OCR -> listOf(Color(0xFF8E24AA), Color(0xFF4A148C))
-                                    ContextAction.ACCESSIBILITY_TEXT -> listOf(Color(0xFF00897B), Color(0xFF004D40))
-                                    ContextAction.NONE -> listOf(Color(0xFF5E35B1), Color(0xFF311B92))
-                                }
+                                listOf(Color(0xFF3F4F44), Color(0xFF2C3930))
                             }
 
                             Box(
@@ -574,9 +620,13 @@ fun FloatingToolbarContent(
                                     .background(Brush.linearGradient(bubbleGradient), shape = CircleShape)
                                     .border(
                                         width = if (isHovered) 2.dp else 1.dp,
-                                        color = if (isHovered) Color(0xFF00E5FF) else Color(0x55FFFFFF),
+                                        color = if (isHovered) Color(0xFFDCD7C9) else Color(0x66A27B5C),
                                         shape = CircleShape
-                                    ),
+                                    )
+                                    .clickable {
+                                        executeRadialItem(item)
+                                        notifyRadialState(false)
+                                    },
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
@@ -599,15 +649,16 @@ fun FloatingToolbarContent(
 
                     Surface(
                         shape = RoundedCornerShape(10.dp),
-                        color = Color(0xF21C2520),
+                        color = Color(0xF22C3930),
                         shadowElevation = 8.dp,
                         modifier = Modifier
                             .offset { IntOffset(tooltipOffsetX, tooltipOffsetY) }
-                            .border(1.dp, Color(0x66A27B5C), RoundedCornerShape(10.dp))
+                            .border(1.dp, Color(0x88A27B5C), RoundedCornerShape(10.dp))
                             .padding(horizontal = 10.dp, vertical = 5.dp)
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             val tooltipText = when (item) {
+                                is RadialActionItem.DirectExecuteAction -> "⚡ Execute / Run Command"
                                 is RadialActionItem.UndoAction -> "↩️ Revert Text"
                                 is RadialActionItem.MorePromptsAction -> "📂 More Prompts..."
                                 is RadialActionItem.PromptAction -> {
@@ -623,7 +674,7 @@ fun FloatingToolbarContent(
                                 text = tooltipText,
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.Bold,
-                                color = Color.White
+                                color = Color(0xFFDCD7C9)
                             )
                         }
                     }
@@ -762,19 +813,21 @@ fun FloatingToolbarContent(
                         }
                     }
                     .size(buttonSizeDp)
-                    .pointerInput(isRightSide, prompts) {
+                    .pointerInput(isRightSide, prompts, isRadialOpen, state) {
                         awaitEachGesture {
                             val down = awaitFirstDown(requireUnconsumed = false)
                             val downTime = System.currentTimeMillis()
+                            var lastPointerPos = down.position
                             val startPos = down.position
-                            var hasMovedPastThreshold = false
-                            var hasStartedDrag = false
+                            var hasMovedBeforeLongPress = false
 
-                            // Coroutine to trigger radial menu after 220ms hold in place
-                            val holdJob = scope.launch {
-                                delay(220)
-                                if (!hasMovedPastThreshold && state == FloatingButtonState.IDLE) {
-                                    notifyRadialState(true)
+                            // Long press detection: 320ms hold in place activates smooth drag mode!
+                            val longPressJob = scope.launch {
+                                delay(320)
+                                if (!hasMovedBeforeLongPress && !isRadialOpen && state == FloatingButtonState.IDLE) {
+                                    isDragging = true
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    onDragStart()
                                 }
                             }
 
@@ -785,12 +838,15 @@ fun FloatingToolbarContent(
 
                                 if (!pointerChange.pressed) {
                                     pointerActive = false
-                                    holdJob.cancel()
+                                    longPressJob.cancel()
                                     pointerChange.consume()
 
                                     val elapsed = System.currentTimeMillis() - downTime
 
-                                    if (isRadialOpen) {
+                                    if (isDragging) {
+                                        isDragging = false
+                                        onDragEnd()
+                                    } else if (isRadialOpen) {
                                         // Release on Radial Item
                                         if (hoveredIndex in radialItems.indices) {
                                             val selectedItem = radialItems[hoveredIndex]
@@ -798,12 +854,12 @@ fun FloatingToolbarContent(
                                             executeRadialItem(selectedItem)
                                         }
                                         notifyRadialState(false)
-                                    } else if (!hasMovedPastThreshold && elapsed < 200) {
-                                        // Quick Tap (< 200ms)
+                                    } else if (elapsed < 320 && !hasMovedBeforeLongPress) {
+                                        // Single Click (< 320ms) -> Opens Circle Menu
                                         when (state) {
                                             FloatingButtonState.IDLE -> {
                                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                startGeneration("", directExecute = true)
+                                                notifyRadialState(true)
                                             }
                                             FloatingButtonState.GENERATING -> {
                                                 activeJob?.cancel()
@@ -821,29 +877,27 @@ fun FloatingToolbarContent(
                                 } else {
                                     // Pointer is moving
                                     val currentPos = pointerChange.position
-                                    val deltaTotal = hypot(currentPos.x - startPos.x, currentPos.y - startPos.y)
+                                    val deltaSinceLast = currentPos - lastPointerPos
+                                    lastPointerPos = currentPos
 
-                                    if (!isRadialOpen) {
-                                        if (deltaTotal > with(density) { 10.dp.toPx() }) {
-                                            hasMovedPastThreshold = true
-                                            holdJob.cancel()
-                                            if (!hasStartedDrag) {
-                                                hasStartedDrag = true
-                                                onDragStart()
-                                            }
-                                            onDragMove()
+                                    if (isDragging) {
+                                        pointerChange.consume()
+                                        onDragDelta(deltaSinceLast.x, deltaSinceLast.y)
+                                    } else if (!isRadialOpen) {
+                                        val distFromStart = hypot(currentPos.x - startPos.x, currentPos.y - startPos.y)
+                                        if (distFromStart > with(density) { 14.dp.toPx() }) {
+                                            hasMovedBeforeLongPress = true
+                                            longPressJob.cancel()
                                         }
                                     } else {
                                         // In Radial Menu Mode: Track Hover Position
                                         pointerChange.consume()
-                                        // Translate pointer position to container coordinates
                                         val localX = buttonOffsetXPx + currentPos.x
                                         val localY = buttonOffsetYPx + currentPos.y
                                         touchPointerPos = Offset(localX, localY)
 
-                                        // Hit-test closest action bubble within 40dp hit-box
                                         var closestIndex = -1
-                                        var minDistance = with(density) { 40.dp.toPx() }
+                                        var minDistance = with(density) { 42.dp.toPx() }
 
                                         radialItems.indices.forEach { i ->
                                             val itemPos = getActionPosition(i, radialItems.size)
@@ -867,21 +921,22 @@ fun FloatingToolbarContent(
                     },
                 contentAlignment = Alignment.Center
             ) {
-                // Main Button Surface
+                // Main Button Surface in Forest Clay Palette
                 Surface(
                     shape = CircleShape,
                     color = when (state) {
                         FloatingButtonState.GENERATING -> Color(0xFF2C3930)
                         FloatingButtonState.REVERT_WINDOW -> Color(0xFF3F4F44)
-                        else -> Color(0xFF1E2822)
+                        else -> Color(0xFF2C3930)
                     },
-                    shadowElevation = if (isRadialOpen) 14.dp else 8.dp,
+                    shadowElevation = if (isRadialOpen || isDragging) 14.dp else 8.dp,
                     modifier = Modifier
                         .size(buttonSizeDp)
+                        .scale(if (isDragging) 1.14f else 1.0f)
                         .border(
                             width = 2.dp,
                             brush = Brush.linearGradient(
-                                listOf(Color(0xFF8A2BE2), Color(0xFF00E5FF), Color(0xFFFF4081))
+                                listOf(Color(0xFFA27B5C), Color(0xFFC59B76))
                             ),
                             shape = CircleShape
                         )
@@ -892,7 +947,7 @@ fun FloatingToolbarContent(
                                 Icon(
                                     imageVector = Icons.Default.Stop,
                                     contentDescription = "Stop Generation",
-                                    tint = Color(0xFFFF5252),
+                                    tint = Color(0xFFE57373),
                                     modifier = Modifier.size(20.dp)
                                 )
                             }
@@ -908,8 +963,8 @@ fun FloatingToolbarContent(
                                 Icon(
                                     imageVector = Icons.Default.AutoAwesome,
                                     contentDescription = "TextMorph AI",
-                                    tint = Color(0xFF00E5FF),
-                                    modifier = Modifier.size(20.dp)
+                                    tint = Color(0xFFDCD7C9),
+                                    modifier = Modifier.size(22.dp)
                                 )
                             }
                         }

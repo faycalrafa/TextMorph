@@ -102,6 +102,7 @@ import com.textmorph.app.data.repository.SettingsRepository
 import com.textmorph.app.data.repository.UpdateRepository
 import com.textmorph.app.ui.about.AboutContent
 import com.textmorph.app.ui.about.DevLogsScreen
+import com.textmorph.app.ui.about.VersionHistoryScreen
 import com.textmorph.app.ui.common.DevLogsDialog
 import com.textmorph.app.ui.common.ProminentDisclosureDialog
 import com.textmorph.app.ui.common.UpdateDialog
@@ -119,6 +120,7 @@ enum class AppDestination(val title: String) {
     CHAT("AI Playground"),
     SETTINGS("Settings"),
     ABOUT("About TextMorph"),
+    VERSION_HISTORY("Version History"),
     DEV_LOGS("Developer Diagnostics")
 }
 
@@ -365,6 +367,11 @@ fun DashboardScreen(
                 installedVersionName = updateRepository.getCurrentVersionName(),
                 onNavigateBack = { currentDestination = AppDestination.PROMPTS },
                 onOpenDrawer = { scope.launch { drawerState.open() } }
+            )
+        } else if (currentDestination == AppDestination.VERSION_HISTORY) {
+            VersionHistoryScreen(
+                currentVersionName = updateRepository.getCurrentVersionName(),
+                onNavigateBack = { currentDestination = AppDestination.ABOUT }
             )
         } else {
             Scaffold(
@@ -685,10 +692,14 @@ fun DashboardScreen(
                                 },
                                 onNavigateToDevLogs = {
                                     currentDestination = AppDestination.DEV_LOGS
+                                },
+                                onNavigateToVersionHistory = {
+                                    currentDestination = AppDestination.VERSION_HISTORY
                                 }
                             )
                         }
 
+                        AppDestination.VERSION_HISTORY,
                         AppDestination.DEV_LOGS -> {
                             // Handled in root Scaffold branch
                         }

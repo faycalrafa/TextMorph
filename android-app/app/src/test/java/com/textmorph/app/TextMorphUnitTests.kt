@@ -362,4 +362,62 @@ class TextMorphUnitTests {
         val extendedPrompts = seeds.drop(5)
         assertTrue(extendedPrompts.isNotEmpty())
     }
+
+    @Test
+    fun testRadialActionItemsExecuteCommandIsSlotZero() {
+        val seeds = PromptRepository.getDefaultSeedPrompts()
+        val topPrompts = seeds.take(5).map { com.textmorph.app.service.overlay.RadialActionItem.PromptAction(it) }
+        val radialItems = listOf(com.textmorph.app.service.overlay.RadialActionItem.DirectExecuteAction) + topPrompts + listOf(
+            com.textmorph.app.service.overlay.RadialActionItem.MorePromptsAction,
+            com.textmorph.app.service.overlay.RadialActionItem.UndoAction
+        )
+
+        assertEquals(8, radialItems.size)
+        assertTrue(radialItems.first() is com.textmorph.app.service.overlay.RadialActionItem.DirectExecuteAction)
+        assertTrue(radialItems[1] is com.textmorph.app.service.overlay.RadialActionItem.PromptAction)
+        assertTrue(radialItems[6] is com.textmorph.app.service.overlay.RadialActionItem.MorePromptsAction)
+        assertTrue(radialItems[7] is com.textmorph.app.service.overlay.RadialActionItem.UndoAction)
+    }
+
+    @Test
+    fun testCloudEngineModelsEndpointUrlResolution() {
+        fun resolveModelsEndpoint(rawBaseUrl: String): String {
+            val cleanBase = rawBaseUrl.trim().trimEnd('/')
+            return if (cleanBase.endsWith("/models")) cleanBase else "$cleanBase/models"
+        }
+
+        assertEquals("https://api.openai.com/v1/models", resolveModelsEndpoint("https://api.openai.com/v1"))
+        assertEquals("https://api.openai.com/v1/models", resolveModelsEndpoint("https://api.openai.com/v1/"))
+        assertEquals("https://openrouter.ai/api/v1/models", resolveModelsEndpoint("https://openrouter.ai/api/v1"))
+        assertEquals("https://openrouter.ai/api/v1/models", resolveModelsEndpoint("https://openrouter.ai/api/v1/models"))
+        assertEquals("http://127.0.0.1:8080/models", resolveModelsEndpoint("http://127.0.0.1:8080"))
+    }
+
+    @Test
+    fun testUpdateDownloadProgressThrottlingLogic() {
+        var lastPercent = -1
+        var lastEmitTime = 0L
+        val emittedProgress = mutableListOf<Int>()
+
+        fun onProgressUpdate(currentPercent: Int, currentTime: Long) {
+            if ((currentPercent >= lastPercent + 2 && currentTime - lastEmitTime >= 150L) || currentPercent == 100 || (lastPercent == -1 && currentPercent > 0)) {
+                lastPercent = currentPercent
+                lastEmitTime = currentTime
+                emittedProgress.add(currentPercent)
+            }
+        }
+
+        onProgressUpdate(1, 1000L)   // First emission
+        onProgressUpdate(2, 1050L)   // Throttled (< 150ms delta)
+        onProgressUpdate(3, 1100L)   // Throttled (< 150ms delta)
+        onProgressUpdate(4, 1180L)   // Emitted (>= 150ms and >= 2% delta from 1%)
+        onProgressUpdate(5, 1200L)   // Throttled
+        onProgressUpdate(100, 1250L) // 100% always emitted
+
+        assertTrue(emittedProgress.contains(1))
+        assertTrue(emittedProgress.contains(4))
+        assertTrue(emittedProgress.contains(100))
+        assertFalse(emittedProgress.contains(2))
+        assertFalse(emittedProgress.contains(3))
+    }
 }

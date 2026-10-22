@@ -16,6 +16,7 @@ import com.textmorph.app.llm.LiteRtLmEngine
 import com.textmorph.app.llm.OpenAiCloudEngine
 import com.textmorph.app.theme.TextMorphTheme
 import com.textmorph.app.util.AppLogger
+import kotlin.math.roundToInt
 
 class FloatingToolbarWindowManager(
     private val service: TextMorphAccessibilityService,
@@ -34,13 +35,9 @@ class FloatingToolbarWindowManager(
     private var userX: Int? = null
     private var userY: Int? = null
 
-    // Raw screen touch tracking to eliminate dragging lag / jitter
-    private var currentRawX = 0f
-    private var currentRawY = 0f
-    private var dragStartRawX = 0f
-    private var dragStartRawY = 0f
-    private var dragStartWinX = 0
-    private var dragStartWinY = 0
+    // Smooth dragging window coordinate accumulators
+    private var currentWinX = 0f
+    private var currentWinY = 0f
 
     fun show(
         onTakeScreenshot: (((ByteArray) -> Unit) -> Unit)? = null,
@@ -75,12 +72,6 @@ class FloatingToolbarWindowManager(
             }
 
             composeView = ComposeView(service).apply {
-                setOnTouchListener { _, ev ->
-                    currentRawX = ev.rawX
-                    currentRawY = ev.rawY
-                    false
-                }
-
                 setViewTreeLifecycleOwner(serviceLifecycleOwner)
                 setViewTreeSavedStateRegistryOwner(serviceLifecycleOwner)
                 setViewTreeViewModelStoreOwner(serviceLifecycleOwner)
@@ -119,8 +110,11 @@ class FloatingToolbarWindowManager(
                             onDragStart = {
                                 onDragStart()
                             },
-                            onDragMove = {
-                                onDragMove(screenWidth, screenHeight)
+                            onDragDelta = { dx, dy ->
+                                onDragDelta(dx, dy, screenWidth, screenHeight)
+                            },
+                            onDragEnd = {
+                                onDragEnd()
                             },
                             onTakeScreenshotContext = onTakeScreenshot,
                             onExtractTranscript = onExtractTranscript,
@@ -173,28 +167,41 @@ class FloatingToolbarWindowManager(
     }
 
     private fun onDragStart() {
-        dragStartRawX = currentRawX
-        dragStartRawY = currentRawY
-        val params = composeView?.layoutParams as? WindowManager.LayoutParams
-        if (params != null) {
-            dragStartWinX = params.x
-            dragStartWinY = params.y
-        }
+        val params = composeView?.layoutParams as? WindowManager.LayoutParams ?: return
+        currentWinX = params.x.toFloat()
+        currentWinY = params.y.toFloat()
     }
 
-    private fun onDragMove(screenWidth: Int, screenHeight: Int) {
+    private fun onDragDelta(dx: Float, dy: Float, screenWidth: Int, screenHeight: Int) {
         try {
             val view = composeView ?: return
             val params = view.layoutParams as? WindowManager.LayoutParams ?: return
-            val dx = (currentRawX - dragStartRawX).toInt()
-            val dy = (currentRawY - dragStartRawY).toInt()
-            params.x = (dragStartWinX + dx).coerceIn(0, (screenWidth - 80).coerceAtLeast(0))
-            params.y = (dragStartWinY + dy).coerceIn(60, (screenHeight - 120).coerceAtLeast(60))
+            currentWinX += dx
+            currentWinY += dy
+            params.x = currentWinX.roundToInt().coerceIn(0, (screenWidth - 70).coerceAtLeast(0))
+            params.y = currentWinY.roundToInt().coerceIn(60, (screenHeight - 120).coerceAtLeast(60))
             userX = params.x
             userY = params.y
             windowManager.updateViewLayout(view, params)
         } catch (e: Exception) {
             AppLogger.e(TAG, "Failed updating dragged overlay layout: ${e.message}", e)
+        }
+    }
+
+    private fun onDragEnd() {
+        val params = composeView?.layoutParams as? WindowManager.LayoutParams ?: return
+        userX = params.x
+        userY = params.y
+        AppLogger.d(TAG, "Overlay dropped at ($userX, $userY)")
+    }
+
+    fun setOverlayVisible(visible: Boolean) {
+        service.mainHandler.post {
+            try {
+                composeView?.visibility = if (visible) android.view.View.VISIBLE else android.view.View.INVISIBLE
+            } catch (e: Exception) {
+                AppLogger.e(TAG, "Failed setting overlay visibility to $visible: ${e.message}", e)
+            }
         }
     }
 

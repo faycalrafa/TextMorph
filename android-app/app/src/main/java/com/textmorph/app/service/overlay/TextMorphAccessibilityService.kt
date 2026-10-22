@@ -25,6 +25,7 @@ class TextMorphAccessibilityService : AccessibilityService() {
     private val TAG = "TextMorphAccessService"
     private var overlayManager: FloatingToolbarWindowManager? = null
     private val screenshotExecutor = Executors.newSingleThreadExecutor()
+    val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
     private lateinit var promptRepository: PromptRepository
     private lateinit var settingsRepository: SettingsRepository
     private lateinit var liteRtEngine: LiteRtLmEngine
@@ -202,39 +203,63 @@ class TextMorphAccessibilityService : AccessibilityService() {
     fun captureScreenContext(onCaptured: (ByteArray) -> Unit) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             try {
-                AppLogger.i(TAG, "Capturing screen for multimodal vision context...")
-                takeScreenshot(
-                    Display.DEFAULT_DISPLAY,
-                    screenshotExecutor,
-                    object : TakeScreenshotCallback {
-                        override fun onSuccess(screenshot: ScreenshotResult) {
-                            try {
-                                val hardwareBuffer = screenshot.hardwareBuffer
-                                val bitmap = Bitmap.wrapHardwareBuffer(
-                                    hardwareBuffer,
-                                    screenshot.colorSpace
-                                )
-                                try { hardwareBuffer.close() } catch (_: Exception) {}
-                                if (bitmap != null) {
-                                    val stream = ByteArrayOutputStream()
-                                    bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)
-                                    val bytes = stream.toByteArray()
-                                    bitmap.recycle()
-                                    AppLogger.i(TAG, "Screen captured successfully: ${bytes.size} bytes.")
-                                    onCaptured(bytes)
-                                }
-                            } catch (e: Exception) {
-                                AppLogger.e(TAG, "Error processing screenshot hardware buffer: ${e.message}", e)
-                            }
-                        }
+                AppLogger.i(TAG, "Capturing screen for multimodal vision context (excluding floating overlay)...")
+                // Temporarily hide the floating overlay window
+                overlayManager?.setOverlayVisible(false)
 
-                        override fun onFailure(errorCode: Int) {
-                            AppLogger.w(TAG, "Take screenshot callback failed with code: $errorCode")
-                        }
+                // Wait 120ms so SurfaceFlinger composes a clean frame behind the overlay
+                mainHandler.postDelayed({
+                    try {
+                        takeScreenshot(
+                            Display.DEFAULT_DISPLAY,
+                            screenshotExecutor,
+                            object : TakeScreenshotCallback {
+                                override fun onSuccess(screenshot: ScreenshotResult) {
+                                    try {
+                                        val hardwareBuffer = screenshot.hardwareBuffer
+                                        val bitmap = Bitmap.wrapHardwareBuffer(
+                                            hardwareBuffer,
+                                            screenshot.colorSpace
+                                        )
+                                        try { hardwareBuffer.close() } catch (_: Exception) {}
+                                        if (bitmap != null) {
+                                            val stream = ByteArrayOutputStream()
+                                            bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)
+                                            val bytes = stream.toByteArray()
+                                            bitmap.recycle()
+                                            AppLogger.i(TAG, "Screen captured successfully: ${bytes.size} bytes.")
+                                            onCaptured(bytes)
+                                        }
+                                    } catch (e: Exception) {
+                                        AppLogger.e(TAG, "Error processing screenshot hardware buffer: ${e.message}", e)
+                                    } finally {
+                                        mainHandler.post {
+                                            overlayManager?.setOverlayVisible(true)
+                                        }
+                                    }
+                                }
+
+                                override fun onFailure(errorCode: Int) {
+                                    AppLogger.w(TAG, "Take screenshot callback failed with code: $errorCode")
+                                    mainHandler.post {
+                                        overlayManager?.setOverlayVisible(true)
+                                    }
+                                }
+                            }
+                        )
+                    } catch (e: Exception) {
+                        AppLogger.e(TAG, "Failed to initiate screen capture: ${e.message}", e)
+                        overlayManager?.setOverlayVisible(true)
                     }
-                )
+                }, 120L)
+
+                // Safeguard timeout to ensure overlay visibility is restored
+                mainHandler.postDelayed({
+                    overlayManager?.setOverlayVisible(true)
+                }, 1500L)
             } catch (e: Exception) {
-                AppLogger.e(TAG, "Failed to initiate screen capture: ${e.message}", e)
+                AppLogger.e(TAG, "Failed in captureScreenContext: ${e.message}", e)
+                overlayManager?.setOverlayVisible(true)
             }
         }
     }
