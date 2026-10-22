@@ -3,8 +3,6 @@ package com.textmorph.app.service.overlay
 import android.content.Context
 import android.content.res.Configuration
 import android.graphics.PixelFormat
-import android.os.Handler
-import android.os.Looper
 import android.view.Gravity
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
@@ -58,22 +56,12 @@ class FloatingToolbarWindowManager(
     private var singleTapHandler: (() -> Unit)? = null
     private var collapseHandler: (() -> Unit)? = null
 
-    // Touch tracking for drag & edge snapping
+    // Touch tracking for instant swipe drag & edge snapping
     private var startRawX = 0f
     private var startRawY = 0f
     private var startWinX = 0
     private var startWinY = 0
     private var isDragging = false
-    private var hasMovedPastSlop = false
-    private val longPressHandler = Handler(Looper.getMainLooper())
-    private val longPressRunnable = Runnable {
-        if (!isExpanded && isShowing) {
-            isDragging = true
-            isDraggingState.value = true
-            composeView?.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
-            AppLogger.d(TAG, "Companion drag mode engaged via long press")
-        }
-    }
 
     fun isBusy(): Boolean = isBusyState
 
@@ -148,11 +136,8 @@ class FloatingToolbarWindowManager(
                             val p = (layoutParams as? WindowManager.LayoutParams) ?: params
                             startWinX = p.x
                             startWinY = p.y
-                            hasMovedPastSlop = false
                             isDragging = false
                             isDraggingState.value = false
-                            longPressHandler.removeCallbacks(longPressRunnable)
-                            longPressHandler.postDelayed(longPressRunnable, 350)
                             true
                         }
                         MotionEvent.ACTION_MOVE -> {
@@ -163,10 +148,14 @@ class FloatingToolbarWindowManager(
                             if (!isDragging) {
                                 val dist = hypot(dx.toDouble(), dy.toDouble()).toFloat()
                                 if (dist > touchSlop) {
-                                    longPressHandler.removeCallbacks(longPressRunnable)
-                                    hasMovedPastSlop = true
+                                    isDragging = true
+                                    isDraggingState.value = true
+                                    composeView?.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                                    AppLogger.d(TAG, "Instant swipe threshold crossed: Drag mode engaged")
                                 }
-                            } else {
+                            }
+
+                            if (isDragging) {
                                 val curMetrics = service.resources.displayMetrics
                                 val curWidth = curMetrics.widthPixels
                                 val curHeight = curMetrics.heightPixels
@@ -187,7 +176,6 @@ class FloatingToolbarWindowManager(
                             true
                         }
                         MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                            longPressHandler.removeCallbacks(longPressRunnable)
                             if (isDragging) {
                                 isDragging = false
                                 isDraggingState.value = false
@@ -215,7 +203,8 @@ class FloatingToolbarWindowManager(
                                         AppLogger.e(TAG, "Failed persisting companion position: ${e.message}", e)
                                     }
                                 }
-                            } else if (!hasMovedPastSlop && event.actionMasked == MotionEvent.ACTION_UP) {
+                            } else if (event.actionMasked == MotionEvent.ACTION_UP) {
+                                // Instant single tap with zero delay!
                                 singleTapHandler?.invoke()
                             }
                             true
@@ -402,7 +391,6 @@ class FloatingToolbarWindowManager(
     fun hide() {
         if (!isShowing || composeView == null) return
         try {
-            longPressHandler.removeCallbacks(longPressRunnable)
             isDragging = false
             isDraggingState.value = false
             isExpanded = false

@@ -531,5 +531,26 @@ class TextMorphUnitTests {
         assertEquals(boundMaxX, snapX(800))
         assertEquals(boundMaxX, snapX(1050))
     }
+
+    @Test
+    fun testInstantSwipeGestureDetection() {
+        val touchSlop = 16f
+
+        fun processGesture(dx: Float, dy: Float): Boolean {
+            val dist = kotlin.math.hypot(dx.toDouble(), dy.toDouble()).toFloat()
+            return dist > touchSlop
+        }
+
+        // Micro-tremors or clean tap under touch slop -> false (treated as tap)
+        assertFalse(processGesture(0f, 0f))
+        assertFalse(processGesture(5f, 5f))
+        assertFalse(processGesture(10f, 10f)) // hypot = 14.14 < 16
+
+        // Swipe movements exceeding touch slop -> true (immediately engages drag mode)
+        assertTrue(processGesture(20f, 0f))
+        assertTrue(processGesture(0f, 25f))
+        assertTrue(processGesture(15f, 15f)) // hypot = 21.21 > 16
+        assertTrue(processGesture(100f, 50f))
+    }
 }
 
