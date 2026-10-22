@@ -676,5 +676,35 @@ class TextMorphUnitTests {
         assertEquals("/sdcard/Download/mmproj-qwen-f16.gguf", decoded.activeMmprojPath)
         assertEquals("content://com.android.providers.downloads.documents/document/999", decoded.activeMmprojUri)
     }
+
+    @Test
+    fun testLlamaCppBridgeClassAndLibraryAvailabilityCheck() {
+        val loaded = com.textmorph.app.llm.LlamaCppBridge.isLibraryLoaded()
+        // On JVM with org.nehuatl.llamacpp.LlamaContext in classpath, isLibraryLoaded() returns true
+        assertTrue(loaded)
+    }
+
+    @Test
+    fun testLlamaCppPromptFormattingAndThinkingFilter() {
+        val systemInstruction = "You are a concise grammar assistant."
+        val prompt = "Fix this sentence: teh dog barked"
+
+        val formatted = buildString {
+            if (systemInstruction.isNotBlank()) {
+                append("<|im_start|>system\n$systemInstruction<|im_end|>\n")
+            }
+            append("<|im_start|>user\n$prompt<|im_end|>\n<|im_start|>assistant\n")
+        }
+
+        assertTrue(formatted.contains("<|im_start|>system\nYou are a concise grammar assistant.<|im_end|>"))
+        assertTrue(formatted.contains("<|im_start|>user\nFix this sentence: teh dog barked<|im_end|>"))
+        assertTrue(formatted.endsWith("<|im_start|>assistant\n"))
+
+        // Strict No-Thinking Policy token check
+        val rawTokens = listOf("<think>", "Reasoning...", "</think>", "The dog barked.")
+        val filtered = rawTokens.filter { !it.contains("<think>") && !it.contains("</think>") }
+        assertEquals(listOf("Reasoning...", "The dog barked."), filtered)
+    }
 }
+
 

@@ -9,13 +9,13 @@ android {
     compileSdk = 36
     val appVersionName = providers.environmentVariable("APP_VERSION_NAME")
         .orElse(providers.gradleProperty("appVersionName"))
-        .getOrElse("2.0.0")
+        .getOrElse("2.0.1")
 
     defaultConfig {
         applicationId = "com.textmorph.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 23
+        versionCode = 25
         versionName = appVersionName
 
         ndk {
@@ -78,10 +78,13 @@ android {
         excludes += "META-INF/INDEX.LIST"
         excludes += "META-INF/io.netty.versions.properties"
       }
+      jniLibs {
+        pickFirsts += listOf("**/librnllama*.so", "**/libllama*.so")
+      }
     }
 
     androidResources {
-        noCompress += listOf("litertlm", "tflite", "bin", "onnx")
+        noCompress += listOf("litertlm", "tflite", "bin", "onnx", "gguf")
     }
 }
 
@@ -131,6 +134,9 @@ dependencies {
 
   // Google AI Edge LiteRT-LM native on-device runtime (ARM64 & x86_64 JNI)
   implementation(libs.litertlm.android)
+
+  // llama.cpp native on-device runtime (ARM64 NEON/dotprod/i8mm & x86_64 JNI)
+  implementation(libs.llamacpp.android)
 
   // WorkManager for background model downloading
   implementation(libs.androidx.work.runtime.ktx)

@@ -4,7 +4,7 @@ import com.textmorph.app.util.AppLogger
 
 /**
  * Native JNI bridge for llama.cpp and ggml.
- * Provides safe loading of native libraries and declarations for model lifecycle and token generation.
+ * Provides safe verification and loading of native libraries for model lifecycle and token generation.
  */
 object LlamaCppBridge {
 
@@ -16,13 +16,22 @@ object LlamaCppBridge {
     fun isLibraryLoaded(): Boolean {
         if (!loadAttempted) {
             loadAttempted = true
-            libraryLoaded = tryLoadNativeLibraries()
+            libraryLoaded = checkNativeAvailability()
         }
         return libraryLoaded
     }
 
-    private fun tryLoadNativeLibraries(): Boolean {
-        val candidates = listOf("llama", "ggml", "llamacpp_jni")
+    private fun checkNativeAvailability(): Boolean {
+        // 1. Check if the production LlamaContext class is present in classpath without forcing static linkage
+        val classAvailable = try {
+            Class.forName("org.nehuatl.llamacpp.LlamaContext", false, LlamaCppBridge::class.java.classLoader) != null
+        } catch (e: Throwable) {
+            AppLogger.d(TAG, "LlamaContext class check failed: ${e.message}")
+            false
+        }
+
+        // 2. Try loading native libraries if present
+        val candidates = listOf("rnllama", "llama", "ggml", "llamacpp_jni")
         var anyLoaded = false
         for (lib in candidates) {
             try {
@@ -30,28 +39,11 @@ object LlamaCppBridge {
                 AppLogger.i(TAG, "Successfully loaded native library: $lib")
                 anyLoaded = true
             } catch (unsatisfied: UnsatisfiedLinkError) {
-                AppLogger.d(TAG, "Native library $lib not found on this platform/ABI: ${unsatisfied.message}")
+                AppLogger.d(TAG, "Native library $lib not found in library path: ${unsatisfied.message}")
             } catch (e: Throwable) {
                 AppLogger.w(TAG, "Unexpected error loading $lib: ${e.message}", e)
             }
         }
-        return anyLoaded
+        return classAvailable || anyLoaded
     }
-
-    // Native declarations (invoked when native library is loaded)
-    external fun nativeInit(
-        modelPath: String,
-        mmprojPath: String?,
-        nThreads: Int,
-        nGpuLayers: Int
-    ): Long
-
-    external fun nativeGenerate(
-        handle: Long,
-        prompt: String,
-        imageBytes: ByteArray?,
-        callback: (String) -> Unit
-    ): Int
-
-    external fun nativeUnload(handle: Long)
 }

@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import org.nehuatl.llamacpp.LlamaContext
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -29,6 +30,7 @@ class LlamaCppEngine(private val context: Context) : LlmEngine {
     private val TAG = "LlamaCppEngine"
     private val inferenceMutex = Mutex()
 
+    private var nativeContext: LlamaContext? = null
     private var nativeHandle: Long = 0L
     private var activeModelPfd: ParcelFileDescriptor? = null
     private var activeMmprojPfd: ParcelFileDescriptor? = null
@@ -145,20 +147,35 @@ class LlamaCppEngine(private val context: Context) : LlmEngine {
                 if (LlamaCppBridge.isLibraryLoaded()) {
                     addProgressLog("Native llama.cpp library available. Initializing context (threads=$nThreads, gpuLayers=$nGpuLayers)...", 0.65f)
                     try {
-                        val handle = LlamaCppBridge.nativeInit(
-                            modelPath = effectivePath,
-                            mmprojPath = effectiveMmprojPath,
-                            nThreads = nThreads,
-                            nGpuLayers = nGpuLayers
+                        val modelFd = activeModelPfd?.fd ?: -1
+                        val mmprojFd = activeMmprojPfd?.fd ?: -1
+
+                        val params = mutableMapOf<String, Any>(
+                            "model" to (modelUri?.toString() ?: Uri.fromFile(File(effectivePath)).toString()),
+                            "model_fd" to modelFd,
+                            "n_ctx" to 2048,
+                            "n_batch" to 512,
+                            "n_threads" to nThreads,
+                            "n_gpu_layers" to nGpuLayers,
+                            "use_mmap" to true,
+                            "use_mlock" to false
                         )
-                        if (handle != 0L) {
-                            nativeHandle = handle
+                        if (mmprojFd != -1) {
+                            params["mmproj_fd"] = mmprojFd
+                        }
+
+                        val ctx = LlamaContext(1, params)
+                        if (ctx.context != 0L) {
+                            nativeContext = ctx
+                            nativeHandle = ctx.context
                             activeBackend = if (nGpuLayers > 0) "llama.cpp (Vulkan/GPU)" else "llama.cpp (CPU/NEON)"
                             isSessionActive = true
                             success = true
-                            addProgressLog("Native llama.cpp context initialized successfully (handle=$handle).", 0.9f)
+                            val details = runCatching { ctx.modelDetails }.getOrNull()
+                            val arch = details?.get("general.architecture") ?: details?.get("desc") ?: "GGUF"
+                            addProgressLog("Native llama.cpp context initialized successfully (handle=${ctx.context}, arch=$arch, backend=$activeBackend).", 0.9f)
                         } else {
-                            addProgressLog("[WARN] nativeInit returned 0, entering responsive standby fallback mode.", 0.85f)
+                            addProgressLog("[WARN] LlamaContext returned 0 handle, entering responsive standby fallback mode.", 0.85f)
                         }
                     } catch (nativeEx: Throwable) {
                         AppLogger.w(TAG, "Native llama.cpp initialization exception: ${nativeEx.message}", nativeEx)
@@ -197,6 +214,11 @@ class LlamaCppEngine(private val context: Context) : LlmEngine {
 
     private fun resolveModelFilePath(modelPath: String?, modelUri: Uri?, effectiveName: String): String? {
         if (modelPath != null && !modelPath.startsWith("/proc/self/fd/") && File(modelPath).exists() && File(modelPath).canRead()) {
+            try {
+                activeModelPfd = ParcelFileDescriptor.open(File(modelPath), ParcelFileDescriptor.MODE_READ_ONLY)
+            } catch (e: Exception) {
+                AppLogger.w(TAG, "Failed opening PFD for direct file path $modelPath: ${e.message}")
+            }
             return modelPath
         }
 
@@ -242,6 +264,11 @@ class LlamaCppEngine(private val context: Context) : LlmEngine {
 
     private fun resolveMmprojFilePath(path: String?, uri: Uri?): String? {
         if (path != null && File(path).exists() && File(path).canRead()) {
+            try {
+                activeMmprojPfd = ParcelFileDescriptor.open(File(path), ParcelFileDescriptor.MODE_READ_ONLY)
+            } catch (e: Exception) {
+                AppLogger.w(TAG, "Failed opening PFD for direct mmproj path $path: ${e.message}")
+            }
             return path
         }
         if (uri != null) {
@@ -299,7 +326,12 @@ class LlamaCppEngine(private val context: Context) : LlmEngine {
                 AppLogger.w(TAG, "Image passed to llama.cpp text-only session (no mmproj projector attached).")
             }
 
-            if (nativeHandle != 0L) {
+            val ctx = nativeContext
+            if (ctx != null) {
+                var tempImageFile: File? = null
+                var tempImagePfd: ParcelFileDescriptor? = null
+                val imageFds = mutableListOf<Int>()
+
                 try {
                     val fullPrompt = buildString {
                         if (!systemInstruction.isNullOrBlank()) {
@@ -308,19 +340,60 @@ class LlamaCppEngine(private val context: Context) : LlmEngine {
                         append("<|im_start|>user\n$prompt<|im_end|>\n<|im_start|>assistant\n")
                     }
 
-                    LlamaCppBridge.nativeGenerate(
-                        handle = nativeHandle,
-                        prompt = fullPrompt,
-                        imageBytes = if (isModelVisionCapable) imageBytes else null
-                    ) { token ->
-                        // Strip raw thinking blocks
+                    if (imageBytes != null && isModelVisionCapable) {
+                        try {
+                            val imgFile = File(context.cacheDir, "infer_img_${System.currentTimeMillis()}.bin")
+                            imgFile.writeBytes(imageBytes)
+                            tempImageFile = imgFile
+                            val pfd = ParcelFileDescriptor.open(imgFile, ParcelFileDescriptor.MODE_READ_ONLY)
+                            tempImagePfd = pfd
+                            imageFds.add(pfd.fd)
+                        } catch (imgErr: Exception) {
+                            AppLogger.w(TAG, "Failed creating image FD for vision projection: ${imgErr.message}", imgErr)
+                        }
+                    }
+
+                    var emittedAnyToken = false
+                    ctx.setTokenCallback { token ->
+                        // Strict No-Thinking Policy: strip raw thinking blocks
                         if (!token.contains("<think>") && !token.contains("</think>")) {
+                            emittedAnyToken = true
                             trySend(token)
                         }
                     }
+
+                    val completionParams = mutableMapOf<String, Any>(
+                        "prompt" to fullPrompt,
+                        "emit_partial_completion" to true,
+                        "n_predict" to 1024,
+                        "temperature" to 0.7f,
+                        "top_p" to 0.95f,
+                        "top_k" to 40,
+                        "stop" to listOf("<|im_end|>", "<|endoftext|>", "</s>")
+                    )
+                    if (imageFds.isNotEmpty()) {
+                        completionParams["image_fds"] = imageFds
+                    }
+
+                    val result = ctx.completion(completionParams)
+                    if (!emittedAnyToken) {
+                        val textResult = (result["text"] as? String).orEmpty()
+                        val clean = textResult.replace(Regex("<think>[\\s\\S]*?</think>"), "").trim()
+                        if (clean.isNotBlank()) {
+                            send(clean)
+                        }
+                    }
+                } catch (cancelEx: CancellationException) {
+                    AppLogger.i(TAG, "llama.cpp generation cancelled by caller.")
+                    try { ctx.stopCompletion() } catch (_: Throwable) {}
+                    throw cancelEx
                 } catch (nativeEx: Throwable) {
                     AppLogger.e(TAG, "Native llama.cpp generation error: ${nativeEx.message}", nativeEx)
                     streamStandbyFallback(prompt, systemInstruction, imageBytes).collect { send(it) }
+                } finally {
+                    try { ctx.setTokenCallback { } } catch (_: Throwable) {}
+                    try { tempImagePfd?.close() } catch (_: Throwable) {}
+                    try { tempImageFile?.delete() } catch (_: Throwable) {}
                 }
             } else {
                 streamStandbyFallback(prompt, systemInstruction, imageBytes).collect { send(it) }
@@ -418,13 +491,16 @@ class LlamaCppEngine(private val context: Context) : LlmEngine {
     }
 
     private fun unloadInternal() {
-        if (nativeHandle != 0L) {
+        val ctx = nativeContext
+        if (ctx != null) {
             try {
-                LlamaCppBridge.nativeUnload(nativeHandle)
-                AppLogger.i(TAG, "Unloaded native llama.cpp handle=$nativeHandle")
+                ctx.stopCompletion()
+                ctx.release()
+                AppLogger.i(TAG, "Unloaded and released native LlamaContext (handle=$nativeHandle)")
             } catch (e: Exception) {
-                AppLogger.w(TAG, "Error unloading native handle: ${e.message}")
+                AppLogger.w(TAG, "Error releasing native LlamaContext: ${e.message}", e)
             }
+            nativeContext = null
             nativeHandle = 0L
         }
 
