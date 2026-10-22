@@ -364,19 +364,14 @@ class TextMorphUnitTests {
     }
 
     @Test
-    fun testRadialActionItemsExecuteCommandIsSlotZero() {
+    fun testCompanionActionPromptsContainsTransformAndSmartReply() {
         val seeds = PromptRepository.getDefaultSeedPrompts()
-        val topPrompts = seeds.take(5).map { com.textmorph.app.service.overlay.RadialActionItem.PromptAction(it) }
-        val radialItems = listOf(com.textmorph.app.service.overlay.RadialActionItem.DirectExecuteAction) + topPrompts + listOf(
-            com.textmorph.app.service.overlay.RadialActionItem.MorePromptsAction,
-            com.textmorph.app.service.overlay.RadialActionItem.UndoAction
-        )
+        val textTransforms = seeds.filter { it.category == PromptCategory.TEXT_TRANSFORM }
+        val smartReplies = seeds.filter { it.category == PromptCategory.SMART_REPLY }
 
-        assertEquals(8, radialItems.size)
-        assertTrue(radialItems.first() is com.textmorph.app.service.overlay.RadialActionItem.DirectExecuteAction)
-        assertTrue(radialItems[1] is com.textmorph.app.service.overlay.RadialActionItem.PromptAction)
-        assertTrue(radialItems[6] is com.textmorph.app.service.overlay.RadialActionItem.MorePromptsAction)
-        assertTrue(radialItems[7] is com.textmorph.app.service.overlay.RadialActionItem.UndoAction)
+        assertTrue(textTransforms.isNotEmpty())
+        assertTrue(smartReplies.isNotEmpty())
+        assertEquals("Fix Grammar", textTransforms.first().title)
     }
 
     @Test
@@ -487,4 +482,54 @@ class TextMorphUnitTests {
         assertEquals(maxX, clampX(1200))
         assertEquals(maxY, clampY(3000))
     }
+
+    @Test
+    fun testSmartReplyDelimiterParsing() {
+        val rawResponse = "\"Sounds great!\" ||| 'Can we meet at 4 instead?' ||| Sorry, I have a conflict 🙏"
+        val parsed = rawResponse.split("|||")
+            .map { it.trim().removeSurrounding("\"").removeSurrounding("'") }
+            .filter { it.isNotBlank() && !it.startsWith("Error") && it.length < 60 }
+            .take(3)
+
+        assertEquals(3, parsed.size)
+        assertEquals("Sounds great!", parsed[0])
+        assertEquals("Can we meet at 4 instead?", parsed[1])
+        assertEquals("Sorry, I have a conflict 🙏", parsed[2])
+    }
+
+    @Test
+    fun testChatMessageIncomingExtraction() {
+        val messages = listOf(
+            com.textmorph.app.service.overlay.TextMorphAccessibilityService.ChatMessage("Them", "Hey, are you free for lunch?", isIncoming = true),
+            com.textmorph.app.service.overlay.TextMorphAccessibilityService.ChatMessage("Me", "Yes I am! Where should we go?", isIncoming = false),
+            com.textmorph.app.service.overlay.TextMorphAccessibilityService.ChatMessage("Them", "How about the Italian place at 12:30?", isIncoming = true)
+        )
+
+        val latestIncoming = messages.lastOrNull { it.isIncoming }?.text
+        assertNotNull(latestIncoming)
+        assertEquals("How about the Italian place at 12:30?", latestIncoming)
+    }
+
+    @Test
+    fun testCompanionMagneticEdgeSnappingLogic() {
+        val screenWidth = 1080
+        val pillWidth = 108 // 36dp
+        val margin = 18 // 6dp
+        val boundMinX = margin
+        val boundMaxX = screenWidth - pillWidth - margin
+
+        fun snapX(currentX: Int): Int {
+            return if (currentX < screenWidth / 2) boundMinX else boundMaxX
+        }
+
+        // Dropped on the left half -> snaps to boundMinX
+        assertEquals(boundMinX, snapX(100))
+        assertEquals(boundMinX, snapX(539))
+
+        // Dropped on the right half -> snaps to boundMaxX
+        assertEquals(boundMaxX, snapX(540))
+        assertEquals(boundMaxX, snapX(800))
+        assertEquals(boundMaxX, snapX(1050))
+    }
 }
+

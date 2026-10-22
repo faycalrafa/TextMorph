@@ -4,6 +4,7 @@ import android.accessibilityservice.AccessibilityService
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.os.Build
 import android.os.Bundle
@@ -92,11 +93,11 @@ class TextMorphAccessibilityService : AccessibilityService() {
                         onTakeScreenshot = { callback -> captureScreenContext(callback) },
                         onExtractTranscript = { extractConversationTranscript() }
                     )
-                } else {
+                } else if (overlayManager?.isBusy() != true) {
                     overlayManager?.hide()
                 }
-            } else {
-                // Keyboard dismissed or not open: hide floating button immediately
+            } else if (overlayManager?.isBusy() != true) {
+                // Keyboard dismissed or not open: hide floating button immediately (unless generating or in undo window)
                 overlayManager?.hide()
             }
         } catch (e: Exception) {
@@ -170,6 +171,13 @@ class TextMorphAccessibilityService : AccessibilityService() {
         return success
     }
 
+    fun setPreviousTransformation(text: String) {
+        if (text.isNotBlank()) {
+            previousTextBeforeTransformation = text
+            AppLogger.d(TAG, "Explicitly set previousTextBeforeTransformation length=${text.length}")
+        }
+    }
+
     fun replaceLiveInputText(newText: String, recordHistory: Boolean = true): Boolean {
         if (recordHistory) {
             val current = getLiveInputText()
@@ -185,9 +193,15 @@ class TextMorphAccessibilityService : AccessibilityService() {
             }
             val success = node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, arguments)
             if (!success) {
-                AppLogger.w(TAG, "ACTION_SET_TEXT failed, falling back to clipboard paste...")
+                AppLogger.w(TAG, "ACTION_SET_TEXT failed, selecting all and falling back to clipboard paste...")
                 val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                 cm.setPrimaryClip(ClipData.newPlainText("TextMorph", newText))
+                val textLength = node.text?.length ?: 0
+                val selectionArgs = Bundle().apply {
+                    putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, 0)
+                    putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, textLength)
+                }
+                node.performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, selectionArgs)
                 node.performAction(AccessibilityNodeInfo.ACTION_PASTE)
             } else {
                 true
@@ -264,14 +278,11 @@ class TextMorphAccessibilityService : AccessibilityService() {
         }
     }
 
+    data class ChatMessage(val sender: String, val text: String, val isIncoming: Boolean)
     private data class ChatBubble(val text: String, val isMe: Boolean, val top: Int)
 
-    /**
-     * Traverses the active window UI tree to extract visible conversation chat bubbles,
-     * classifying Left vs. Right alignment into incoming ("Them") vs outgoing ("Me").
-     */
-    fun extractConversationTranscript(): String {
-        val root = rootInActiveWindow ?: return ""
+    fun getRecentChatMessages(): List<ChatMessage> {
+        val root = rootInActiveWindow ?: return emptyList()
         val bubbles = mutableListOf<ChatBubble>()
         val displayMetrics = resources.displayMetrics
         val screenCenterX = displayMetrics.widthPixels / 2
@@ -305,22 +316,47 @@ class TextMorphAccessibilityService : AccessibilityService() {
             try { root.recycle() } catch (_: Exception) {}
         }
 
-        // Sort by vertical position on screen
         bubbles.sortBy { it.top }
 
-        val sb = StringBuilder()
+        val result = mutableListOf<ChatMessage>()
         var lastText = ""
         for (bubble in bubbles) {
             if (bubble.text != lastText) {
-                val speaker = if (bubble.isMe) "Me" else "Them"
-                sb.append("$speaker: ${bubble.text}\n")
+                val sender = if (bubble.isMe) "Me" else "Them"
+                result.add(ChatMessage(sender = sender, text = bubble.text, isIncoming = !bubble.isMe))
                 lastText = bubble.text
             }
         }
+        return result
+    }
 
+    /**
+     * Extracts the most recent incoming message ("Them") for instant smart reply suggestions.
+     */
+    fun getLatestIncomingMessage(): String? {
+        val messages = getRecentChatMessages()
+        return messages.lastOrNull { it.isIncoming }?.text
+    }
+
+    /**
+     * Traverses the active window UI tree to extract visible conversation chat bubbles,
+     * classifying Left vs. Right alignment into incoming ("Them") vs outgoing ("Me").
+     */
+    fun extractConversationTranscript(): String {
+        val messages = getRecentChatMessages()
+        val sb = StringBuilder()
+        for (msg in messages) {
+            sb.append("${msg.sender}: ${msg.text}\n")
+        }
         val transcript = sb.toString().trim()
-        AppLogger.i(TAG, "Extracted conversation transcript: ${bubbles.size} bubbles, length=${transcript.length}")
+        AppLogger.i(TAG, "Extracted conversation transcript: ${messages.size} bubbles, length=${transcript.length}")
         return transcript
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        AppLogger.d(TAG, "onConfigurationChanged orientation=${newConfig.orientation}")
+        overlayManager?.onConfigurationChanged(newConfig)
     }
 
     override fun onInterrupt() {

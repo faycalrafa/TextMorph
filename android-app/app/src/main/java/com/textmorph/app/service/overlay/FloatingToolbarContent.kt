@@ -16,8 +16,6 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,24 +24,21 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material.icons.filled.Widgets
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -52,8 +47,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -62,34 +55,23 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.textmorph.app.data.model.ContextAction
+import com.textmorph.app.data.model.PromptCategory
 import com.textmorph.app.data.model.PromptEntity
 import com.textmorph.app.llm.LlmEngine
 import com.textmorph.app.ui.camera.CameraCaptureActivity
 import com.textmorph.app.util.AppLogger
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlin.math.cos
-import kotlin.math.hypot
-import kotlin.math.roundToInt
-import kotlin.math.sin
 
 enum class FloatingButtonState {
     IDLE,
@@ -97,60 +79,54 @@ enum class FloatingButtonState {
     REVERT_WINDOW
 }
 
-sealed class RadialActionItem {
-    data object DirectExecuteAction : RadialActionItem()
-    data class PromptAction(val prompt: PromptEntity) : RadialActionItem()
-    data object MorePromptsAction : RadialActionItem()
-    data object UndoAction : RadialActionItem()
-}
-
+/**
+ * Modern TextMorph Companion:
+ * - Collapsed: Minimalist 36dp magnetic Edge Pill with Forest Clay styling.
+ * - Expanded: Ultra-low footprint 44dp horizontal Companion Ribbon with smart reply chips & transform actions.
+ */
 @Composable
 fun FloatingToolbarContent(
     getLiveInputText: () -> String,
+    getLatestIncomingMessage: () -> String?,
+    getConversationTranscript: () -> String,
     prompts: List<PromptEntity>,
     isVisionCapable: () -> Boolean,
-    onInsertText: (String) -> Unit,
+    onInsertText: (text: String, isIntermediate: Boolean) -> Unit,
+    onSnapshotOriginalText: (original: String) -> Unit,
     onRevertText: () -> Unit,
     hasUndo: () -> Boolean,
     isPlacedOnRight: () -> Boolean,
     isDragging: Boolean = false,
     onRegisterSingleTapHandler: (((() -> Unit)) -> Unit)? = null,
-    onRadialStateChanged: (isOpen: Boolean, offsetX: Int, offsetY: Int) -> Unit,
+    onRegisterCollapseHandler: (((() -> Unit)) -> Unit)? = null,
+    onExpandedStateChanged: (isExpanded: Boolean) -> Unit,
+    onBusyStateChanged: (isBusy: Boolean) -> Unit,
     onTakeScreenshotContext: (((ByteArray) -> Unit) -> Unit)? = null,
-    onExtractTranscript: (() -> String)? = null,
+    autoSuggestReplies: Boolean = true,
+    onToggleAutoSuggestReplies: (Boolean) -> Unit,
     onDismiss: () -> Unit,
     engineProvider: () -> LlmEngine
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val density = LocalDensity.current
-    val haptic = LocalHapticFeedback.current
+    val TAG = "FloatingCompanion"
 
-    val TAG = "FloatingToolbar"
+    var isExpanded by remember { mutableStateOf(false) }
     var state by remember { mutableStateOf(FloatingButtonState.IDLE) }
     var activeJob by remember { mutableStateOf<Job?>(null) }
 
-    // Radial Menu Interaction States
-    var isRadialOpen by remember { mutableStateOf(false) }
-    var showMorePromptsDialog by remember { mutableStateOf(false) }
-    var hoveredIndex by remember { mutableIntStateOf(-1) }
-    var touchPointerPos by remember { mutableStateOf(Offset.Zero) }
-
-    // Laser Animation for GENERATING state
-    val infiniteTransition = rememberInfiniteTransition(label = "laser")
-    val laserAngle by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 360f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1100, easing = LinearEasing)
-        ),
-        label = "laserAngle"
-    )
+    // Smart reply state
+    var smartReplies by remember { mutableStateOf<List<String>>(emptyList()) }
+    var isLoadingSmartReplies by remember { mutableStateOf(false) }
+    var lastExtractedIncoming by remember { mutableStateOf<String?>(null) }
 
     // Countdown Animation for 5s REVERT_WINDOW state
     val revertCountdown = remember { Animatable(1f) }
 
     LaunchedEffect(state) {
+        val isBusy = state == FloatingButtonState.GENERATING || state == FloatingButtonState.REVERT_WINDOW
+        onBusyStateChanged(isBusy)
+
         if (state == FloatingButtonState.REVERT_WINDOW) {
             revertCountdown.snapTo(1f)
             revertCountdown.animateTo(
@@ -163,64 +139,17 @@ fun FloatingToolbarContent(
         }
     }
 
-    // Prepare radial items: Execute Cmd (Top / Slot 0) + Top 5 prompts + "More Prompts 📂" + "Undo ↩️"
-    val radialItems: List<RadialActionItem> = remember(prompts) {
-        val topPrompts = prompts.take(5).map { RadialActionItem.PromptAction(it) }
-        listOf(RadialActionItem.DirectExecuteAction) + topPrompts + listOf(
-            RadialActionItem.MorePromptsAction,
-            RadialActionItem.UndoAction
-        )
+    fun setExpanded(expanded: Boolean) {
+        isExpanded = expanded
+        onExpandedStateChanged(expanded)
     }
 
-    // Closer, sleeker geometry: 48dp main button, 95dp orbit radius, 36dp child bubbles
-    val buttonSizeDp = 48.dp
-    val orbitRadiusDp = 95.dp
-    val containerWidthDp = 220.dp
-    val containerHeightDp = 280.dp
-
-    val containerWidthPx = with(density) { containerWidthDp.toPx() }
-    val containerHeightPx = with(density) { containerHeightDp.toPx() }
-    val orbitRadiusPx = with(density) { orbitRadiusDp.toPx() }
-    val buttonSizePx = with(density) { buttonSizeDp.toPx() }
-
-    val isRightSide = isPlacedOnRight()
-
-    // Button center coordinate within the expanded container
-    val buttonCenterX = if (isRightSide) containerWidthPx - buttonSizePx / 2 - with(density) { 12.dp.toPx() }
-    else buttonSizePx / 2 + with(density) { 12.dp.toPx() }
-    val buttonCenterY = containerHeightPx / 2
-
-    // Offset of the button within the expanded container
-    val buttonOffsetXPx = (buttonCenterX - buttonSizePx / 2).roundToInt()
-    val buttonOffsetYPx = (buttonCenterY - buttonSizePx / 2).roundToInt()
-
-    fun notifyExpandedState(expanded: Boolean) {
-        if (expanded) {
-            onRadialStateChanged(true, buttonOffsetXPx, buttonOffsetYPx)
-        } else {
-            hoveredIndex = -1
-            onRadialStateChanged(false, 0, 0)
-        }
-    }
-
-    fun notifyRadialState(open: Boolean) {
-        isRadialOpen = open
-        if (open) {
-            notifyExpandedState(true)
-            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-        } else {
-            if (!showMorePromptsDialog) {
-                notifyExpandedState(false)
-            }
-        }
-    }
-
-    // Connect Single-Tap Handler from WindowManager
-    LaunchedEffect(state, isRadialOpen) {
+    // Connect handlers from WindowManager
+    LaunchedEffect(isExpanded, state) {
         onRegisterSingleTapHandler?.invoke {
             when (state) {
                 FloatingButtonState.IDLE -> {
-                    notifyRadialState(!isRadialOpen)
+                    setExpanded(!isExpanded)
                 }
                 FloatingButtonState.GENERATING -> {
                     activeJob?.cancel()
@@ -235,31 +164,72 @@ fun FloatingToolbarContent(
                 }
             }
         }
-    }
 
-    // Calculate node coordinates along the orbit arc
-    fun getActionPosition(index: Int, total: Int): Offset {
-        val t = if (total <= 1) 0.5f else index.toFloat() / (total - 1)
-        val angleDeg = if (isRightSide) {
-            // Arc curves to the LEFT (250 degrees at top down to 110 degrees at bottom)
-            250f - t * 140f
-        } else {
-            // Arc curves to the RIGHT (-70 degrees at top down to +70 degrees at bottom)
-            -70f + t * 140f
+        onRegisterCollapseHandler?.invoke {
+            if (isExpanded) {
+                setExpanded(false)
+            }
         }
-        val rad = Math.toRadians(angleDeg.toDouble())
-        val x = buttonCenterX + (orbitRadiusPx * cos(rad)).toFloat()
-        val y = buttonCenterY + (orbitRadiusPx * sin(rad)).toFloat()
-        return Offset(x, y)
     }
 
-    // Live Streaming Execution pipelines
-    fun startGeneration(systemInstruction: String, directExecute: Boolean = false) {
-        val liveText = getLiveInputText()
-        if (liveText.isBlank()) {
+    // Smart reply automatic generator when expanded with empty input in chat
+    fun fetchSmartReplies(incoming: String) {
+        if (isLoadingSmartReplies) return
+        isLoadingSmartReplies = true
+        scope.launch {
+            try {
+                AppLogger.d(TAG, "Generating smart replies for incoming message: \"$incoming\"")
+                val engine = engineProvider()
+                val prompt = "Based on this received chat message, generate exactly 3 short, natural, human reply options (under 8 words each). Separate the 3 options with ' ||| '. Output ONLY the 3 options separated by ' ||| ', with zero commentary or quotes.\nMessage: \"$incoming\""
+                val sb = StringBuilder()
+                engine.generateStream(prompt, "You are a concise smart reply assistant.").collect { token ->
+                    sb.append(token)
+                }
+                val raw = sb.toString().trim()
+                val parsed = raw.split("|||")
+                    .map { it.trim().removeSurrounding("\"").removeSurrounding("'") }
+                    .filter { it.isNotBlank() && !it.startsWith("Error") && it.length < 60 }
+                    .take(3)
+
+                if (parsed.isNotEmpty()) {
+                    smartReplies = parsed
+                    lastExtractedIncoming = incoming
+                    AppLogger.i(TAG, "Generated ${parsed.size} smart reply chips successfully")
+                } else {
+                    smartReplies = listOf("Sounds good! 👍", "Let's do that! 🚀", "Can't right now, will follow up 🙏")
+                }
+            } catch (e: Exception) {
+                AppLogger.e(TAG, "Failed generating smart replies: ${e.message}", e)
+                smartReplies = listOf("Sounds good! 👍", "Let's do that! 🚀", "Can't right now, will follow up 🙏")
+            } finally {
+                isLoadingSmartReplies = false
+            }
+        }
+    }
+
+    // Auto-fetch replies when ribbon opens in a chat context
+    LaunchedEffect(isExpanded, autoSuggestReplies) {
+        if (isExpanded && autoSuggestReplies && state == FloatingButtonState.IDLE) {
+            val liveText = getLiveInputText()
+            val incoming = getLatestIncomingMessage()
+            if (liveText.isBlank() && !incoming.isNullOrBlank()) {
+                if (incoming != lastExtractedIncoming || smartReplies.isEmpty()) {
+                    fetchSmartReplies(incoming)
+                }
+            }
+        }
+    }
+
+    // Core Generation Pipelines with Non-Destructive Token Streaming
+    fun startGeneration(systemInstruction: String, directExecute: Boolean = false, contextInput: String? = null) {
+        val rawInput = contextInput ?: getLiveInputText()
+        if (rawInput.isBlank()) {
             Toast.makeText(context, "Please type or place cursor in a text field first.", Toast.LENGTH_SHORT).show()
             return
         }
+
+        // Snapshot original text upfront before streaming begins to ensure safe revert
+        onSnapshotOriginalText(rawInput)
 
         state = FloatingButtonState.GENERATING
         activeJob?.cancel()
@@ -275,15 +245,15 @@ fun FloatingToolbarContent(
                 val sb = StringBuilder()
                 var lastStreamFlushTime = 0L
 
-                engine.generateStream(liveText, effectiveInstruction).collect { token ->
+                engine.generateStream(rawInput, effectiveInstruction).collect { token ->
                     sb.append(token)
                     val now = System.currentTimeMillis()
-                    // Live token streaming throttled to ~80ms or sentence boundaries to prevent IPC flood
+                    // Flush intermediate chunks with isIntermediate = true to protect undo history
                     if (now - lastStreamFlushTime >= 80L || token.contains("\n") || token.contains(".")) {
                         lastStreamFlushTime = now
                         val intermediate = sb.toString()
                         if (intermediate.isNotEmpty()) {
-                            onInsertText(intermediate)
+                            onInsertText(intermediate, true)
                         }
                     }
                 }
@@ -297,7 +267,7 @@ fun FloatingToolbarContent(
                 }
 
                 if (finalOutput.isNotEmpty()) {
-                    onInsertText(finalOutput)
+                    onInsertText(finalOutput, false)
                     state = FloatingButtonState.REVERT_WINDOW
                 } else {
                     state = FloatingButtonState.IDLE
@@ -310,13 +280,33 @@ fun FloatingToolbarContent(
         }
     }
 
+    fun startSmartReplyGeneration(instruction: String) {
+        val transcript = getConversationTranscript()
+        val latest = getLatestIncomingMessage() ?: ""
+        val contextPrompt = buildString {
+            if (transcript.isNotBlank()) {
+                append("Conversation Context:\n$transcript\n\n")
+            } else if (latest.isNotBlank()) {
+                append("Received Message: $latest\n\n")
+            }
+            append("Instruction: $instruction")
+        }
+        startGeneration(
+            systemInstruction = "You are a smart reply assistant. Reply directly to the incoming conversation based on the instruction. Output ONLY the reply text.",
+            directExecute = false,
+            contextInput = contextPrompt
+        )
+    }
+
     fun startVisionGenerationWithBytes(instruction: String, imageBytes: ByteArray) {
+        val liveText = getLiveInputText().ifBlank { "Screen Context" }
+        onSnapshotOriginalText(liveText)
+
         state = FloatingButtonState.GENERATING
         activeJob?.cancel()
         activeJob = scope.launch {
             try {
                 val engine = engineProvider()
-                val liveText = getLiveInputText().ifBlank { "Screen Multimodal Context" }
                 val sb = StringBuilder()
                 var lastStreamFlushTime = 0L
 
@@ -327,14 +317,14 @@ fun FloatingToolbarContent(
                         lastStreamFlushTime = now
                         val intermediate = sb.toString()
                         if (intermediate.isNotEmpty()) {
-                            onInsertText(intermediate)
+                            onInsertText(intermediate, true)
                         }
                     }
                 }
 
                 val finalOutput = sb.toString().trim()
                 if (finalOutput.isNotEmpty()) {
-                    onInsertText(finalOutput)
+                    onInsertText(finalOutput, false)
                     state = FloatingButtonState.REVERT_WINDOW
                 } else {
                     state = FloatingButtonState.IDLE
@@ -356,7 +346,6 @@ fun FloatingToolbarContent(
             Toast.makeText(context, "Screenshot capture not available.", Toast.LENGTH_SHORT).show()
             return
         }
-
         onTakeScreenshotContext.invoke { imageBytes ->
             startVisionGenerationWithBytes(instruction, imageBytes)
         }
@@ -371,574 +360,410 @@ fun FloatingToolbarContent(
             Toast.makeText(context, "Screen capture not available for OCR.", Toast.LENGTH_SHORT).show()
             return
         }
-
         onTakeScreenshotContext.invoke { imageBytes ->
             val ocrInstruction = "$instruction. Transcribe all readable text from this screen clearly and format it cleanly."
             startVisionGenerationWithBytes(ocrInstruction, imageBytes)
         }
     }
 
-    fun startAccessibilityTextGeneration(prompt: PromptEntity) {
-        val transcript = onExtractTranscript?.invoke()?.trim() ?: ""
-        val liveText = getLiveInputText().trim()
-        val contextPrompt = buildString {
-            if (transcript.isNotEmpty()) {
-                append("Conversation & Visible Screen Context:\n$transcript\n\n")
-            }
-            if (liveText.isNotEmpty()) {
-                append("User Input: $liveText\n\n")
-            }
-            append("Instruction: ${prompt.systemInstruction}")
-        }
-        startGeneration(contextPrompt, directExecute = false)
-    }
-
-    fun executeRadialItem(item: RadialActionItem) {
-        when (item) {
-            is RadialActionItem.DirectExecuteAction -> {
-                startGeneration("", directExecute = true)
-            }
-            is RadialActionItem.UndoAction -> {
-                if (hasUndo()) {
-                    onRevertText()
-                    Toast.makeText(context, "Text reverted.", Toast.LENGTH_SHORT).show()
-                } else {
-                    Toast.makeText(context, "Nothing to undo.", Toast.LENGTH_SHORT).show()
+    fun executePrompt(prompt: PromptEntity) {
+        when (prompt.contextAction) {
+            ContextAction.SCREENSHOT -> startVisionGeneration(prompt.systemInstruction)
+            ContextAction.CAMERA -> {
+                if (!isVisionCapable()) {
+                    Toast.makeText(context, "Active model is text-only (camera vision not supported).", Toast.LENGTH_LONG).show()
+                    return
                 }
-            }
-            is RadialActionItem.MorePromptsAction -> {
-                showMorePromptsDialog = true
-                notifyExpandedState(true)
-            }
-            is RadialActionItem.PromptAction -> {
-                val prompt = item.prompt
-                when (prompt.contextAction) {
-                    ContextAction.SCREENSHOT -> startVisionGeneration(prompt.systemInstruction)
-                    ContextAction.CAMERA -> {
-                        if (!isVisionCapable()) {
-                            Toast.makeText(context, "Active model is text-only (camera vision not supported).", Toast.LENGTH_LONG).show()
-                            return
-                        }
-                        Toast.makeText(context, "Opening camera...", Toast.LENGTH_SHORT).show()
-                        CameraCaptureActivity.launch(context) { bytes ->
-                            if (bytes != null) {
-                                startVisionGenerationWithBytes(prompt.systemInstruction, bytes)
-                            } else {
-                                AppLogger.d(TAG, "Camera capture returned null bytes.")
-                            }
-                        }
-                    }
-                    ContextAction.OCR -> startOcrGeneration(prompt.systemInstruction)
-                    ContextAction.ACCESSIBILITY_TEXT -> startAccessibilityTextGeneration(prompt)
-                    ContextAction.NONE -> startGeneration(prompt.systemInstruction, directExecute = false)
-                }
-            }
-        }
-    }
-
-    val isContainerExpanded = isRadialOpen || showMorePromptsDialog
-
-    // Outer container: when idle, 48dp. When radial open or dialog showing, expands to container size.
-    Box(
-        modifier = if (isContainerExpanded) {
-            Modifier
-                .size(containerWidthDp, containerHeightDp)
-                .clickable(
-                    indication = null,
-                    interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
-                ) {
-                    if (isRadialOpen && !showMorePromptsDialog) {
-                        notifyRadialState(false)
-                    }
-                }
-        } else {
-            Modifier.size(buttonSizeDp)
-        }
-    ) {
-        // Orbital Canvas: Draws Guide Path & Active Glowing Laser Tether
-        if (isRadialOpen && !showMorePromptsDialog) {
-            Canvas(modifier = Modifier.fillMaxSize()) {
-                val buttonCenter = Offset(buttonCenterX, buttonCenterY)
-
-                // Draw dashed / dotted orbital track
-                val pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 8f), 0f)
-                val sweepAngles = if (isRightSide) {
-                    -110f to -140f
-                } else {
-                    -70f to 140f
-                }
-                drawArc(
-                    color = Color(0x44A27B5C),
-                    startAngle = sweepAngles.first,
-                    sweepAngle = sweepAngles.second,
-                    useCenter = false,
-                    topLeft = Offset(buttonCenterX - orbitRadiusPx, buttonCenterY - orbitRadiusPx),
-                    size = androidx.compose.ui.geometry.Size(orbitRadiusPx * 2, orbitRadiusPx * 2),
-                    style = Stroke(width = 2.dp.toPx(), pathEffect = pathEffect)
-                )
-
-                // Luminous Energy Beam / Laser Tether to Hovered Bubble
-                if (hoveredIndex in radialItems.indices) {
-                    val targetPos = getActionPosition(hoveredIndex, radialItems.size)
-
-                    // Outer laser glow in warm Forest Clay
-                    drawLine(
-                        brush = Brush.linearGradient(
-                            colors = listOf(Color(0xBBA27B5C), Color(0xCCDCD7C9))
-                        ),
-                        start = buttonCenter,
-                        end = targetPos,
-                        strokeWidth = 5.dp.toPx(),
-                        cap = StrokeCap.Round
-                    )
-
-                    // Inner bright laser core
-                    drawLine(
-                        color = Color(0xFFFFF8E7),
-                        start = buttonCenter,
-                        end = targetPos,
-                        strokeWidth = 2.dp.toPx(),
-                        cap = StrokeCap.Round
-                    )
-
-                    // Node highlight aura
-                    drawCircle(
-                        color = Color(0x33A27B5C),
-                        radius = with(density) { 26.dp.toPx() },
-                        center = targetPos
-                    )
-                }
-            }
-        }
-
-        // Action Bubbles along the Orbit (36dp base, 44dp hovered)
-        if (isRadialOpen && !showMorePromptsDialog) {
-            radialItems.forEachIndexed { index, item ->
-                val pos = getActionPosition(index, radialItems.size)
-                val isHovered = hoveredIndex == index
-                val scale by animateFloatAsState(
-                    targetValue = if (isHovered) 1.22f else 1.0f,
-                    animationSpec = spring(dampingRatio = 0.6f, stiffness = 600f),
-                    label = "bubbleScale"
-                )
-
-                val itemBubbleSize = 36.dp
-                val halfItemPx = with(density) { itemBubbleSize.toPx() / 2 }
-
-                Box(
-                    modifier = Modifier
-                        .offset {
-                            IntOffset(
-                                (pos.x - halfItemPx).roundToInt(),
-                                (pos.y - halfItemPx).roundToInt()
-                            )
-                        }
-                        .size(itemBubbleSize)
-                        .scale(scale),
-                    contentAlignment = Alignment.Center
-                ) {
-                    when (item) {
-                        is RadialActionItem.DirectExecuteAction -> {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .shadow(elevation = if (isHovered) 10.dp else 4.dp, shape = CircleShape)
-                                    .background(
-                                        Brush.linearGradient(
-                                            listOf(Color(0xFFA27B5C), Color(0xFF8C6445))
-                                        ),
-                                        shape = CircleShape
-                                    )
-                                    .border(
-                                        width = if (isHovered) 2.dp else 1.dp,
-                                        color = if (isHovered) Color(0xFFFFF8E7) else Color(0xCCDCD7C9),
-                                        shape = CircleShape
-                                    )
-                                    .clickable {
-                                        executeRadialItem(item)
-                                        notifyRadialState(false)
-                                    },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.AutoAwesome,
-                                    contentDescription = "Execute Command",
-                                    tint = Color(0xFFFFF8E7),
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            }
-                        }
-                        is RadialActionItem.UndoAction -> {
-                            val enabled = hasUndo()
-                            Surface(
-                                shape = CircleShape,
-                                color = if (enabled) Color(0xFFB87333) else Color(0x66B87333),
-                                shadowElevation = if (isHovered) 10.dp else 4.dp,
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .border(
-                                        width = if (isHovered) 2.dp else 1.dp,
-                                        color = if (isHovered) Color.White else Color(0x88DCD7C9),
-                                        shape = CircleShape
-                                    )
-                                    .clickable(enabled = enabled) {
-                                        executeRadialItem(item)
-                                        notifyRadialState(false)
-                                    }
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Icon(
-                                        imageVector = Icons.AutoMirrored.Filled.Undo,
-                                        contentDescription = "Undo Text",
-                                        tint = Color.White,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
-                            }
-                        }
-                        is RadialActionItem.MorePromptsAction -> {
-                            Surface(
-                                shape = CircleShape,
-                                color = Color(0xFF3F4F44),
-                                shadowElevation = if (isHovered) 10.dp else 4.dp,
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .border(
-                                        width = if (isHovered) 2.dp else 1.dp,
-                                        color = if (isHovered) Color(0xFFDCD7C9) else Color(0x88A27B5C),
-                                        shape = CircleShape
-                                    )
-                                    .clickable {
-                                        executeRadialItem(item)
-                                    }
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Icon(
-                                        imageVector = Icons.Default.Widgets,
-                                        contentDescription = "More Prompts",
-                                        tint = Color(0xFFDCD7C9),
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
-                            }
-                        }
-                        is RadialActionItem.PromptAction -> {
-                            val prompt = item.prompt
-                            val isVision = prompt.contextAction in listOf(ContextAction.SCREENSHOT, ContextAction.CAMERA, ContextAction.OCR)
-                            val visionDisabled = isVision && !isVisionCapable()
-
-                            val bubbleGradient = if (visionDisabled) {
-                                listOf(Color(0xFF4A4A4A), Color(0xFF2A2A2A))
-                            } else {
-                                listOf(Color(0xFF3F4F44), Color(0xFF2C3930))
-                            }
-
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .shadow(elevation = if (isHovered) 10.dp else 4.dp, shape = CircleShape)
-                                    .background(Brush.linearGradient(bubbleGradient), shape = CircleShape)
-                                    .border(
-                                        width = if (isHovered) 2.dp else 1.dp,
-                                        color = if (isHovered) Color(0xFFDCD7C9) else Color(0x66A27B5C),
-                                        shape = CircleShape
-                                    )
-                                    .clickable {
-                                        executeRadialItem(item)
-                                        notifyRadialState(false)
-                                    },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = prompt.iconEmoji,
-                                    fontSize = 16.sp
-                                )
-                            }
-                        }
-                    }
-                }
-
-                // Hover Tooltip Pill
-                if (isHovered) {
-                    val tooltipOffsetX = if (isRightSide) {
-                        (pos.x - with(density) { 140.dp.toPx() }).roundToInt()
+                Toast.makeText(context, "Opening camera...", Toast.LENGTH_SHORT).show()
+                CameraCaptureActivity.launch(context) { bytes ->
+                    if (bytes != null) {
+                        startVisionGenerationWithBytes(prompt.systemInstruction, bytes)
                     } else {
-                        (pos.x + with(density) { 24.dp.toPx() }).roundToInt()
-                    }
-                    val tooltipOffsetY = (pos.y - with(density) { 16.dp.toPx() }).roundToInt()
-
-                    Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = Color(0xF22C3930),
-                        shadowElevation = 8.dp,
-                        modifier = Modifier
-                            .offset { IntOffset(tooltipOffsetX, tooltipOffsetY) }
-                            .border(1.dp, Color(0x88A27B5C), RoundedCornerShape(10.dp))
-                            .padding(horizontal = 10.dp, vertical = 5.dp)
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            val tooltipText = when (item) {
-                                is RadialActionItem.DirectExecuteAction -> "⚡ Execute / Run Command"
-                                is RadialActionItem.UndoAction -> "↩️ Revert Text"
-                                is RadialActionItem.MorePromptsAction -> "📂 More Prompts..."
-                                is RadialActionItem.PromptAction -> {
-                                    val isVision = item.prompt.contextAction in listOf(ContextAction.SCREENSHOT, ContextAction.CAMERA, ContextAction.OCR)
-                                    if (isVision && !isVisionCapable()) {
-                                        "${item.prompt.iconEmoji} ${item.prompt.title} (Text-only model)"
-                                    } else {
-                                        "${item.prompt.iconEmoji} ${item.prompt.title}"
-                                    }
-                                }
-                            }
-                            Text(
-                                text = tooltipText,
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = Color(0xFFDCD7C9)
-                            )
-                        }
+                        AppLogger.d(TAG, "Camera capture returned null bytes.")
                     }
                 }
             }
+            ContextAction.OCR -> startOcrGeneration(prompt.systemInstruction)
+            ContextAction.ACCESSIBILITY_TEXT -> {
+                val liveText = getLiveInputText()
+                if (liveText.isNotBlank()) {
+                    startGeneration(prompt.systemInstruction, directExecute = false)
+                } else {
+                    startSmartReplyGeneration(prompt.systemInstruction)
+                }
+            }
+            ContextAction.NONE -> startGeneration(prompt.systemInstruction, directExecute = false)
         }
+    }
 
-        // More Prompts Dialog Popup (for Prompts 6+)
-        if (showMorePromptsDialog) {
-            Card(
+    // ─────────────────────────────────────────────────────────────────────────────
+    // UI RENDERING: COLLAPSED EDGE PILL vs EXPANDED COMPANION RIBBON
+    // ─────────────────────────────────────────────────────────────────────────────
+
+    if (!isExpanded) {
+        // COLLAPSED EDGE PILL (36dp)
+        val dragScale by animateFloatAsState(
+            targetValue = if (isDragging) 1.15f else 1.0f,
+            animationSpec = spring(dampingRatio = 0.6f, stiffness = 500f),
+            label = "dragScale"
+        )
+
+        Box(
+            modifier = Modifier
+                .size(36.dp)
+                .scale(dragScale),
+            contentAlignment = Alignment.Center
+        ) {
+            Surface(
+                shape = CircleShape,
+                color = when (state) {
+                    FloatingButtonState.GENERATING -> Color(0xFF2C3930)
+                    FloatingButtonState.REVERT_WINDOW -> Color(0xFF3F4F44)
+                    else -> if (isDragging) Color(0xFF3F4F44) else Color(0xFF2C3930)
+                },
+                shadowElevation = if (isDragging) 12.dp else 6.dp,
                 modifier = Modifier
-                    .fillMaxSize()
-                    .padding(8.dp),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                elevation = CardDefaults.cardElevation(defaultElevation = 12.dp)
+                    .size(36.dp)
+                    .border(
+                        width = 1.5.dp,
+                        brush = Brush.linearGradient(
+                            if (isDragging) listOf(Color(0xFFFFF8E7), Color(0xFFA27B5C))
+                            else listOf(Color(0xFFA27B5C), Color(0xFFC59B76))
+                        ),
+                        shape = CircleShape
+                    )
+                    .clickable {
+                        setExpanded(true)
+                    }
             ) {
-                Column(modifier = Modifier.padding(12.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(contentAlignment = Alignment.Center) {
+                    when (state) {
+                        FloatingButtonState.GENERATING -> {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                strokeWidth = 2.dp,
+                                color = Color(0xFFFFD54F)
+                            )
+                        }
+                        FloatingButtonState.REVERT_WINDOW -> {
                             Icon(
-                                imageVector = Icons.Default.FolderOpen,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
+                                imageVector = Icons.AutoMirrored.Filled.Undo,
+                                contentDescription = "Undo Text",
+                                tint = Color(0xFFFFD54F),
                                 modifier = Modifier.size(18.dp)
                             )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = "More Prompts",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold
-                            )
                         }
-                        IconButton(
-                            onClick = {
-                                showMorePromptsDialog = false
-                                notifyExpandedState(false)
-                            },
-                            modifier = Modifier.size(24.dp)
-                        ) {
-                            Icon(Icons.Default.Close, contentDescription = "Close", modifier = Modifier.size(16.dp))
+                        else -> {
+                            Icon(
+                                imageVector = Icons.Default.AutoAwesome,
+                                contentDescription = "TextMorph Companion",
+                                tint = Color(0xFFDCD7C9),
+                                modifier = Modifier.size(18.dp)
+                            )
                         }
                     }
+                }
+            }
 
-                    Spacer(modifier = Modifier.height(6.dp))
+            // Countdown ring when in Revert Window
+            if (state == FloatingButtonState.REVERT_WINDOW) {
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    drawArc(
+                        color = Color(0xFFFFD54F),
+                        startAngle = -90f,
+                        sweepAngle = 360f * revertCountdown.value,
+                        useCenter = false,
+                        style = Stroke(width = 2.5.dp.toPx(), cap = StrokeCap.Round)
+                    )
+                }
+            }
+        }
+    } else {
+        // EXPANDED COMPANION RIBBON (44dp single-row dock)
+        val liveText = getLiveInputText()
+        val latestIncoming = getLatestIncomingMessage()
+        val isChatContext = liveText.isBlank() && !latestIncoming.isNullOrBlank()
 
-                    val extendedPrompts = remember(prompts) { prompts.drop(5) }
-                    if (extendedPrompts.isEmpty()) {
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .fillMaxWidth(),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = "All prompts are currently in your direct quick slots! Add more in Custom Prompts.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(8.dp)
+        Surface(
+            shape = RoundedCornerShape(22.dp),
+            color = Color(0xF22C3930),
+            shadowElevation = 10.dp,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(44.dp)
+                .border(1.5.dp, Color(0x88A27B5C), RoundedCornerShape(22.dp))
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Left Status / Leading Action Icon
+                Box(
+                    modifier = Modifier
+                        .size(30.dp)
+                        .background(Color(0x33A27B5C), CircleShape)
+                        .clickable {
+                            if (state == FloatingButtonState.GENERATING) {
+                                activeJob?.cancel()
+                                activeJob = null
+                                state = FloatingButtonState.REVERT_WINDOW
+                                Toast.makeText(context, "Generation stopped.", Toast.LENGTH_SHORT).show()
+                            } else if (state == FloatingButtonState.REVERT_WINDOW) {
+                                onRevertText()
+                                state = FloatingButtonState.IDLE
+                                Toast.makeText(context, "Text reverted.", Toast.LENGTH_SHORT).show()
+                            } else {
+                                setExpanded(false)
+                            }
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    when (state) {
+                        FloatingButtonState.GENERATING -> {
+                            Icon(
+                                imageVector = Icons.Default.Stop,
+                                contentDescription = "Stop",
+                                tint = Color(0xFFE57373),
+                                modifier = Modifier.size(16.dp)
                             )
                         }
-                    } else {
-                        LazyColumn(
-                            modifier = Modifier
-                                .weight(1f)
-                                .fillMaxWidth(),
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            items(extendedPrompts, key = { it.id }) { prompt ->
-                                val isVision = prompt.contextAction in listOf(ContextAction.SCREENSHOT, ContextAction.CAMERA, ContextAction.OCR)
-                                val visionDisabled = isVision && !isVisionCapable()
+                        FloatingButtonState.REVERT_WINDOW -> {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.Undo,
+                                contentDescription = "Revert",
+                                tint = Color(0xFFFFD54F),
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                        else -> {
+                            Icon(
+                                imageVector = Icons.Default.AutoAwesome,
+                                contentDescription = "Companion",
+                                tint = Color(0xFFFFF8E7),
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+                }
 
-                                Surface(
-                                    shape = RoundedCornerShape(10.dp),
-                                    color = MaterialTheme.colorScheme.surfaceVariant,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clickable {
-                                            showMorePromptsDialog = false
-                                            notifyExpandedState(false)
-                                            executeRadialItem(RadialActionItem.PromptAction(prompt))
-                                        }
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text(text = prompt.iconEmoji, fontSize = 18.sp)
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text(
-                                                text = prompt.title,
-                                                style = MaterialTheme.typography.labelMedium,
-                                                fontWeight = FontWeight.Bold,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                            if (visionDisabled) {
-                                                Text(
-                                                    text = "Text-only model loaded",
-                                                    style = MaterialTheme.typography.labelSmall,
-                                                    color = MaterialTheme.colorScheme.error,
-                                                    fontSize = 10.sp
-                                                )
-                                            } else if (prompt.contextAction != ContextAction.NONE) {
-                                                Text(
-                                                    text = prompt.contextAction.displayName,
-                                                    style = MaterialTheme.typography.labelSmall,
-                                                    color = MaterialTheme.colorScheme.primary,
-                                                    fontSize = 10.sp
-                                                )
+                Spacer(modifier = Modifier.width(8.dp))
+
+                // Center Scrollable Action Chips
+                LazyRow(
+                    modifier = Modifier.weight(1f),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    when (state) {
+                        FloatingButtonState.REVERT_WINDOW -> {
+                            item {
+                                CompanionActionChip(
+                                    label = "↩️ Revert Text",
+                                    accent = true,
+                                    onClick = {
+                                        onRevertText()
+                                        state = FloatingButtonState.IDLE
+                                        Toast.makeText(context, "Text reverted.", Toast.LENGTH_SHORT).show()
+                                    }
+                                )
+                            }
+                            item {
+                                CompanionActionChip(
+                                    label = "✓ Keep Output",
+                                    accent = false,
+                                    onClick = {
+                                        state = FloatingButtonState.IDLE
+                                    }
+                                )
+                            }
+                        }
+                        FloatingButtonState.GENERATING -> {
+                            item {
+                                CompanionActionChip(
+                                    label = "⏹ Stop Generating",
+                                    accent = true,
+                                    onClick = {
+                                        activeJob?.cancel()
+                                        activeJob = null
+                                        state = FloatingButtonState.REVERT_WINDOW
+                                        Toast.makeText(context, "Generation stopped.", Toast.LENGTH_SHORT).show()
+                                    }
+                                )
+                            }
+                        }
+                        FloatingButtonState.IDLE -> {
+                            // Smart Reply Chips (when in chat context with empty input & auto-replies enabled)
+                            if (isChatContext && autoSuggestReplies) {
+                                if (isLoadingSmartReplies) {
+                                    item {
+                                        CompanionActionChip(
+                                            label = "✨ Generating replies...",
+                                            accent = true,
+                                            onClick = {}
+                                        )
+                                    }
+                                } else {
+                                    items(smartReplies) { reply ->
+                                        CompanionActionChip(
+                                            label = reply,
+                                            accent = true,
+                                            onClick = {
+                                                val original = getLiveInputText()
+                                                onSnapshotOriginalText(original)
+                                                onInsertText(reply, false)
+                                                state = FloatingButtonState.REVERT_WINDOW
+                                                setExpanded(false)
                                             }
+                                        )
+                                    }
+                                }
+
+                                // Quick Smart Style Archetypes
+                                item {
+                                    CompanionActionChip(
+                                        label = "👍 Agree",
+                                        accent = false,
+                                        onClick = {
+                                            startSmartReplyGeneration("Generate a polite, enthusiastic affirmative response to the incoming message.")
+                                        }
+                                    )
+                                }
+                                item {
+                                    CompanionActionChip(
+                                        label = "🙅 Decline",
+                                        accent = false,
+                                        onClick = {
+                                            startSmartReplyGeneration("Generate a polite and thoughtful decline response to the incoming message.")
+                                        }
+                                    )
+                                }
+                                item {
+                                    CompanionActionChip(
+                                        label = "🤔 Inquire",
+                                        accent = false,
+                                        onClick = {
+                                            startSmartReplyGeneration("Generate a friendly follow-up question asking for more details or clarification.")
+                                        }
+                                    )
+                                }
+                                if (smartReplies.isNotEmpty()) {
+                                    item {
+                                        IconButton(
+                                            onClick = {
+                                                latestIncoming.let { fetchSmartReplies(it) }
+                                            },
+                                            modifier = Modifier.size(28.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Refresh,
+                                                contentDescription = "Refresh",
+                                                tint = Color(0xFFDCD7C9),
+                                                modifier = Modifier.size(16.dp)
+                                            )
                                         }
                                     }
                                 }
                             }
+
+                            // Direct Text Execution Chip (when text is present)
+                            if (liveText.isNotBlank()) {
+                                item {
+                                    CompanionActionChip(
+                                        label = "⚡ Execute / Run",
+                                        accent = true,
+                                        onClick = {
+                                            startGeneration("", directExecute = true)
+                                        }
+                                    )
+                                }
+                            }
+
+                            // Standard Transform Prompts
+                            items(prompts) { prompt ->
+                                CompanionActionChip(
+                                    label = "${prompt.iconEmoji} ${prompt.title}",
+                                    accent = false,
+                                    onClick = {
+                                        executePrompt(prompt)
+                                    }
+                                )
+                            }
                         }
+                    }
+                }
+
+                Spacer(modifier = Modifier.width(6.dp))
+
+                // Right Controls: Smart Reply Quick Toggle & Collapse
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(
+                        onClick = {
+                            onToggleAutoSuggestReplies(!autoSuggestReplies)
+                            Toast.makeText(
+                                context,
+                                if (!autoSuggestReplies) "Smart Replies enabled" else "Smart Replies disabled",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        },
+                        modifier = Modifier.size(28.dp)
+                    ) {
+                        Icon(
+                            imageVector = androidx.compose.material.icons.Icons.AutoMirrored.Filled.Chat,
+                            contentDescription = "Toggle Smart Replies",
+                            tint = if (autoSuggestReplies) Color(0xFFFFD54F) else Color(0x66DCD7C9),
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+
+                    IconButton(
+                        onClick = { setExpanded(false) },
+                        modifier = Modifier.size(28.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Collapse",
+                            tint = Color(0xFFDCD7C9),
+                            modifier = Modifier.size(16.dp)
+                        )
                     }
                 }
             }
         }
+    }
+}
 
-        // Center Floating Action Button (48dp)
-        if (!showMorePromptsDialog) {
-            val dragScale by animateFloatAsState(
-                targetValue = if (isDragging) 1.15f else 1.0f,
-                animationSpec = spring(dampingRatio = 0.6f, stiffness = 500f),
-                label = "dragScale"
+/**
+ * Modern, low-footprint chip for the TextMorph Companion Ribbon.
+ */
+@Composable
+fun CompanionActionChip(
+    label: String,
+    accent: Boolean = false,
+    onClick: () -> Unit
+) {
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = if (accent) Color(0x44A27B5C) else Color(0x333F4F44),
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            if (accent) Color(0xFFA27B5C) else Color(0x66A27B5C)
+        ),
+        modifier = Modifier.clickable { onClick() }
+    ) {
+        Box(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = if (accent) FontWeight.Bold else FontWeight.Medium,
+                color = if (accent) Color(0xFFFFF8E7) else Color(0xFFDCD7C9),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
-
-            Box(
-                modifier = Modifier
-                    .offset {
-                        if (isRadialOpen) {
-                            IntOffset(buttonOffsetXPx, buttonOffsetYPx)
-                        } else {
-                            IntOffset.Zero
-                        }
-                    }
-                    .size(buttonSizeDp)
-                    .scale(dragScale)
-                    .then(
-                        if (isRadialOpen) {
-                            Modifier.clickable(
-                                indication = null,
-                                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
-                            ) {
-                                notifyRadialState(false)
-                            }
-                        } else {
-                            Modifier
-                        }
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                // Main Button Surface in Forest Clay Palette
-                Surface(
-                    shape = CircleShape,
-                    color = when (state) {
-                        FloatingButtonState.GENERATING -> Color(0xFF2C3930)
-                        FloatingButtonState.REVERT_WINDOW -> Color(0xFF3F4F44)
-                        else -> if (isDragging) Color(0xFF3F4F44) else Color(0xFF2C3930)
-                    },
-                    shadowElevation = if (isDragging) 16.dp else if (isRadialOpen) 14.dp else 8.dp,
-                    modifier = Modifier
-                        .size(buttonSizeDp)
-                        .border(
-                            width = if (isDragging) 2.5.dp else 2.dp,
-                            brush = Brush.linearGradient(
-                                if (isDragging) listOf(Color(0xFFFFF8E7), Color(0xFFA27B5C))
-                                else listOf(Color(0xFFA27B5C), Color(0xFFC59B76))
-                            ),
-                            shape = CircleShape
-                        )
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        when (state) {
-                            FloatingButtonState.GENERATING -> {
-                                Icon(
-                                    imageVector = Icons.Default.Stop,
-                                    contentDescription = "Stop Generation",
-                                    tint = Color(0xFFE57373),
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-                            FloatingButtonState.REVERT_WINDOW -> {
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Filled.Undo,
-                                    contentDescription = "Revert to Original",
-                                    tint = Color(0xFFFFD54F),
-                                    modifier = Modifier.size(22.dp)
-                                )
-                            }
-                            else -> {
-                                Icon(
-                                    imageVector = Icons.Default.AutoAwesome,
-                                    contentDescription = "TextMorph AI",
-                                    tint = Color(0xFFDCD7C9),
-                                    modifier = Modifier.size(22.dp)
-                                )
-                            }
-                        }
-                    }
-                }
-
-                // Rotating Luminous Laser Beam Border during GENERATING state
-                if (state == FloatingButtonState.GENERATING) {
-                    Canvas(modifier = Modifier.fillMaxSize()) {
-                        drawCircle(
-                            color = Color(0x33C59B76),
-                            radius = size.minDimension / 2 - 2.dp.toPx(),
-                            style = Stroke(width = 3.dp.toPx())
-                        )
-                        drawArc(
-                            brush = Brush.sweepGradient(
-                                0.0f to Color.Transparent,
-                                0.7f to Color(0xFFC59B76),
-                                1.0f to Color(0xFFFFD54F)
-                            ),
-                            startAngle = laserAngle,
-                            sweepAngle = 100f,
-                            useCenter = false,
-                            style = Stroke(width = 3.5.dp.toPx(), cap = StrokeCap.Round)
-                        )
-                    }
-                }
-
-                // 5-Second Countdown Ring during REVERT_WINDOW state
-                if (state == FloatingButtonState.REVERT_WINDOW) {
-                    Canvas(modifier = Modifier.fillMaxSize()) {
-                        drawArc(
-                            color = Color(0xFFFFD54F),
-                            startAngle = -90f,
-                            sweepAngle = 360f * revertCountdown.value,
-                            useCenter = false,
-                            style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round)
-                        )
-                    }
-                }
-            }
         }
     }
 }
