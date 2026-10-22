@@ -68,6 +68,7 @@ import com.textmorph.app.data.repository.SettingsRepository
 import com.textmorph.app.data.repository.UpdateRepository
 import com.textmorph.app.llm.OpenAiCloudEngine
 import com.textmorph.app.theme.ThemeMode
+import com.textmorph.app.ui.dashboard.components.ReadinessBanner
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -77,6 +78,7 @@ fun SettingsContent(
     updateRepository: UpdateRepository,
     onOpenDevLogs: () -> Unit,
     onCheckUpdate: () -> Unit,
+    onOpenAccessibilityDisclosure: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -103,6 +105,11 @@ fun SettingsContent(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        // System Readiness for AI Checklist (Relocated from Custom Prompts)
+        ReadinessBanner(
+            onOpenAccessibilityDisclosure = onOpenAccessibilityDisclosure
+        )
+
         // Theme Selection Card
         Card(
             modifier = Modifier.fillMaxWidth(),

@@ -32,6 +32,7 @@ class TextMorphAccessibilityService : AccessibilityService() {
     private lateinit var liteRtEngine: LiteRtLmEngine
     private lateinit var cloudEngine: OpenAiCloudEngine
 
+    private var wasRibbonOpenBeforeKeyboardClosed = false
     private val serviceScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main + kotlinx.coroutines.SupervisorJob())
 
     override fun onServiceConnected() {
@@ -55,6 +56,7 @@ class TextMorphAccessibilityService : AccessibilityService() {
             settingsRepository.settingsState.collect { settings ->
                 if (settings.alwaysShowFloatingToolbar && settings.floatingToolbarEnabled) {
                     overlayManager?.show(
+                        autoExpand = false,
                         onTakeScreenshot = { callback -> captureScreenContext(callback) },
                         onExtractTranscript = { extractConversationTranscript() }
                     )
@@ -77,6 +79,7 @@ class TextMorphAccessibilityService : AccessibilityService() {
         try {
             if (settings.alwaysShowFloatingToolbar) {
                 overlayManager?.show(
+                    autoExpand = false,
                     onTakeScreenshot = { callback -> captureScreenContext(callback) },
                     onExtractTranscript = { extractConversationTranscript() }
                 )
@@ -89,15 +92,23 @@ class TextMorphAccessibilityService : AccessibilityService() {
                 // Keyboard is open, verify if there is an editable field
                 val isEditable = source?.isEditable == true || isCurrentInputEditable()
                 if (isEditable) {
+                    val shouldAutoExpand = wasRibbonOpenBeforeKeyboardClosed || settings.autoSuggestReplies
                     overlayManager?.show(
+                        autoExpand = shouldAutoExpand,
                         onTakeScreenshot = { callback -> captureScreenContext(callback) },
                         onExtractTranscript = { extractConversationTranscript() }
                     )
                 } else if (overlayManager?.isBusy() != true) {
+                    if (overlayManager?.isExpanded() == true) {
+                        wasRibbonOpenBeforeKeyboardClosed = true
+                    }
                     overlayManager?.hide()
                 }
             } else if (overlayManager?.isBusy() != true) {
-                // Keyboard dismissed or not open: hide floating button immediately (unless generating or in undo window)
+                // Keyboard dismissed or not open: remember if user left ribbon open, then hide immediately
+                if (overlayManager?.isExpanded() == true) {
+                    wasRibbonOpenBeforeKeyboardClosed = true
+                }
                 overlayManager?.hide()
             }
         } catch (e: Exception) {
@@ -351,6 +362,62 @@ class TextMorphAccessibilityService : AccessibilityService() {
         val transcript = sb.toString().trim()
         AppLogger.i(TAG, "Extracted conversation transcript: ${messages.size} bubbles, length=${transcript.length}")
         return transcript
+    }
+
+    /**
+     * Detects if the current foreground window represents an active conversation / chat context.
+     */
+    fun isConversationContext(): Boolean {
+        val messages = getRecentChatMessages()
+        if (messages.size >= 2 || messages.any { it.isIncoming }) {
+            return true
+        }
+        val root = rootInActiveWindow
+        try {
+            val pkg = root?.packageName?.toString()?.lowercase() ?: ""
+            val knownChatApps = listOf(
+                "com.whatsapp", "org.telegram", "org.thoughtcrime.securesms",
+                "com.discord", "com.slack", "com.facebook.orca", "com.google.android.apps.messaging",
+                "com.samsung.android.messaging", "com.twitter.android", "com.instagram.android"
+            )
+            if (knownChatApps.any { pkg.contains(it) }) {
+                return true
+            }
+        } finally {
+            try { root?.recycle() } catch (_: Exception) {}
+        }
+        return false
+    }
+
+    /**
+     * Extracts readable text across the active screen to ground smart replies and prompt actions
+     * with live view context.
+     */
+    fun extractScreenVisibleText(): String {
+        val root = rootInActiveWindow ?: return ""
+        val sb = StringBuilder()
+        try {
+            fun traverse(node: AccessibilityNodeInfo?) {
+                if (node == null) return
+                try {
+                    val text = node.text?.toString()?.trim()
+                    if (!text.isNullOrBlank() && text.length > 1) {
+                        sb.append(text).append("\n")
+                    }
+                    for (i in 0 until node.childCount) {
+                        val child = node.getChild(i)
+                        traverse(child)
+                        try { child?.recycle() } catch (_: Exception) {}
+                    }
+                } catch (e: Exception) {
+                    AppLogger.w(TAG, "Error traversing node for screen text: ${e.message}")
+                }
+            }
+            traverse(root)
+        } finally {
+            try { root.recycle() } catch (_: Exception) {}
+        }
+        return sb.toString().trim()
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {

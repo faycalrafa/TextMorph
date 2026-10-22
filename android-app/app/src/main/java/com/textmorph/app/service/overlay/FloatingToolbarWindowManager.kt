@@ -61,13 +61,34 @@ class FloatingToolbarWindowManager(
     private var startDragWinY = 0
 
     fun isBusy(): Boolean = isBusyState
+    fun isExpanded(): Boolean = isExpanded
+
+    fun setEditorFocusMode(enabled: Boolean) {
+        val container = overlayContainer ?: return
+        val params = windowParams ?: return
+        try {
+            if (enabled) {
+                params.flags = params.flags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE.inv()
+            } else {
+                params.flags = params.flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+            }
+            windowManager.updateViewLayout(container, params)
+            AppLogger.d(TAG, "Overlay editor focus mode updated to: $enabled")
+        } catch (e: Exception) {
+            AppLogger.e(TAG, "Failed updating editor focus mode: ${e.message}", e)
+        }
+    }
 
     fun show(
+        autoExpand: Boolean = false,
         onTakeScreenshot: (((ByteArray) -> Unit) -> Unit)? = null,
         onExtractTranscript: (() -> String)? = null
     ) {
         try {
             if (isShowing && overlayContainer != null) {
+                if (autoExpand && !isExpanded) {
+                    singleTapHandler?.invoke() ?: onRibbonExpansionChanged(true)
+                }
                 return
             }
 
@@ -249,6 +270,27 @@ class FloatingToolbarWindowManager(
                                     }
                                 }
                             },
+                            isConversationContext = { service.isConversationContext() },
+                            getScreenVisibleText = { service.extractScreenVisibleText() },
+                            onQuickEditSave = { updated ->
+                                windowScope.launch(Dispatchers.IO) {
+                                    promptRepository.updatePrompt(updated)
+                                }
+                            },
+                            onQuickEditDelete = { promptId ->
+                                windowScope.launch(Dispatchers.IO) {
+                                    promptRepository.deletePrompt(promptId)
+                                }
+                            },
+                            onEditorFocusMode = { focused ->
+                                setEditorFocusMode(focused)
+                            },
+                            compactChipsMode = curSettings.compactChipsMode,
+                            onToggleCompactMode = { compact ->
+                                windowScope.launch(Dispatchers.IO) {
+                                    settingsRepository.setCompactChipsMode(compact)
+                                }
+                            },
                             onDismiss = { hide() },
                             engineProvider = {
                                 val s = settingsRepository.settingsState.value
@@ -276,6 +318,12 @@ class FloatingToolbarWindowManager(
             windowManager.addView(overlayContainer, params)
             isShowing = true
             AppLogger.d(TAG, "TextMorph companion displayed successfully at ($initialX, $initialY)")
+
+            if (autoExpand) {
+                service.mainHandler.postDelayed({
+                    singleTapHandler?.invoke() ?: onRibbonExpansionChanged(true)
+                }, 100L)
+            }
         } catch (e: Exception) {
             AppLogger.e(TAG, "Error displaying TextMorph companion: ${e.message}", e)
         }

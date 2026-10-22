@@ -106,6 +106,10 @@ class SettingsRepository(private val context: Context) {
         it.copy(floatingToolbarX = x, floatingToolbarY = y)
     }
 
+    suspend fun setCompactChipsMode(compact: Boolean) = updateSettings {
+        it.copy(compactChipsMode = compact)
+    }
+
     private fun saveSettingsToDisk(settings: AppSettings) {
         try {
             val atomicFile = AtomicFile(settingsFile)

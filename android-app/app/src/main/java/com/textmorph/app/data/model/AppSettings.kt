@@ -28,5 +28,6 @@ data class AppSettings(
     val probeTimeoutMs: Long = 60000L,
     val floatingToolbarX: Int? = null,
     val floatingToolbarY: Int? = null,
-    val hasShownProminentDisclosure: Boolean = false
+    val hasShownProminentDisclosure: Boolean = false,
+    val compactChipsMode: Boolean = false
 )

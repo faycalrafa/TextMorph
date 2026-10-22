@@ -77,10 +77,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
+import com.textmorph.app.util.SystemTelemetryManager
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
@@ -194,24 +197,109 @@ fun DashboardScreen(
                 drawerContainerColor = MaterialTheme.colorScheme.surface,
                 modifier = Modifier.width(300.dp)
             ) {
-                // Drawer Header
+                // Drawer Header with Live Telemetry
+                val curSettings by settingsRepository.settingsState.collectAsState()
+                var telemetry by remember { mutableStateOf(SystemTelemetryManager.getTelemetry(context)) }
+                LaunchedEffect(drawerState.isOpen) {
+                    if (drawerState.isOpen) {
+                        telemetry = SystemTelemetryManager.getTelemetry(context)
+                    }
+                }
+
+                val activeModelTitle = if (curSettings.selectedEngine == com.textmorph.app.data.model.EngineType.CLOUD_OPENAI) {
+                    "Cloud: ${curSettings.cloudModelId}"
+                } else {
+                    val cleanName = curSettings.activeModelName.removeSuffix(".litertlm")
+                    "On-Device: $cleanName (${curSettings.preferredAccelerator})"
+                }
+
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .background(MaterialTheme.colorScheme.primaryContainer)
-                        .padding(24.dp)
+                        .padding(horizontal = 16.dp, vertical = 20.dp)
                 ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.Memory,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "TextMorph Telemetry",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
                     Text(
-                        text = "TextMorph",
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
-                    Text(
-                        text = "On-Device Gemma 4 AI Studio",
+                        text = activeModelTitle,
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // Hardware Telemetry Badges
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.8f)
+                        ) {
+                            Text(
+                                text = "RAM: ${telemetry.ramUsedPercent}% (${telemetry.ramUsedMb}MB)",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
+                                fontSize = 10.sp
+                            )
+                        }
+
+                        val cpuStr = telemetry.cpuPercent?.let { "CPU: $it%" } ?: "CPU: Active"
+                        val tempStr = telemetry.cpuTempCelsius?.let { " • ${it.toInt()}°C" } ?: ""
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.8f)
+                        ) {
+                            Text(
+                                text = "$cpuStr$tempStr",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
+                                fontSize = 10.sp
+                            )
+                        }
+
+                        telemetry.gpuTempCelsius?.let { gpuTemp ->
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.8f)
+                            ) {
+                                Text(
+                                    text = "GPU: ${gpuTemp.toInt()}°C",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
+                                    fontSize = 10.sp
+                                )
+                            }
+                        }
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(12.dp))
@@ -466,13 +554,6 @@ fun DashboardScreen(
                                 verticalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
                                 item {
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    ReadinessBanner(
-                                        onOpenAccessibilityDisclosure = { showProminentDisclosure = true }
-                                    )
-                                }
-
-                                item {
                                     ScrollableTabRow(
                                         selectedTabIndex = selectedCategoryIndex,
                                         edgePadding = 0.dp,
@@ -639,7 +720,8 @@ fun DashboardScreen(
                                             Toast.makeText(context, "Update check failed: ${err.message}", Toast.LENGTH_SHORT).show()
                                         }
                                     }
-                                }
+                                },
+                                onOpenAccessibilityDisclosure = { showProminentDisclosure = true }
                             )
                         }
 
@@ -789,54 +871,107 @@ private fun PromptItemCard(
 ) {
     val haptic = LocalHapticFeedback.current
     val density = LocalDensity.current
-    val dragThresholdPx = with(density) { 44.dp.toPx() }
+    val dragThresholdPx = with(density) { 36.dp.toPx() }
     var accumulatedDragY by remember { mutableFloatStateOf(0f) }
+    var isDraggingHandle by remember { mutableStateOf(false) }
 
     Card(
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier
+            .fillMaxWidth()
+            .graphicsLayer {
+                translationY = accumulatedDragY.coerceIn(-dragThresholdPx * 1.5f, dragThresholdPx * 1.5f) * 0.35f
+                scaleX = if (isDraggingHandle) 1.02f else 1.0f
+                scaleY = if (isDraggingHandle) 1.02f else 1.0f
+                shadowElevation = if (isDraggingHandle) with(density) { 8.dp.toPx() } else 0f
+            },
         shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(
-            containerColor = if (isTop5) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.surface.copy(alpha = 0.9f)
+            containerColor = if (isDraggingHandle) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
+            else if (isTop5) MaterialTheme.colorScheme.surface
+            else MaterialTheme.colorScheme.surface.copy(alpha = 0.9f)
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = if (isTop5) 2.dp else 1.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = if (isDraggingHandle) 8.dp else if (isTop5) 2.dp else 1.dp)
     ) {
-        Column(modifier = Modifier.padding(14.dp)) {
+        Column(modifier = Modifier.padding(12.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // 6-dots drag handle: grabs and moves prompt up or down intuitively
-                Box(
-                    modifier = Modifier
-                        .size(36.dp)
-                        .pointerInput(prompt.id, canMoveUp, canMoveDown) {
-                            detectVerticalDragGestures(
-                                onDragStart = { accumulatedDragY = 0f },
-                                onDragEnd = { accumulatedDragY = 0f },
-                                onDragCancel = { accumulatedDragY = 0f },
-                                onVerticalDrag = { change, dragAmount ->
-                                    change.consume()
-                                    accumulatedDragY += dragAmount
-                                    if (accumulatedDragY < -dragThresholdPx && canMoveUp) {
-                                        accumulatedDragY = 0f
-                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                        onMoveUp()
-                                    } else if (accumulatedDragY > dragThresholdPx && canMoveDown) {
-                                        accumulatedDragY = 0f
-                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                        onMoveDown()
-                                    }
-                                }
-                            )
-                        },
-                    contentAlignment = Alignment.Center
+                // Reorder controls: Drag handle with micro-arrow quick buttons
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.width(32.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.DragHandle,
-                        contentDescription = "Drag ⠿ to reorder",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                        modifier = Modifier.size(24.dp)
-                    )
+                    if (canMoveUp) {
+                        IconButton(
+                            onClick = onMoveUp,
+                            modifier = Modifier.size(18.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.KeyboardArrowUp,
+                                contentDescription = "Move Up",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                modifier = Modifier.size(14.dp)
+                            )
+                        }
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .size(28.dp)
+                            .pointerInput(prompt.id, canMoveUp, canMoveDown) {
+                                detectVerticalDragGestures(
+                                    onDragStart = {
+                                        isDraggingHandle = true
+                                        accumulatedDragY = 0f
+                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    },
+                                    onDragEnd = {
+                                        isDraggingHandle = false
+                                        accumulatedDragY = 0f
+                                    },
+                                    onDragCancel = {
+                                        isDraggingHandle = false
+                                        accumulatedDragY = 0f
+                                    },
+                                    onVerticalDrag = { change, dragAmount ->
+                                        change.consume()
+                                        accumulatedDragY += dragAmount
+                                        if (accumulatedDragY < -dragThresholdPx && canMoveUp) {
+                                            accumulatedDragY = 0f
+                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                            onMoveUp()
+                                        } else if (accumulatedDragY > dragThresholdPx && canMoveDown) {
+                                            accumulatedDragY = 0f
+                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                            onMoveDown()
+                                        }
+                                    }
+                                )
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.DragHandle,
+                            contentDescription = "Drag ⠿ to reorder",
+                            tint = if (isDraggingHandle) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+
+                    if (canMoveDown) {
+                        IconButton(
+                            onClick = onMoveDown,
+                            modifier = Modifier.size(18.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.KeyboardArrowDown,
+                                contentDescription = "Move Down",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                modifier = Modifier.size(14.dp)
+                            )
+                        }
+                    }
                 }
 
                 Spacer(modifier = Modifier.width(6.dp))

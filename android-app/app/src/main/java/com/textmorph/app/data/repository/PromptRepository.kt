@@ -112,6 +112,15 @@ class PromptRepository(private val context: Context) {
         }
     }
 
+    suspend fun reorderPrompts(newOrderedList: List<PromptEntity>) = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            val indexed = newOrderedList.mapIndexed { index, item -> item.copy(sortOrder = index) }
+            _promptsState.value = indexed
+            savePromptsToDisk(indexed)
+            AppLogger.i(TAG, "Reordered ${indexed.size} prompts in repository.")
+        }
+    }
+
     suspend fun resetToDefaults() = withContext(Dispatchers.IO) {
         mutex.withLock {
             val seeds = getDefaultSeedPrompts()
