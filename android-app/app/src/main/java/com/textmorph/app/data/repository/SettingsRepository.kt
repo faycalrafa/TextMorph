@@ -146,6 +146,10 @@ class SettingsRepository(private val context: Context) {
         it.copy(quickFixEnabled = enabled)
     }
 
+    suspend fun setGuessNextWordEnabled(enabled: Boolean) = updateSettings {
+        it.copy(guessNextWordEnabled = enabled)
+    }
+
     private fun saveSettingsToDisk(settings: AppSettings) {
         try {
             val atomicFile = AtomicFile(settingsFile)

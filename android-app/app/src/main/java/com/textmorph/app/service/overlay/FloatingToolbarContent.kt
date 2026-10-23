@@ -32,14 +32,18 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ShortText
 import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.UnfoldLess
 import androidx.compose.material.icons.filled.UnfoldMore
+import com.textmorph.app.ui.prompts.getVectorIcon
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -126,6 +130,7 @@ fun FloatingToolbarContent(
     compactChipsMode: Boolean = false,
     onToggleCompactMode: (Boolean) -> Unit = {},
     quickFixEnabled: Boolean = false,
+    guessNextWordEnabled: Boolean = true,
     slashCommandRepository: SlashCommandRepository = SlashCommandRepository.getInstance(LocalContext.current),
     onDismiss: () -> Unit,
     engineProvider: () -> LlmEngine
@@ -140,7 +145,11 @@ fun FloatingToolbarContent(
 
     // Quick Prompt Inline Editor state & Compact Chips mode
     var editingPromptInline by remember { mutableStateOf<PromptEntity?>(null) }
-    var isCompactMode by remember(compactChipsMode) { mutableStateOf(compactChipsMode) }
+    val isCompactMode = compactChipsMode
+
+    // Guess Next Word debounced suggestion state
+    var proposedNextWord by remember { mutableStateOf<String?>(null) }
+    var nextWordJob by remember { mutableStateOf<Job?>(null) }
 
     // Quick Fix debounced suggestion state
     var proposedQuickFix by remember { mutableStateOf<String?>(null) }
@@ -161,6 +170,8 @@ fun FloatingToolbarContent(
             if (state == FloatingButtonState.REVERT_WINDOW) {
                 state = FloatingButtonState.IDLE
             }
+            nextWordJob?.cancel()
+            proposedNextWord = null
             quickFixJob?.cancel()
             proposedQuickFix = null
         }
@@ -204,6 +215,51 @@ fun FloatingToolbarContent(
             if (state == FloatingButtonState.REVERT_WINDOW) {
                 state = FloatingButtonState.IDLE
             }
+
+            // Guess Next Word debounced predictor
+            if (guessNextWordEnabled && state == FloatingButtonState.IDLE) {
+                nextWordJob?.cancel()
+                proposedNextWord = null
+                val trimmed = newText.trim()
+                if (trimmed.isNotBlank()) {
+                    nextWordJob = scope.launch {
+                        kotlinx.coroutines.delay(350L)
+                        if (!isActive) return@launch
+                        val current = getLiveInputText().trim()
+                        if (current != trimmed || current.isBlank()) return@launch
+                        try {
+                            val engine = engineProvider()
+                            val predictInstruction = "Given this preceding text, predict and output ONLY the single most likely next word (or 2-3 words at most) that naturally continues or completes it. Do not repeat the input. Return ONLY the predicted continuation without punctuation, quotes, or explanations."
+                            val sb = StringBuilder()
+                            engine.generateStream(current, predictInstruction).collect { token ->
+                                sb.append(token)
+                                if (sb.contains(" ") || sb.contains("\n") || sb.length > 25) {
+                                    return@collect
+                                }
+                            }
+                            val rawWord = sb.toString().trim()
+                                .removeSurrounding("\"")
+                                .removeSurrounding("'")
+                                .removeSurrounding("`")
+                                .replace(Regex("[.,;:!?\n]"), "")
+                                .trim()
+                            if (rawWord.isNotBlank() && !rawWord.startsWith("Error") && !rawWord.equals(current, ignoreCase = true)) {
+                                if (getLiveInputText().trim() == current) {
+                                    proposedNextWord = rawWord
+                                    AppLogger.d(TAG, "Next word guessed: '$rawWord'")
+                                }
+                            }
+                        } catch (e: Exception) {
+                            AppLogger.w(TAG, "Guess next word background error: ${e.message}")
+                        }
+                    }
+                }
+            } else {
+                nextWordJob?.cancel()
+                proposedNextWord = null
+            }
+
+            // Quick Fix debounced grammar & spelling corrector
             if (quickFixEnabled && state == FloatingButtonState.IDLE) {
                 quickFixJob?.cancel()
                 proposedQuickFix = null
@@ -211,7 +267,7 @@ fun FloatingToolbarContent(
                 val wordCount = trimmed.split(Regex("\\s+")).filter { it.isNotBlank() }.size
                 if (trimmed.length in 3..120 && wordCount <= 25) {
                     quickFixJob = scope.launch {
-                        kotlinx.coroutines.delay(500L)
+                        kotlinx.coroutines.delay(550L)
                         if (!isActive) return@launch
                         val current = getLiveInputText().trim()
                         if (current != trimmed || current.length < 3 || current.length > 120) return@launch
@@ -244,6 +300,8 @@ fun FloatingToolbarContent(
             if (state == FloatingButtonState.REVERT_WINDOW) {
                 state = FloatingButtonState.IDLE
             }
+            nextWordJob?.cancel()
+            proposedNextWord = null
             quickFixJob?.cancel()
             proposedQuickFix = null
         }
@@ -723,27 +781,12 @@ fun FloatingToolbarContent(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // 1. Far-left Shrink / Expand options icon button (no text label)
-                        item {
-                            CompanionSquareIconButton(
-                                icon = if (isCompactMode) Icons.Default.UnfoldMore else Icons.Default.UnfoldLess,
-                                contentDescription = if (isCompactMode) "Expand Prompts" else "Compact Prompts",
-                                tint = Color(0xFF9CA3AF),
-                                backgroundColor = Color(0x331F2937),
-                                borderColor = Color(0x33374151),
-                                onClick = {
-                                    val nextMode = !isCompactMode
-                                    isCompactMode = nextMode
-                                    onToggleCompactMode(nextMode)
-                                }
-                            )
-                        }
-
                         when (state) {
                             FloatingButtonState.REVERT_WINDOW -> {
                                 item {
                                     CompanionActionChip(
-                                        label = if (isCompactMode) "↩" else "↩ Revert",
+                                        icon = Icons.AutoMirrored.Filled.Undo,
+                                        label = if (isCompactMode) null else "Revert",
                                         accent = true,
                                         onClick = {
                                             onRevertText()
@@ -754,7 +797,8 @@ fun FloatingToolbarContent(
                                 }
                                 item {
                                     CompanionActionChip(
-                                        label = if (isCompactMode) "✓" else "✓ Keep Output",
+                                        icon = Icons.Default.Check,
+                                        label = if (isCompactMode) null else "Keep Output",
                                         accent = false,
                                         onClick = {
                                             state = FloatingButtonState.IDLE
@@ -780,31 +824,35 @@ fun FloatingToolbarContent(
                                 }
                             }
                             FloatingButtonState.IDLE -> {
-                                // 2. Quick Paste Chip (when user recently copied text)
-                                val recentClip = getRecentClipboardText()
-                                if (!recentClip.isNullOrBlank()) {
+                                // 1. Debounced Guess Next Word Suggestion Chip (placed first when typing)
+                                if (proposedNextWord != null) {
                                     item {
-                                        val preview = if (recentClip.length > 12) recentClip.take(12) + "…" else recentClip
-                                        val label = if (isCompactMode) "📋" else "📋 Paste: \"$preview\""
+                                        val word = proposedNextWord!!
                                         CompanionActionChip(
-                                            label = label,
+                                            icon = Icons.AutoMirrored.Filled.ShortText,
+                                            label = if (isCompactMode) word else "Next: \"$word\"",
                                             accent = true,
                                             onClick = {
-                                                onQuickPaste()
-                                                Toast.makeText(context, "Pasted recent copy.", Toast.LENGTH_SHORT).show()
+                                                val current = getLiveInputText()
+                                                onSnapshotOriginalText(current)
+                                                val toInsert = if (current.endsWith(" ")) "$current$word" else "$current $word"
+                                                onInsertText(toInsert, false)
+                                                proposedNextWord = null
+                                                state = FloatingButtonState.REVERT_WINDOW
+                                                Toast.makeText(context, "Next word inserted.", Toast.LENGTH_SHORT).show()
                                             }
                                         )
                                     }
                                 }
 
-                                // 3. Debounced Quick Fix Suggestion Chip
+                                // 2. Debounced Quick Fix Suggestion Chip (placed next to Guess Next Word)
                                 if (proposedQuickFix != null) {
                                     item {
                                         val fixText = proposedQuickFix!!
                                         val preview = if (fixText.length > 16) fixText.take(16) + "…" else fixText
-                                        val label = if (isCompactMode) "✨ Fix" else "✨ Fix: \"$preview\""
                                         CompanionActionChip(
-                                            label = label,
+                                            icon = Icons.Default.AutoFixHigh,
+                                            label = if (isCompactMode) "Fix" else "Fix: \"$preview\"",
                                             accent = true,
                                             onClick = {
                                                 val original = getLiveInputText()
@@ -818,10 +866,30 @@ fun FloatingToolbarContent(
                                     }
                                 }
 
-                                // 4. Standard Transform Prompts
+                                // 3. Quick Paste Chip (when user recently copied text)
+                                val recentClip = getRecentClipboardText()
+                                if (!recentClip.isNullOrBlank()) {
+                                    item {
+                                        val preview = if (recentClip.length > 12) recentClip.take(12) + "…" else recentClip
+                                        CompanionActionChip(
+                                            icon = Icons.Default.ContentPaste,
+                                            label = if (isCompactMode) null else "Paste: \"$preview\"",
+                                            accent = true,
+                                            onClick = {
+                                                onQuickPaste()
+                                                Toast.makeText(context, "Pasted recent copy.", Toast.LENGTH_SHORT).show()
+                                            }
+                                        )
+                                    }
+                                }
+
+                                // 4. Standard Transform Prompts with native Vector Icons
                                 items(prompts) { prompt ->
+                                    val vectorIcon = prompt.getVectorIcon()
                                     CompanionActionChip(
-                                        label = if (isCompactMode) prompt.iconEmoji else "${prompt.iconEmoji} ${prompt.title}",
+                                        icon = vectorIcon,
+                                        label = if (isCompactMode) null else prompt.title,
+                                        emoji = if (vectorIcon == null) prompt.iconEmoji else null,
                                         accent = false,
                                         onClick = {
                                             executePrompt(prompt)
@@ -938,11 +1006,14 @@ fun CompanionSquareIconButton(
 
 /**
  * Modern, low-footprint chip for prompt transform actions in Charcoal Slate styling.
+ * Supports native Material Vector Icons, text labels, and legacy emojis.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun CompanionActionChip(
-    label: String,
+    icon: ImageVector? = null,
+    label: String? = null,
+    emoji: String? = null,
     accent: Boolean = false,
     grayedOut: Boolean = false,
     onClick: () -> Unit,
@@ -973,18 +1044,34 @@ fun CompanionActionChip(
             onLongClick = onLongClick
         )
     ) {
-        Box(
+        Row(
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
-            contentAlignment = Alignment.Center
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            Text(
-                text = label,
-                style = MaterialTheme.typography.labelSmall,
-                fontWeight = if (accent && !grayedOut) FontWeight.Bold else FontWeight.Medium,
-                color = textColor,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+            if (icon != null) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = label,
+                    tint = textColor,
+                    modifier = Modifier.size(14.dp)
+                )
+            } else if (!emoji.isNullOrBlank()) {
+                Text(
+                    text = emoji,
+                    fontSize = 12.sp
+                )
+            }
+            if (!label.isNullOrBlank()) {
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = if (accent && !grayedOut) FontWeight.Bold else FontWeight.Medium,
+                    color = textColor,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
         }
     }
 }

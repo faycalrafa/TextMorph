@@ -47,6 +47,7 @@ import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Widgets
+import com.textmorph.app.ui.prompts.getVectorIcon
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DrawerValue
@@ -1009,7 +1010,17 @@ private fun PromptItemCard(
                 }
 
                 Spacer(modifier = Modifier.width(6.dp))
-                Text(text = prompt.iconEmoji, fontSize = 22.sp)
+                val vectorIcon = prompt.getVectorIcon()
+                if (vectorIcon != null) {
+                    Icon(
+                        imageVector = vectorIcon,
+                        contentDescription = prompt.title,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(24.dp)
+                    )
+                } else {
+                    Text(text = prompt.iconEmoji, fontSize = 22.sp)
+                }
                 Spacer(modifier = Modifier.width(8.dp))
 
                 Column(modifier = Modifier.weight(1f)) {

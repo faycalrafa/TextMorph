@@ -344,12 +344,8 @@ class FloatingToolbarWindowManager(
                                 setEditorFocusMode(focused)
                             },
                             compactChipsMode = curSettings.compactChipsMode,
-                            onToggleCompactMode = { compact ->
-                                windowScope.launch(Dispatchers.IO) {
-                                    settingsRepository.setCompactChipsMode(compact)
-                                }
-                            },
                             quickFixEnabled = curSettings.quickFixEnabled,
+                            guessNextWordEnabled = curSettings.guessNextWordEnabled,
                             slashCommandRepository = slashCommandRepository,
                             onDismiss = { hide() },
                             engineProvider = {

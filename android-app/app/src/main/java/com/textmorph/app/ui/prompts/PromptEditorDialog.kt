@@ -229,6 +229,7 @@ fun PromptEditorDialog(
                                     title = title.trim(),
                                     systemInstruction = systemInstruction.trim(),
                                     iconEmoji = iconEmoji.ifBlank { "✨" },
+                                    iconName = prompt.iconName,
                                     category = category,
                                     requiresVision = isVisionRequired,
                                     contextAction = contextAction

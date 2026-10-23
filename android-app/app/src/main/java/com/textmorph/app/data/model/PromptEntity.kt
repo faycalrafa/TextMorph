@@ -24,6 +24,7 @@ data class PromptEntity(
     val title: String,
     val systemInstruction: String,
     val iconEmoji: String = "✨",
+    val iconName: String? = null,
     val category: PromptCategory = PromptCategory.TEXT_TRANSFORM,
     val requiresVision: Boolean = false,
     val sortOrder: Int = 0,

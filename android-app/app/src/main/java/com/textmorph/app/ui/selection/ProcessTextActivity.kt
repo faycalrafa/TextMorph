@@ -44,6 +44,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.material3.AssistChip
+import com.textmorph.app.ui.prompts.getVectorIcon
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -302,12 +303,25 @@ private fun ProcessTextContent(
             modifier = Modifier.fillMaxWidth()
         ) {
             prompts.take(6).forEach { prompt ->
+                val vectorIcon = prompt.getVectorIcon()
                 AssistChip(
                     onClick = {
                         customInstruction = prompt.systemInstruction
                         executeInference(prompt.systemInstruction)
                     },
-                    label = { Text("${prompt.iconEmoji} ${prompt.title}", fontSize = 12.sp) }
+                    leadingIcon = if (vectorIcon != null) {
+                        {
+                            Icon(
+                                imageVector = vectorIcon,
+                                contentDescription = prompt.title,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    } else null,
+                    label = {
+                        val text = if (vectorIcon != null) prompt.title else "${prompt.iconEmoji} ${prompt.title}"
+                        Text(text, fontSize = 12.sp)
+                    }
                 )
             }
         }

@@ -22,7 +22,7 @@ class TextMorphUnitTests {
     fun testDefaultSeedPromptsContainsCoreCategories() {
         val seeds = PromptRepository.getDefaultSeedPrompts()
         assertNotNull(seeds)
-        assertTrue(seeds.size >= 10)
+        assertEquals(3, seeds.size)
 
         val hasTextTransform = seeds.any { it.category == PromptCategory.TEXT_TRANSFORM }
         val hasVision = seeds.any { it.category == PromptCategory.VISION_ACTION }
@@ -32,31 +32,48 @@ class TextMorphUnitTests {
     }
 
     @Test
-    fun testSeedPromptFixGrammar() {
+    fun testThreePreseededPromptsSpecifications() {
         val seeds = PromptRepository.getDefaultSeedPrompts()
-        val fixGrammar = seeds.firstOrNull { it.id == "seed_fix_grammar" }
-        assertNotNull(fixGrammar)
-        assertEquals("Fix Grammar", fixGrammar?.title)
-        assertFalse(fixGrammar!!.requiresVision)
-        assertEquals(
-            "take this text and Fix all grammar, punctuation, and spelling errors while preserving the original Meaning and return only that fixed message without any extra comments on it",
-            fixGrammar.systemInstruction
-        )
+        assertEquals(3, seeds.size)
+
+        val creative = seeds.firstOrNull { it.id == "seed_creative_polish" }
+        assertNotNull(creative)
+        assertEquals("Creative Polish", creative?.title)
+        assertEquals("auto_awesome", creative?.iconName)
+        assertEquals(com.textmorph.app.data.model.ContextAction.NONE, creative?.contextAction)
+        assertFalse(creative!!.requiresVision)
+        assertTrue(creative.systemInstruction.contains("creatively enhance and elevate it"))
+
+        val clip = seeds.firstOrNull { it.id == "seed_clipboard_summary" }
+        assertNotNull(clip)
+        assertEquals("Summarize Clipboard", clip?.title)
+        assertEquals("summarize", clip?.iconName)
+        assertEquals(com.textmorph.app.data.model.ContextAction.CLIPBOARD, clip?.contextAction)
+        assertFalse(clip!!.requiresVision)
+        assertTrue(clip.systemInstruction.contains("Summarize the clipboard content into a clear, concise summary"))
+
+        val screen = seeds.firstOrNull { it.id == "seed_screen_assist" }
+        assertNotNull(screen)
+        assertEquals("Screen Assist", screen?.title)
+        assertEquals("screenshot", screen?.iconName)
+        assertEquals(com.textmorph.app.data.model.ContextAction.SCREENSHOT, screen?.contextAction)
+        assertTrue(screen!!.requiresVision)
+        assertTrue(screen.systemInstruction.contains("If it is a chat or conversation: Write a brief, helpful reply directly addressing the latest incoming message."))
+        assertTrue(screen.systemInstruction.contains("If it is not a chat: Provide a single short paragraph that explains the meme, solves the puzzle, or summarizes what is shown on screen."))
     }
 
     @Test
     fun testSeedPromptsCleanExecutionPhrasing() {
         val seeds = PromptRepository.getDefaultSeedPrompts()
-        val textTransforms = seeds.filter { it.category == PromptCategory.TEXT_TRANSFORM }
-        assertTrue(textTransforms.isNotEmpty())
-        for (prompt in textTransforms) {
+        assertEquals(3, seeds.size)
+        for (prompt in seeds) {
             assertTrue(
-                "Prompt ${prompt.id} should start with 'take this text and'",
-                prompt.systemInstruction.startsWith("take this text and ")
-            )
-            assertTrue(
-                "Prompt ${prompt.id} should enforce no comments",
-                prompt.systemInstruction.contains("without any extra comments on it")
+                "Prompt ${prompt.id} should enforce no comments / direct output",
+                prompt.systemInstruction.contains("without any extra comments") ||
+                        prompt.systemInstruction.contains("no explanations") ||
+                        prompt.systemInstruction.contains("Output only the reply text") ||
+                        prompt.systemInstruction.contains("Return ONLY the summary directly") ||
+                        prompt.systemInstruction.contains("Return ONLY the polished text directly")
             )
         }
     }
@@ -255,17 +272,14 @@ class TextMorphUnitTests {
     @Test
     fun testSeedPromptsContextActionAssignments() {
         val seeds = PromptRepository.getDefaultSeedPrompts()
-        val fixGrammar = seeds.first { it.id == "seed_fix_grammar" }
-        assertEquals(com.textmorph.app.data.model.ContextAction.NONE, fixGrammar.contextAction)
+        val creative = seeds.first { it.id == "seed_creative_polish" }
+        assertEquals(com.textmorph.app.data.model.ContextAction.NONE, creative.contextAction)
 
-        val ocrPrompt = seeds.first { it.id == "seed_vision_ocr" }
-        assertEquals(com.textmorph.app.data.model.ContextAction.OCR, ocrPrompt.contextAction)
-
-        val describePrompt = seeds.first { it.id == "seed_vision_describe" }
-        assertEquals(com.textmorph.app.data.model.ContextAction.SCREENSHOT, describePrompt.contextAction)
-
-        val clipboardPrompt = seeds.first { it.id == "seed_clipboard_context" }
+        val clipboardPrompt = seeds.first { it.id == "seed_clipboard_summary" }
         assertEquals(com.textmorph.app.data.model.ContextAction.CLIPBOARD, clipboardPrompt.contextAction)
+
+        val screenPrompt = seeds.first { it.id == "seed_screen_assist" }
+        assertEquals(com.textmorph.app.data.model.ContextAction.SCREENSHOT, screenPrompt.contextAction)
     }
 
     @Test
@@ -373,24 +387,15 @@ class TextMorphUnitTests {
     }
 
     @Test
-    fun testRadialSlotsTop5PlusMorePromptsAndUndo() {
-        val seeds = PromptRepository.getDefaultSeedPrompts()
-        val topPrompts = seeds.take(5)
-        assertEquals(5, topPrompts.size)
-
-        val extendedPrompts = seeds.drop(5)
-        assertTrue(extendedPrompts.isNotEmpty())
-    }
-
-    @Test
     fun testCompanionActionPromptsContainsTransformsAndVision() {
         val seeds = PromptRepository.getDefaultSeedPrompts()
+        assertEquals(3, seeds.size)
         val textTransforms = seeds.filter { it.category == PromptCategory.TEXT_TRANSFORM }
         val visionActions = seeds.filter { it.category == PromptCategory.VISION_ACTION }
 
-        assertTrue(textTransforms.isNotEmpty())
-        assertTrue(visionActions.isNotEmpty())
-        assertEquals("Fix Grammar", textTransforms.first().title)
+        assertEquals(2, textTransforms.size)
+        assertEquals(1, visionActions.size)
+        assertEquals("Creative Polish", textTransforms.first().title)
     }
 
     @Test
@@ -605,9 +610,33 @@ class TextMorphUnitTests {
     @Test
     fun testSeedClipboardPromptExists() {
         val seeds = PromptRepository.getDefaultSeedPrompts()
-        val clipSeed = seeds.firstOrNull { it.id == "seed_clipboard_context" }
+        val clipSeed = seeds.firstOrNull { it.id == "seed_clipboard_summary" }
         assertNotNull(clipSeed)
         assertEquals(com.textmorph.app.data.model.ContextAction.CLIPBOARD, clipSeed?.contextAction)
+    }
+
+    @Test
+    fun testGuessNextWordSettingSerialization() {
+        val defaultSettings = AppSettings()
+        assertTrue(defaultSettings.guessNextWordEnabled)
+
+        val customSettings = defaultSettings.copy(guessNextWordEnabled = false)
+        val json = Json { ignoreUnknownKeys = true }
+        val encoded = json.encodeToString(customSettings)
+        val decoded = json.decodeFromString<AppSettings>(encoded)
+        assertFalse(decoded.guessNextWordEnabled)
+    }
+
+    @Test
+    fun testCompactChipsModeSettingSerialization() {
+        val defaultSettings = AppSettings()
+        assertFalse(defaultSettings.compactChipsMode)
+
+        val customSettings = defaultSettings.copy(compactChipsMode = true)
+        val json = Json { ignoreUnknownKeys = true }
+        val encoded = json.encodeToString(customSettings)
+        val decoded = json.decodeFromString<AppSettings>(encoded)
+        assertTrue(decoded.compactChipsMode)
     }
 
     @Test

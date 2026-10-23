@@ -35,5 +35,6 @@ data class AppSettings(
     val hasShownProminentDisclosure: Boolean = false,
     val compactChipsMode: Boolean = false,
     val alwaysOpenBarWithKeyboard: Boolean = true,
-    val quickFixEnabled: Boolean = false
+    val quickFixEnabled: Boolean = false,
+    val guessNextWordEnabled: Boolean = true
 )

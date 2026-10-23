@@ -42,32 +42,32 @@ class PromptRepository(private val context: Context) {
             } else {
                 val content = promptsFile.readText()
                 val parsed = json.decodeFromString<List<PromptEntity>>(content)
-                val migrated = parsed.map { prompt ->
-                    var p = prompt
-                    if (p.category == PromptCategory.SMART_REPLY) {
-                        p = p.copy(
-                            category = PromptCategory.TEXT_TRANSFORM,
-                            contextAction = if (p.contextAction == ContextAction.ACCESSIBILITY_TEXT) ContextAction.NONE else p.contextAction
-                        )
+                val defaultSeeds = getDefaultSeedPrompts()
+                val hasLegacySeeds = parsed.any { it.id in LEGACY_SEED_IDS }
+                val hasNewSeeds = parsed.any { it.id == "seed_creative_polish" || it.id == "seed_clipboard_summary" || it.id == "seed_screen_assist" }
+
+                val migrated = if (hasLegacySeeds || !hasNewSeeds) {
+                    AppLogger.i(TAG, "Migrating prompts from legacy seeds to the 3 modernized seeds.")
+                    val customPrompts = parsed.filterNot { it.id in LEGACY_SEED_IDS || it.id.startsWith("seed_") }
+                    (defaultSeeds + customPrompts).mapIndexed { index, prompt ->
+                        prompt.copy(sortOrder = index)
                     }
-                    if (p.requiresVision && p.contextAction == ContextAction.NONE) {
-                        p = p.copy(contextAction = ContextAction.SCREENSHOT)
-                    }
-                    if (p.id == "seed_fix_grammar" && p.systemInstruction.startsWith("Fix all grammar, punctuation")) {
-                        p = p.copy(systemInstruction = "take this text and Fix all grammar, punctuation, and spelling errors while preserving the original Meaning and return only that fixed message without any extra comments on it")
-                    } else if (p.id == "seed_make_concise" && p.systemInstruction.startsWith("Make the text concise")) {
-                        p = p.copy(systemInstruction = "take this text and Make the text concise, clear, and direct without losing key meaning and return only that transformed message without any extra comments on it")
-                    } else if (p.id == "seed_pro_tone" && p.systemInstruction.startsWith("Rewrite the text in an articulate")) {
-                        p = p.copy(systemInstruction = "take this text and Rewrite the text in an articulate, polished, and professional tone and return only that transformed message without any extra comments on it")
-                    } else if (p.id == "seed_casual_tone" && p.systemInstruction.startsWith("Rewrite the text in a friendly")) {
-                        p = p.copy(systemInstruction = "take this text and Rewrite the text in a friendly, conversational, and natural tone and return only that transformed message without any extra comments on it")
-                    } else if (p.id == "seed_expand" && p.systemInstruction.startsWith("Elaborate and expand")) {
-                        p = p.copy(systemInstruction = "take this text and Elaborate and expand on the ideas with helpful detail and clarity and return only that transformed message without any extra comments on it")
-                    } else if (p.id == "seed_clipboard_context" && p.systemInstruction.startsWith("Analyze or polish")) {
-                        p = p.copy(systemInstruction = "take this text and Analyze or polish the clipboard content provided and return only that result without any extra comments on it")
-                    }
-                    p
-                }.sortedBy { it.sortOrder }
+                } else {
+                    parsed.map { prompt ->
+                        var p = prompt
+                        if (p.category == PromptCategory.SMART_REPLY) {
+                            p = p.copy(
+                                category = PromptCategory.TEXT_TRANSFORM,
+                                contextAction = if (p.contextAction == ContextAction.ACCESSIBILITY_TEXT) ContextAction.NONE else p.contextAction
+                            )
+                        }
+                        if (p.requiresVision && p.contextAction == ContextAction.NONE) {
+                            p = p.copy(contextAction = ContextAction.SCREENSHOT)
+                        }
+                        p
+                    }.sortedBy { it.sortOrder }
+                }
+
                 _promptsState.value = migrated
                 savePromptsToDisk(migrated)
             }
@@ -171,6 +171,19 @@ class PromptRepository(private val context: Context) {
         @Volatile
         private var instance: PromptRepository? = null
 
+        val LEGACY_SEED_IDS = setOf(
+            "seed_fix_grammar",
+            "seed_make_concise",
+            "seed_pro_tone",
+            "seed_casual_tone",
+            "seed_expand",
+            "seed_clipboard_context",
+            "seed_vision_describe",
+            "seed_vision_math",
+            "seed_vision_ocr",
+            "seed_vision_meme"
+        )
+
         fun getInstance(context: Context): PromptRepository {
             return instance ?: synchronized(this) {
                 instance ?: PromptRepository(context.applicationContext).also { instance = it }
@@ -178,107 +191,37 @@ class PromptRepository(private val context: Context) {
         }
 
         fun getDefaultSeedPrompts(): List<PromptEntity> = listOf(
-            // Text Prompts
             PromptEntity(
-                id = "seed_fix_grammar",
-                title = "Fix Grammar",
-                systemInstruction = "take this text and Fix all grammar, punctuation, and spelling errors while preserving the original Meaning and return only that fixed message without any extra comments on it",
-                iconEmoji = "✏️",
+                id = "seed_creative_polish",
+                title = "Creative Polish",
+                systemInstruction = "take this text and creatively enhance and elevate it: make it vibrant, articulate, and compelling while keeping the exact original intent and core facts. Return ONLY the polished text directly—no introductions, quotation marks, explanations, or commentary.",
+                iconEmoji = "✨",
+                iconName = "auto_awesome",
                 category = PromptCategory.TEXT_TRANSFORM,
                 requiresVision = false,
                 sortOrder = 0,
                 contextAction = ContextAction.NONE
             ),
             PromptEntity(
-                id = "seed_make_concise",
-                title = "Make Concise",
-                systemInstruction = "take this text and Make the text concise, clear, and direct without losing key meaning and return only that transformed message without any extra comments on it",
-                iconEmoji = "✂️",
+                id = "seed_clipboard_summary",
+                title = "Summarize Clipboard",
+                systemInstruction = "Summarize the clipboard content into a clear, concise summary capturing all key points. Return ONLY the summary directly—no explanations, greetings, quotes, or extra commentary.",
+                iconEmoji = "📋",
+                iconName = "summarize",
                 category = PromptCategory.TEXT_TRANSFORM,
                 requiresVision = false,
                 sortOrder = 1,
-                contextAction = ContextAction.NONE
-            ),
-            PromptEntity(
-                id = "seed_pro_tone",
-                title = "Professional Tone",
-                systemInstruction = "take this text and Rewrite the text in an articulate, polished, and professional tone and return only that transformed message without any extra comments on it",
-                iconEmoji = "💼",
-                category = PromptCategory.TEXT_TRANSFORM,
-                requiresVision = false,
-                sortOrder = 2,
-                contextAction = ContextAction.NONE
-            ),
-            PromptEntity(
-                id = "seed_casual_tone",
-                title = "Casual Tone",
-                systemInstruction = "take this text and Rewrite the text in a friendly, conversational, and natural tone and return only that transformed message without any extra comments on it",
-                iconEmoji = "💬",
-                category = PromptCategory.TEXT_TRANSFORM,
-                requiresVision = false,
-                sortOrder = 3,
-                contextAction = ContextAction.NONE
-            ),
-            PromptEntity(
-                id = "seed_expand",
-                title = "Expand Text",
-                systemInstruction = "take this text and Elaborate and expand on the ideas with helpful detail and clarity and return only that transformed message without any extra comments on it",
-                iconEmoji = "📖",
-                category = PromptCategory.TEXT_TRANSFORM,
-                requiresVision = false,
-                sortOrder = 4,
-                contextAction = ContextAction.NONE
-            ),
-            PromptEntity(
-                id = "seed_clipboard_context",
-                title = "Process Clipboard",
-                systemInstruction = "take this text and Analyze or polish the clipboard content provided and return only that result without any extra comments on it",
-                iconEmoji = "📋",
-                category = PromptCategory.TEXT_TRANSFORM,
-                requiresVision = false,
-                sortOrder = 5,
                 contextAction = ContextAction.CLIPBOARD
             ),
-
-            // Vision Prompts
             PromptEntity(
-                id = "seed_vision_describe",
-                title = "Describe Screen/Image",
-                systemInstruction = "Analyze and describe what is visible in this image in detail.",
-                iconEmoji = "🔍",
+                id = "seed_screen_assist",
+                title = "Screen Assist",
+                systemInstruction = "Analyze the image and follow these instructions:\nIf it is a chat or conversation: Write a brief, helpful reply directly addressing the latest incoming message. Output only the reply text—no explanations, quotation marks, or extra commentary.\nIf it is not a chat: Provide a single short paragraph that explains the meme, solves the puzzle, or summarizes what is shown on screen.",
+                iconEmoji = "📱",
+                iconName = "screenshot",
                 category = PromptCategory.VISION_ACTION,
                 requiresVision = true,
-                sortOrder = 8,
-                contextAction = ContextAction.SCREENSHOT
-            ),
-            PromptEntity(
-                id = "seed_vision_math",
-                title = "Solve Puzzle / Math",
-                systemInstruction = "Read the math equation or puzzle on screen and solve it step-by-step.",
-                iconEmoji = "🧩",
-                category = PromptCategory.VISION_ACTION,
-                requiresVision = true,
-                sortOrder = 9,
-                contextAction = ContextAction.SCREENSHOT
-            ),
-            PromptEntity(
-                id = "seed_vision_ocr",
-                title = "Extract & Format Text (OCR+)",
-                systemInstruction = "Extract all readable text from this image and format it cleanly in Markdown.",
-                iconEmoji = "📄",
-                category = PromptCategory.VISION_ACTION,
-                requiresVision = true,
-                sortOrder = 10,
-                contextAction = ContextAction.OCR
-            ),
-            PromptEntity(
-                id = "seed_vision_meme",
-                title = "Explain Meme / Chart",
-                systemInstruction = "Explain the visual humor or analyze the data trends shown in this image.",
-                iconEmoji = "📊",
-                category = PromptCategory.VISION_ACTION,
-                requiresVision = true,
-                sortOrder = 11,
+                sortOrder = 2,
                 contextAction = ContextAction.SCREENSHOT
             )
         )
