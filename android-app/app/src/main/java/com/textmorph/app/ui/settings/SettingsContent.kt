@@ -542,24 +542,6 @@ fun SettingsContent(
                     )
                 }
 
-                Spacer(modifier = Modifier.height(12.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("Auto-Suggest Smart Replies", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                        Text("Suggest contextual replies from chat messages", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    Switch(
-                        checked = settings.autoSuggestReplies,
-                        onCheckedChange = { isChecked ->
-                            scope.launch { settingsRepository.setAutoSuggestReplies(isChecked) }
-                        }
-                    )
-                }
             }
         }
 

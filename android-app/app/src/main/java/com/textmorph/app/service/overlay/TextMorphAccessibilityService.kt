@@ -88,6 +88,11 @@ class TextMorphAccessibilityService : AccessibilityService() {
 
         val source = event.source
         try {
+            // Guard: Never collapse or hide if overlay is busy or user is actively editing a prompt
+            if (overlayManager?.isBusy() == true) {
+                return
+            }
+
             val keyboardVisible = isKeyboardVisible()
 
             if (!keyboardVisible) {
@@ -180,32 +185,39 @@ class TextMorphAccessibilityService : AccessibilityService() {
         }
     }
 
-    private var previousTextBeforeTransformation: String? = null
+    private val inputHistoryDeque = ArrayDeque<String>(10)
 
-    fun hasPreviousTransformation(): Boolean = !previousTextBeforeTransformation.isNullOrEmpty()
+    fun hasPreviousTransformation(): Boolean = inputHistoryDeque.isNotEmpty()
+
+    fun pushInputHistory(text: String) {
+        if (text.isBlank()) return
+        if (inputHistoryDeque.isNotEmpty() && inputHistoryDeque.last() == text) {
+            AppLogger.d(TAG, "Skipping duplicate push to inputHistoryDeque")
+            return
+        }
+        if (inputHistoryDeque.size >= 10) {
+            inputHistoryDeque.removeFirst()
+        }
+        inputHistoryDeque.addLast(text)
+        AppLogger.i(TAG, "Pushed to inputHistoryDeque (size=${inputHistoryDeque.size}, length=${text.length})")
+    }
 
     fun revertPreviousTransformation(): Boolean {
-        val previous = previousTextBeforeTransformation ?: return false
-        AppLogger.i(TAG, "Reverting to previous text length=${previous.length}")
-        val success = replaceLiveInputText(previous, recordHistory = false)
-        if (success) {
-            previousTextBeforeTransformation = null
-        }
-        return success
+        if (inputHistoryDeque.isEmpty()) return false
+        val previous = inputHistoryDeque.removeLast()
+        AppLogger.i(TAG, "Reverting to previous text (remaining history=${inputHistoryDeque.size}, length=${previous.length})")
+        return replaceLiveInputText(previous, recordHistory = false)
     }
 
     fun setPreviousTransformation(text: String) {
-        if (text.isNotBlank()) {
-            previousTextBeforeTransformation = text
-            AppLogger.d(TAG, "Explicitly set previousTextBeforeTransformation length=${text.length}")
-        }
+        pushInputHistory(text)
     }
 
     fun replaceLiveInputText(newText: String, recordHistory: Boolean = true): Boolean {
         if (recordHistory) {
             val current = getLiveInputText()
             if (current.isNotBlank()) {
-                previousTextBeforeTransformation = current
+                pushInputHistory(current)
             }
         }
         val node = getLiveInputNode() ?: return false

@@ -120,7 +120,7 @@ fun AboutContent(
                     Spacer(modifier = Modifier.height(12.dp))
 
                     Text(
-                        text = "A system-wide, privacy-first on-device multimodal AI writing assistant, vision analyzer, and smart reply generator powered by Google's Gemma 4 and LiteRT-LM zero-copy execution.",
+                        text = "A system-wide, privacy-first on-device multimodal AI writing assistant, vision analyzer, and slash command executor powered by Google's Gemma 4, llama.cpp GGUF, and LiteRT-LM zero-copy execution.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center,

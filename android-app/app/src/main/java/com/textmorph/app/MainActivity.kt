@@ -13,6 +13,7 @@ import androidx.compose.ui.Modifier
 import com.textmorph.app.data.repository.ModelStorageRepository
 import com.textmorph.app.data.repository.PromptRepository
 import com.textmorph.app.data.repository.SettingsRepository
+import com.textmorph.app.data.repository.SlashCommandRepository
 import com.textmorph.app.data.repository.UpdateRepository
 import com.textmorph.app.service.LlmForegroundService
 import com.textmorph.app.theme.TextMorphTheme
@@ -26,6 +27,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var settingsRepository: SettingsRepository
     private lateinit var modelRepository: ModelStorageRepository
     private lateinit var updateRepository: UpdateRepository
+    private lateinit var slashCommandRepository: SlashCommandRepository
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -37,6 +39,7 @@ class MainActivity : ComponentActivity() {
         settingsRepository = SettingsRepository.getInstance(applicationContext)
         modelRepository = ModelStorageRepository.getInstance(applicationContext)
         updateRepository = UpdateRepository(applicationContext)
+        slashCommandRepository = SlashCommandRepository.getInstance(applicationContext)
 
         // Ensure LLM Foreground Service is running
         try {
@@ -57,7 +60,8 @@ class MainActivity : ComponentActivity() {
                         promptRepository = promptRepository,
                         settingsRepository = settingsRepository,
                         modelRepository = modelRepository,
-                        updateRepository = updateRepository
+                        updateRepository = updateRepository,
+                        slashCommandRepository = slashCommandRepository
                     )
                 }
             }

@@ -68,19 +68,24 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setSelectedEngine(engine: EngineType) = setEngine(engine)
 
-    suspend fun setActiveModel(name: String, path: String?, uriString: String? = null) = updateSettings {
+    suspend fun setActiveModel(
+        name: String,
+        path: String?,
+        uriString: String? = null,
+        overrideEngine: EngineType? = null
+    ) = updateSettings {
         val sanitizedPath = if (path != null && path.startsWith("/proc/self/fd/")) null else path
         val detected = ModelFileType.detect(name)
-        val autoEngine = when (detected) {
-            ModelFileType.GGUF -> EngineType.ON_DEVICE_LLAMA_CPP
-            ModelFileType.LITERT_LM -> EngineType.ON_DEVICE_LITERT
+        val autoEngine = overrideEngine ?: when {
+            detected == ModelFileType.GGUF || name.endsWith(".gguf", ignoreCase = true) -> EngineType.ON_DEVICE_LLAMA_CPP
+            detected == ModelFileType.LITERT_LM || name.endsWith(".litertlm", ignoreCase = true) -> EngineType.ON_DEVICE_LITERT
             else -> it.selectedEngine
         }
         it.copy(
             activeModelName = name,
             activeModelPath = sanitizedPath,
             activeModelUri = uriString,
-            selectedEngine = if (it.selectedEngine != EngineType.CLOUD_OPENAI) autoEngine else it.selectedEngine
+            selectedEngine = if (it.selectedEngine != EngineType.CLOUD_OPENAI || overrideEngine != null) autoEngine else it.selectedEngine
         )
     }
 

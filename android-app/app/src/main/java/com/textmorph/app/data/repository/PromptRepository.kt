@@ -43,11 +43,17 @@ class PromptRepository(private val context: Context) {
                 val content = promptsFile.readText()
                 val parsed = json.decodeFromString<List<PromptEntity>>(content)
                 val migrated = parsed.map { prompt ->
-                    if (prompt.requiresVision && prompt.contextAction == ContextAction.NONE) {
-                        prompt.copy(contextAction = ContextAction.SCREENSHOT)
-                    } else {
-                        prompt
+                    var p = prompt
+                    if (p.category == PromptCategory.SMART_REPLY) {
+                        p = p.copy(
+                            category = PromptCategory.TEXT_TRANSFORM,
+                            contextAction = if (p.contextAction == ContextAction.ACCESSIBILITY_TEXT) ContextAction.NONE else p.contextAction
+                        )
                     }
+                    if (p.requiresVision && p.contextAction == ContextAction.NONE) {
+                        p = p.copy(contextAction = ContextAction.SCREENSHOT)
+                    }
+                    p
                 }.sortedBy { it.sortOrder }
                 _promptsState.value = migrated
             }
@@ -218,38 +224,6 @@ class PromptRepository(private val context: Context) {
                 requiresVision = false,
                 sortOrder = 5,
                 contextAction = ContextAction.CLIPBOARD
-            ),
-
-            // Smart Reply Prompts
-            PromptEntity(
-                id = "seed_reply_agree",
-                title = "Enthusiastic Reply",
-                systemInstruction = "Generate a polite and enthusiastic affirmative reply to the ongoing conversation.",
-                iconEmoji = "👍",
-                category = PromptCategory.SMART_REPLY,
-                requiresVision = false,
-                sortOrder = 5,
-                contextAction = ContextAction.ACCESSIBILITY_TEXT
-            ),
-            PromptEntity(
-                id = "seed_reply_inquire",
-                title = "Thoughtful Inquiry",
-                systemInstruction = "Generate a friendly follow-up question asking for more details or clarification.",
-                iconEmoji = "🤔",
-                category = PromptCategory.SMART_REPLY,
-                requiresVision = false,
-                sortOrder = 6,
-                contextAction = ContextAction.ACCESSIBILITY_TEXT
-            ),
-            PromptEntity(
-                id = "seed_reply_decline",
-                title = "Polite Decline",
-                systemInstruction = "Generate a kind, respectful, and brief decline.",
-                iconEmoji = "✋",
-                category = PromptCategory.SMART_REPLY,
-                requiresVision = false,
-                sortOrder = 7,
-                contextAction = ContextAction.ACCESSIBILITY_TEXT
             ),
 
             // Vision Prompts

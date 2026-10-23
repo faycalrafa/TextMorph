@@ -14,6 +14,7 @@ import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import com.textmorph.app.data.model.EngineType
 import com.textmorph.app.data.repository.PromptRepository
 import com.textmorph.app.data.repository.SettingsRepository
+import com.textmorph.app.data.repository.SlashCommandRepository
 import com.textmorph.app.llm.LiteRtLmEngine
 import com.textmorph.app.llm.LlamaCppEngine
 import com.textmorph.app.llm.LlamaCppEngineManager
@@ -37,7 +38,8 @@ class FloatingToolbarWindowManager(
     private val settingsRepository: SettingsRepository,
     private val liteRtEngine: LiteRtLmEngine,
     private val cloudEngine: OpenAiCloudEngine,
-    private val llamaCppEngine: LlamaCppEngine = LlamaCppEngineManager.getInstance(service)
+    private val llamaCppEngine: LlamaCppEngine = LlamaCppEngineManager.getInstance(service),
+    private val slashCommandRepository: SlashCommandRepository = SlashCommandRepository.getInstance(service)
 ) {
 
     private val TAG = "FloatingWindowManager"
@@ -63,10 +65,16 @@ class FloatingToolbarWindowManager(
     private var startDragWinX = 0
     private var startDragWinY = 0
 
-    fun isBusy(): Boolean = isBusyState
+    private var isQuickEditing = false
+
+    fun isBusy(): Boolean = isBusyState || isQuickEditing
     fun isExpanded(): Boolean = isExpanded
 
     fun collapse() {
+        if (isQuickEditing) {
+            AppLogger.d(TAG, "Ignoring collapse request because prompt editor is active.")
+            return
+        }
         service.mainHandler.post {
             try {
                 if (isExpanded) {
@@ -79,6 +87,7 @@ class FloatingToolbarWindowManager(
     }
 
     fun setEditorFocusMode(enabled: Boolean) {
+        isQuickEditing = enabled
         val container = overlayContainer ?: return
         val params = windowParams ?: return
         try {
@@ -252,7 +261,6 @@ class FloatingToolbarWindowManager(
                     TextMorphTheme(themeMode = curSettings.theme) {
                         FloatingToolbarContent(
                             getLiveInputText = { service.getLiveInputText() },
-                            getLatestIncomingMessage = { service.getLatestIncomingMessage() },
                             getConversationTranscript = { service.extractConversationTranscript() },
                             prompts = prompts,
                             isVisionCapable = {
@@ -267,7 +275,7 @@ class FloatingToolbarWindowManager(
                                 service.replaceLiveInputText(result, recordHistory = !isIntermediate)
                             },
                             onSnapshotOriginalText = { original ->
-                                service.setPreviousTransformation(original)
+                                service.pushInputHistory(original)
                             },
                             onRevertText = {
                                 service.revertPreviousTransformation()
@@ -297,17 +305,6 @@ class FloatingToolbarWindowManager(
                                 isBusyState = busy
                             },
                             onTakeScreenshotContext = onTakeScreenshot,
-                            autoSuggestReplies = curSettings.autoSuggestReplies,
-                            onToggleAutoSuggestReplies = { enabled ->
-                                windowScope.launch(Dispatchers.IO) {
-                                    try {
-                                        settingsRepository.setAutoSuggestReplies(enabled)
-                                        AppLogger.i(TAG, "Updated autoSuggestReplies: $enabled")
-                                    } catch (e: Exception) {
-                                        AppLogger.e(TAG, "Failed updating autoSuggestReplies: ${e.message}", e)
-                                    }
-                                }
-                            },
                             isConversationContext = { service.isConversationContext() },
                             getScreenVisibleText = { service.extractScreenVisibleText() },
                             onQuickEditSave = { updated ->
@@ -329,6 +326,7 @@ class FloatingToolbarWindowManager(
                                     settingsRepository.setCompactChipsMode(compact)
                                 }
                             },
+                            slashCommandRepository = slashCommandRepository,
                             onDismiss = { hide() },
                             engineProvider = {
                                 val s = settingsRepository.settingsState.value

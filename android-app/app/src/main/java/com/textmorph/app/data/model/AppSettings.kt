@@ -11,7 +11,7 @@ enum class EngineType(val displayName: String) {
 
 @Serializable
 data class AppSettings(
-    val theme: ThemeMode = ThemeMode.FOREST_CLAY,
+    val theme: ThemeMode = ThemeMode.DARK_SLATE,
     val selectedEngine: EngineType = EngineType.ON_DEVICE_LITERT,
     val activeModelPath: String? = null,
     val activeModelUri: String? = null,

@@ -25,11 +25,9 @@ class TextMorphUnitTests {
         assertTrue(seeds.size >= 10)
 
         val hasTextTransform = seeds.any { it.category == PromptCategory.TEXT_TRANSFORM }
-        val hasSmartReply = seeds.any { it.category == PromptCategory.SMART_REPLY }
         val hasVision = seeds.any { it.category == PromptCategory.VISION_ACTION }
 
         assertTrue("Should contain TEXT_TRANSFORM seeds", hasTextTransform)
-        assertTrue("Should contain SMART_REPLY seeds", hasSmartReply)
         assertTrue("Should contain VISION_ACTION seeds", hasVision)
     }
 
@@ -245,8 +243,8 @@ class TextMorphUnitTests {
         val describePrompt = seeds.first { it.id == "seed_vision_describe" }
         assertEquals(com.textmorph.app.data.model.ContextAction.SCREENSHOT, describePrompt.contextAction)
 
-        val smartReply = seeds.first { it.id == "seed_reply_agree" }
-        assertEquals(com.textmorph.app.data.model.ContextAction.ACCESSIBILITY_TEXT, smartReply.contextAction)
+        val clipboardPrompt = seeds.first { it.id == "seed_clipboard_context" }
+        assertEquals(com.textmorph.app.data.model.ContextAction.CLIPBOARD, clipboardPrompt.contextAction)
     }
 
     @Test
@@ -364,13 +362,13 @@ class TextMorphUnitTests {
     }
 
     @Test
-    fun testCompanionActionPromptsContainsTransformAndSmartReply() {
+    fun testCompanionActionPromptsContainsTransformsAndVision() {
         val seeds = PromptRepository.getDefaultSeedPrompts()
         val textTransforms = seeds.filter { it.category == PromptCategory.TEXT_TRANSFORM }
-        val smartReplies = seeds.filter { it.category == PromptCategory.SMART_REPLY }
+        val visionActions = seeds.filter { it.category == PromptCategory.VISION_ACTION }
 
         assertTrue(textTransforms.isNotEmpty())
-        assertTrue(smartReplies.isNotEmpty())
+        assertTrue(visionActions.isNotEmpty())
         assertEquals("Fix Grammar", textTransforms.first().title)
     }
 
@@ -704,6 +702,151 @@ class TextMorphUnitTests {
         val rawTokens = listOf("<think>", "Reasoning...", "</think>", "The dog barked.")
         val filtered = rawTokens.filter { !it.contains("<think>") && !it.contains("</think>") }
         assertEquals(listOf("Reasoning...", "The dog barked."), filtered)
+    }
+
+    @Test
+    fun testDefaultThemeIsCharcoalSlate() {
+        val settings = AppSettings()
+        assertEquals(com.textmorph.app.theme.ThemeMode.DARK_SLATE, settings.theme)
+        assertEquals("Charcoal Slate", settings.theme.displayName)
+    }
+
+    @Test
+    fun testSlashCommandDefaultSeeds() {
+        val seeds = com.textmorph.app.data.repository.SlashCommandRepository.getDefaultSeedCommands()
+        assertTrue(seeds.size >= 11)
+
+        val fr = seeds.firstOrNull { it.cleanTrigger == "fr" }
+        assertNotNull(fr)
+        assertEquals("/fr", fr?.displayTrigger)
+        assertTrue(fr!!.systemInstruction.contains("French"))
+        assertEquals(com.textmorph.app.data.model.ContextAction.NONE, fr.contextAction)
+
+        val fix = seeds.firstOrNull { it.cleanTrigger == "fix" }
+        assertNotNull(fix)
+        assertEquals("Fix Grammar & Spelling", fix?.title)
+
+        val shot = seeds.firstOrNull { it.cleanTrigger == "shot" }
+        assertNotNull(shot)
+        assertEquals("Explain Screen", shot?.title)
+        assertEquals(com.textmorph.app.data.model.ContextAction.SCREENSHOT, shot?.contextAction)
+        assertTrue(shot?.requiresVision == true)
+
+        val clip = seeds.firstOrNull { it.cleanTrigger == "clip" }
+        assertNotNull(clip)
+        assertEquals("Process Clipboard", clip?.title)
+        assertEquals(com.textmorph.app.data.model.ContextAction.CLIPBOARD, clip?.contextAction)
+
+        val ocr = seeds.firstOrNull { it.cleanTrigger == "ocr" }
+        assertNotNull(ocr)
+        assertEquals(com.textmorph.app.data.model.ContextAction.OCR, ocr?.contextAction)
+        assertTrue(ocr?.requiresVision == true)
+    }
+
+    @Test
+    fun testSlashCommandMultimodalContextActionSupport() {
+        val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+        val original = com.textmorph.app.data.model.SlashCommandEntity(
+            trigger = "shot",
+            title = "Screen Vision",
+            systemInstruction = "Analyze screenshot",
+            contextAction = com.textmorph.app.data.model.ContextAction.SCREENSHOT,
+            requiresVision = true
+        )
+        val encoded = json.encodeToString(com.textmorph.app.data.model.SlashCommandEntity.serializer(), original)
+        assertTrue(encoded.contains("SCREENSHOT"))
+        val decoded = json.decodeFromString(com.textmorph.app.data.model.SlashCommandEntity.serializer(), encoded)
+        assertEquals(original.trigger, decoded.trigger)
+        assertEquals(com.textmorph.app.data.model.ContextAction.SCREENSHOT, decoded.contextAction)
+        assertTrue(decoded.requiresVision)
+    }
+
+    @Test
+    fun testSlashCommandMatchingAndExtractionLogic() {
+        val seeds = com.textmorph.app.data.repository.SlashCommandRepository.getDefaultSeedCommands()
+
+        fun match(text: String): Pair<com.textmorph.app.data.model.SlashCommandEntity?, String> {
+            val regex = Regex("""(?:^|\s)/([a-zA-Z0-9_-]+)(?:\s|$)""")
+            val matches = regex.findAll(text).toList()
+            for (m in matches) {
+                val token = m.groupValues[1].lowercase()
+                val cmd = seeds.firstOrNull { it.cleanTrigger == token }
+                if (cmd != null) {
+                    val tokenPattern = Regex("""\s*/""" + Regex.escape(m.groupValues[1]) + """\b|\b/""" + Regex.escape(m.groupValues[1]) + """\s*""")
+                    val cleaned = text.replace(tokenPattern, " ").replace(Regex("""\s+"""), " ").trim()
+                    return Pair(cmd, cleaned)
+                }
+            }
+            return Pair(null, text)
+        }
+
+        // Test trailing slash command
+        val (cmd1, text1) = match("what hour do we meet? /fr")
+        assertNotNull(cmd1)
+        assertEquals("fr", cmd1?.cleanTrigger)
+        assertEquals("what hour do we meet?", text1)
+
+        // Test leading slash command
+        val (cmd2, text2) = match("/fix please corect this speling")
+        assertNotNull(cmd2)
+        assertEquals("fix", cmd2?.cleanTrigger)
+        assertEquals("please corect this speling", text2)
+
+        // Test mid-text slash command
+        val (cmd3, text3) = match("can you /short this whole article")
+        assertNotNull(cmd3)
+        assertEquals("short", cmd3?.cleanTrigger)
+        assertEquals("can you this whole article", text3)
+
+        // Test text without slash command
+        val (cmd4, text4) = match("this is just normal text with no command")
+        assertEquals(null, cmd4)
+        assertEquals("this is just normal text with no command", text4)
+
+        // Test unknown command
+        val (cmd5, text5) = match("some text with /unknowncmd")
+        assertEquals(null, cmd5)
+        assertEquals("some text with /unknowncmd", text5)
+    }
+
+    @Test
+    fun testTenStepUndoHistoryDeque() {
+        val deque = ArrayDeque<String>(10)
+
+        fun push(text: String) {
+            if (text.isBlank()) return
+            if (deque.isNotEmpty() && deque.last() == text) return
+            if (deque.size >= 10) {
+                deque.removeFirst()
+            }
+            deque.addLast(text)
+        }
+
+        fun pop(): String? = if (deque.isNotEmpty()) deque.removeLast() else null
+
+        // Push 12 sequential texts
+        for (i in 1..12) {
+            push("Text version $i")
+        }
+
+        // Must be capped at 10 items
+        assertEquals(10, deque.size)
+
+        // Oldest items (1 and 2) must have been evicted; earliest remaining is version 3
+        assertEquals("Text version 3", deque.first())
+        assertEquals("Text version 12", deque.last())
+
+        // Duplicate push should be ignored
+        push("Text version 12")
+        assertEquals(10, deque.size)
+
+        // Sequential pop reverts in LIFO order
+        for (i in 12 downTo 3) {
+            assertEquals("Text version $i", pop())
+        }
+
+        assertTrue(deque.isEmpty())
+        assertEquals(null, pop())
     }
 }
 

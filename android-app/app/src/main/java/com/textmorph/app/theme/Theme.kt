@@ -7,8 +7,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 
 enum class ThemeMode(val displayName: String) {
-    FOREST_CLAY("Forest Clay"), // Default
-    DARK_SLATE("Charcoal Slate"),
+    DARK_SLATE("Charcoal Slate"), // Default
+    FOREST_CLAY("Forest Clay"),
     SEPIA("Sepia Parchment"),
     LIGHT("Clean Light")
 }
@@ -60,7 +60,7 @@ private val LightColorScheme = lightColorScheme(
 
 @Composable
 fun TextMorphTheme(
-    themeMode: ThemeMode = ThemeMode.FOREST_CLAY,
+    themeMode: ThemeMode = ThemeMode.DARK_SLATE,
     content: @Composable () -> Unit
 ) {
     val colorScheme = when (themeMode) {

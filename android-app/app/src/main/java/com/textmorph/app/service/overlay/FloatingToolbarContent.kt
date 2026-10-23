@@ -1,24 +1,19 @@
 package com.textmorph.app.service.overlay
 
+import android.content.Context
+import android.os.Build
 import android.widget.Toast
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -32,24 +27,23 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.UnfoldLess
+import androidx.compose.material.icons.filled.UnfoldMore
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -57,7 +51,6 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
@@ -68,12 +61,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.scale
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -81,14 +72,18 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.textmorph.app.data.model.ContextAction
-import com.textmorph.app.data.model.PromptCategory
 import com.textmorph.app.data.model.PromptEntity
+import com.textmorph.app.data.model.SlashCommandEntity
+import com.textmorph.app.data.repository.SlashCommandRepository
 import com.textmorph.app.llm.LlmEngine
 import com.textmorph.app.ui.camera.CameraCaptureActivity
 import com.textmorph.app.util.AppLogger
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
+/**
+ * Visual operational states for the floating companion overlay.
+ */
 enum class FloatingButtonState {
     IDLE,
     GENERATING,
@@ -97,15 +92,14 @@ enum class FloatingButtonState {
 
 /**
  * Modern TextMorph Companion:
- * - Collapsed: Minimalist 36dp magnetic Edge Pill with Forest Clay styling.
- * - Expanded: Ultra-low footprint 44dp horizontal Companion Ribbon with smart reply chips & transform actions.
+ * - Collapsed: Minimalist 36dp magnetic Edge Pill with Charcoal Slate styling.
+ * - Expanded: Ultra-low footprint 44dp horizontal Companion Ribbon with neat square icon buttons.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun FloatingToolbarContent(
     getLiveInputText: () -> String,
-    getLatestIncomingMessage: () -> String?,
-    getConversationTranscript: () -> String,
+    getConversationTranscript: () -> String = { "" },
     prompts: List<PromptEntity>,
     isVisionCapable: () -> Boolean,
     onInsertText: (text: String, isIntermediate: Boolean) -> Unit,
@@ -119,8 +113,6 @@ fun FloatingToolbarContent(
     onExpandedStateChanged: (isExpanded: Boolean) -> Unit,
     onBusyStateChanged: (isBusy: Boolean) -> Unit,
     onTakeScreenshotContext: (((ByteArray) -> Unit) -> Unit)? = null,
-    autoSuggestReplies: Boolean = true,
-    onToggleAutoSuggestReplies: (Boolean) -> Unit,
     isConversationContext: () -> Boolean = { false },
     getScreenVisibleText: () -> String = { "" },
     onQuickEditSave: (PromptEntity) -> Unit = {},
@@ -128,6 +120,7 @@ fun FloatingToolbarContent(
     onEditorFocusMode: (Boolean) -> Unit = {},
     compactChipsMode: Boolean = false,
     onToggleCompactMode: (Boolean) -> Unit = {},
+    slashCommandRepository: SlashCommandRepository = SlashCommandRepository.getInstance(LocalContext.current),
     onDismiss: () -> Unit,
     engineProvider: () -> LlmEngine
 ) {
@@ -142,11 +135,6 @@ fun FloatingToolbarContent(
     // Quick Prompt Inline Editor state & Compact Chips mode
     var editingPromptInline by remember { mutableStateOf<PromptEntity?>(null) }
     var isCompactMode by remember(compactChipsMode) { mutableStateOf(compactChipsMode) }
-
-    // Smart reply state
-    var smartReplies by remember { mutableStateOf<List<String>>(emptyList()) }
-    var isLoadingSmartReplies by remember { mutableStateOf(false) }
-    var lastExtractedIncoming by remember { mutableStateOf<String?>(null) }
 
     // Countdown Animation for 5s REVERT_WINDOW state
     val revertCountdown = remember { Animatable(1f) }
@@ -199,66 +187,13 @@ fun FloatingToolbarContent(
         }
 
         onRegisterCollapseHandler?.invoke {
-            AppLogger.d(TAG, "collapseHandler executed in Compose. isExpanded=$isExpanded")
+            AppLogger.d(TAG, "collapseHandler executed in Compose. isExpanded=$isExpanded, editing=${editingPromptInline != null}")
+            // Protect inline quick editor from being dismissed by outside window shifts
+            if (editingPromptInline != null) {
+                return@invoke
+            }
             if (isExpanded) {
                 setExpanded(false)
-            }
-        }
-    }
-
-    // Smart reply automatic generator with conversation detection & visible screen context
-    fun fetchSmartReplies(contextText: String) {
-        if (isLoadingSmartReplies) return
-        isLoadingSmartReplies = true
-        scope.launch {
-            try {
-                AppLogger.d(TAG, "Generating smart replies for context: \"$contextText\"")
-                val engine = engineProvider()
-                val isChat = isConversationContext()
-                val prompt = if (isChat) {
-                    "Based on this received chat message, generate exactly 3 short, natural, human reply options (under 8 words each). Separate the 3 options with ' ||| '. Output ONLY the 3 options separated by ' ||| ', with zero commentary or quotes.\nMessage: \"$contextText\""
-                } else {
-                    "Based on this screen context, generate 3 short, relevant quick action or response options (under 8 words each). Separate the 3 options with ' ||| '. Output ONLY the 3 options separated by ' ||| '.\nScreen Context: \"${contextText.take(500)}\""
-                }
-
-                val sb = StringBuilder()
-                engine.generateStream(prompt, "You are a concise smart reply assistant.").collect { token ->
-                    sb.append(token)
-                }
-                val raw = sb.toString().trim()
-                val parsed = raw.split("|||")
-                    .map { it.trim().removeSurrounding("\"").removeSurrounding("'") }
-                    .filter { it.isNotBlank() && !it.startsWith("Error") && it.length < 60 }
-                    .take(3)
-
-                if (parsed.isNotEmpty()) {
-                    smartReplies = parsed
-                    lastExtractedIncoming = contextText
-                    AppLogger.i(TAG, "Generated ${parsed.size} smart reply chips successfully")
-                } else {
-                    smartReplies = listOf("Sounds good! 👍", "Let's do that! 🚀", "Can't right now, will follow up 🙏")
-                }
-            } catch (e: Exception) {
-                AppLogger.e(TAG, "Failed generating smart replies: ${e.message}", e)
-                smartReplies = listOf("Sounds good! 👍", "Let's do that! 🚀", "Can't right now, will follow up 🙏")
-            } finally {
-                isLoadingSmartReplies = false
-            }
-        }
-    }
-
-    // Auto-fetch replies when ribbon opens in a chat or screen context
-    LaunchedEffect(isExpanded, autoSuggestReplies) {
-        if (isExpanded && autoSuggestReplies && state == FloatingButtonState.IDLE) {
-            val liveText = getLiveInputText()
-            val incoming = getLatestIncomingMessage()
-            val screenText = getScreenVisibleText()
-            val isChat = isConversationContext()
-            if (liveText.isBlank() && ((isChat && !incoming.isNullOrBlank()) || screenText.isNotBlank())) {
-                val candidate = if (isChat && !incoming.isNullOrBlank()) incoming else screenText.take(200)
-                if (candidate != lastExtractedIncoming || smartReplies.isEmpty()) {
-                    fetchSmartReplies(candidate)
-                }
             }
         }
     }
@@ -323,32 +258,10 @@ fun FloatingToolbarContent(
         }
     }
 
-    fun startSmartReplyGeneration(instruction: String) {
-        val transcript = getConversationTranscript()
-        val latest = getLatestIncomingMessage() ?: ""
-        val screenContext = getScreenVisibleText()
-        val isChat = isConversationContext()
-        val contextPrompt = buildString {
-            if (isChat && transcript.isNotBlank()) {
-                append("Conversation Context:\n$transcript\n\n")
-            } else if (latest.isNotBlank()) {
-                append("Received Message: $latest\n\n")
-            }
-            if (screenContext.isNotBlank()) {
-                append("Screen Visible Text:\n${screenContext.take(1000)}\n\n")
-            }
-            append("Instruction: $instruction")
-        }
-        startGeneration(
-            systemInstruction = "You are a smart context-aware assistant. Reply or generate text based on the conversation and screen context according to the instruction. Output ONLY the final text.",
-            directExecute = false,
-            contextInput = contextPrompt
-        )
-    }
-
-    fun startVisionGenerationWithBytes(instruction: String, imageBytes: ByteArray) {
-        val liveText = getLiveInputText().ifBlank { "Screen Context" }
-        onSnapshotOriginalText(liveText)
+    fun startVisionGenerationWithBytes(instruction: String, imageBytes: ByteArray, overrideInput: String? = null) {
+        val rawInput = getLiveInputText()
+        val textToFeed = overrideInput ?: rawInput.ifBlank { "Screen Context" }
+        onSnapshotOriginalText(rawInput)
 
         state = FloatingButtonState.GENERATING
         activeJob?.cancel()
@@ -358,7 +271,7 @@ fun FloatingToolbarContent(
                 val sb = StringBuilder()
                 var lastStreamFlushTime = 0L
 
-                engine.generateStream(liveText, instruction, imageBytes).collect { token ->
+                engine.generateStream(textToFeed, instruction, imageBytes).collect { token ->
                     sb.append(token)
                     val now = System.currentTimeMillis()
                     if (now - lastStreamFlushTime >= 80L || token.contains("\n") || token.contains(".")) {
@@ -385,7 +298,7 @@ fun FloatingToolbarContent(
         }
     }
 
-    fun startVisionGeneration(instruction: String) {
+    fun startVisionGeneration(instruction: String, overrideInput: String? = null) {
         if (!isVisionCapable()) {
             Toast.makeText(context, "Active model is text-only (vision not supported).", Toast.LENGTH_LONG).show()
             return
@@ -395,11 +308,11 @@ fun FloatingToolbarContent(
             return
         }
         onTakeScreenshotContext.invoke { imageBytes ->
-            startVisionGenerationWithBytes(instruction, imageBytes)
+            startVisionGenerationWithBytes(instruction, imageBytes, overrideInput)
         }
     }
 
-    fun startOcrGeneration(instruction: String) {
+    fun startOcrGeneration(instruction: String, overrideInput: String? = null) {
         if (!isVisionCapable()) {
             Toast.makeText(context, "Active model is text-only (OCR vision not supported).", Toast.LENGTH_LONG).show()
             return
@@ -410,7 +323,7 @@ fun FloatingToolbarContent(
         }
         onTakeScreenshotContext.invoke { imageBytes ->
             val ocrInstruction = "$instruction. Transcribe all readable text from this screen clearly and format it cleanly."
-            startVisionGenerationWithBytes(ocrInstruction, imageBytes)
+            startVisionGenerationWithBytes(ocrInstruction, imageBytes, overrideInput)
         }
     }
 
@@ -433,15 +346,10 @@ fun FloatingToolbarContent(
             }
             ContextAction.OCR -> startOcrGeneration(prompt.systemInstruction)
             ContextAction.ACCESSIBILITY_TEXT -> {
-                val liveText = getLiveInputText()
-                if (liveText.isNotBlank()) {
-                    startGeneration(prompt.systemInstruction, directExecute = false)
-                } else {
-                    startSmartReplyGeneration(prompt.systemInstruction)
-                }
+                startGeneration(prompt.systemInstruction, directExecute = false)
             }
             ContextAction.CLIPBOARD -> {
-                val clipboardManager = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
+                val clipboardManager = context.getSystemService(Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
                 val clipData = clipboardManager?.primaryClip
                 val clipText = if (clipData != null && clipData.itemCount > 0) {
                     clipData.getItemAt(0)?.text?.toString()
@@ -465,31 +373,72 @@ fun FloatingToolbarContent(
         }
     }
 
+    fun executeSlashCommand(command: SlashCommandEntity, cleanedInput: String) {
+        AppLogger.i(TAG, "Executing slash command /${command.cleanTrigger} (${command.contextAction}) for input: '$cleanedInput'")
+        Toast.makeText(context, "Running /${command.cleanTrigger}: ${command.title}", Toast.LENGTH_SHORT).show()
+        when (command.contextAction) {
+            ContextAction.SCREENSHOT -> {
+                startVisionGeneration(command.systemInstruction, overrideInput = cleanedInput.ifBlank { "Analyze this screen" })
+            }
+            ContextAction.CAMERA -> {
+                if (!isVisionCapable()) {
+                    Toast.makeText(context, "Active model is text-only (camera vision not supported).", Toast.LENGTH_LONG).show()
+                    return
+                }
+                Toast.makeText(context, "Opening camera...", Toast.LENGTH_SHORT).show()
+                CameraCaptureActivity.launch(context) { bytes ->
+                    if (bytes != null) {
+                        startVisionGenerationWithBytes(command.systemInstruction, bytes, overrideInput = cleanedInput.ifBlank { "Analyze this image" })
+                    } else {
+                        AppLogger.d(TAG, "Camera capture returned null bytes.")
+                    }
+                }
+            }
+            ContextAction.OCR -> {
+                startOcrGeneration(command.systemInstruction, overrideInput = cleanedInput.ifBlank { "Transcribe and analyze this screen" })
+            }
+            ContextAction.ACCESSIBILITY_TEXT -> {
+                startGeneration(command.systemInstruction, directExecute = false, contextInput = cleanedInput)
+            }
+            ContextAction.CLIPBOARD -> {
+                val clipboardManager = context.getSystemService(Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
+                val clipData = clipboardManager?.primaryClip
+                val clipText = if (clipData != null && clipData.itemCount > 0) {
+                    clipData.getItemAt(0)?.text?.toString()
+                } else null
+
+                if (clipText.isNullOrBlank()) {
+                    Toast.makeText(context, "Clipboard is empty. Copy text first.", Toast.LENGTH_SHORT).show()
+                    return
+                }
+
+                val combinedInput = if (cleanedInput.isNotBlank()) {
+                    "Clipboard Content:\n$clipText\n\nUser Input:\n$cleanedInput"
+                } else {
+                    "Clipboard Content:\n$clipText"
+                }
+
+                startGeneration(command.systemInstruction, directExecute = false, contextInput = combinedInput)
+            }
+            ContextAction.NONE -> {
+                startGeneration(command.systemInstruction, directExecute = false, contextInput = cleanedInput)
+            }
+        }
+    }
+
     // ─────────────────────────────────────────────────────────────────────────────
     // UI RENDERING: COLLAPSED EDGE PILL vs EXPANDED COMPANION RIBBON
     // ─────────────────────────────────────────────────────────────────────────────
 
     if (!isExpanded) {
-        // COLLAPSED EDGE PILL (36dp)
-        val dragScale by animateFloatAsState(
-            targetValue = if (isDragging) 1.15f else 1.0f,
-            animationSpec = spring(dampingRatio = 0.6f, stiffness = 500f),
-            label = "dragScale"
-        )
-
+        // COLLAPSED EDGE PILL (36dp, Charcoal Slate styled)
         Box(
-            modifier = Modifier
-                .size(36.dp)
-                .scale(dragScale),
+            modifier = Modifier.size(44.dp),
             contentAlignment = Alignment.Center
         ) {
             Surface(
                 shape = CircleShape,
-                color = when (state) {
-                    FloatingButtonState.GENERATING -> Color(0xFF2C3930)
-                    FloatingButtonState.REVERT_WINDOW -> Color(0xFF3F4F44)
-                    else -> if (isDragging) Color(0xFF3F4F44) else Color(0xFF2C3930)
-                },
+                color = Color(0xF2111827),
                 shadowElevation = if (isDragging) 12.dp else 6.dp,
                 modifier = Modifier
                     .size(36.dp)
@@ -516,8 +465,10 @@ fun FloatingToolbarContent(
                     .border(
                         width = 1.5.dp,
                         brush = Brush.linearGradient(
-                            if (isDragging) listOf(Color(0xFFFFF8E7), Color(0xFFA27B5C))
-                            else listOf(Color(0xFFA27B5C), Color(0xFFC59B76))
+                            listOf(
+                                Color(0xFF3B82F6),
+                                Color(0xFF2563EB)
+                            )
                         ),
                         shape = CircleShape
                     )
@@ -525,25 +476,26 @@ fun FloatingToolbarContent(
                 Box(contentAlignment = Alignment.Center) {
                     when (state) {
                         FloatingButtonState.GENERATING -> {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(18.dp),
-                                strokeWidth = 2.dp,
-                                color = Color(0xFFFFD54F)
+                            Icon(
+                                imageVector = Icons.Default.Stop,
+                                contentDescription = "Stop",
+                                tint = Color(0xFFEF4444),
+                                modifier = Modifier.size(18.dp)
                             )
                         }
                         FloatingButtonState.REVERT_WINDOW -> {
                             Icon(
                                 imageVector = Icons.AutoMirrored.Filled.Undo,
-                                contentDescription = "Undo Text",
-                                tint = Color(0xFFFFD54F),
+                                contentDescription = "Revert",
+                                tint = Color(0xFFFBBF24),
                                 modifier = Modifier.size(18.dp)
                             )
                         }
-                        else -> {
+                        FloatingButtonState.IDLE -> {
                             Icon(
                                 imageVector = Icons.Default.AutoAwesome,
-                                contentDescription = "TextMorph Companion",
-                                tint = Color(0xFFDCD7C9),
+                                contentDescription = "Expand TextMorph",
+                                tint = Color(0xFFE5E7EB),
                                 modifier = Modifier.size(18.dp)
                             )
                         }
@@ -551,15 +503,15 @@ fun FloatingToolbarContent(
                 }
             }
 
-            // Countdown ring when in Revert Window
+            // Radial countdown ring for 5s REVERT_WINDOW state
             if (state == FloatingButtonState.REVERT_WINDOW) {
-                Canvas(modifier = Modifier.fillMaxSize()) {
+                Canvas(modifier = Modifier.size(42.dp)) {
                     drawArc(
-                        color = Color(0xFFFFD54F),
+                        color = Color(0xFFFBBF24),
                         startAngle = -90f,
                         sweepAngle = 360f * revertCountdown.value,
                         useCenter = false,
-                        style = Stroke(width = 2.5.dp.toPx(), cap = StrokeCap.Round)
+                        style = Stroke(width = 2.5.dp.toPx())
                     )
                 }
             }
@@ -573,8 +525,8 @@ fun FloatingToolbarContent(
 
             Card(
                 shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = Color(0xF22C3930)),
-                border = BorderStroke(1.5.dp, Color(0xFFA27B5C)),
+                colors = CardDefaults.cardColors(containerColor = Color(0xF2111827)),
+                border = BorderStroke(1.5.dp, Color(0xFF3B82F6)),
                 elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
                 modifier = Modifier.fillMaxSize()
             ) {
@@ -590,10 +542,10 @@ fun FloatingToolbarContent(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "✏️ Quick Edit Prompt",
+                            text = "Quick Edit Prompt",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
-                            color = Color(0xFFFFF8E7)
+                            color = Color(0xFFE5E7EB)
                         )
                         IconButton(
                             onClick = {
@@ -605,7 +557,7 @@ fun FloatingToolbarContent(
                             Icon(
                                 imageVector = Icons.Default.Close,
                                 contentDescription = "Close Edit",
-                                tint = Color(0xFFDCD7C9),
+                                tint = Color(0xFF9CA3AF),
                                 modifier = Modifier.size(18.dp)
                             )
                         }
@@ -616,9 +568,9 @@ fun FloatingToolbarContent(
                     OutlinedTextField(
                         value = editTitle,
                         onValueChange = { editTitle = it },
-                        label = { Text("Prompt Title", color = Color(0xFFDCD7C9)) },
+                        label = { Text("Prompt Title", color = Color(0xFF9CA3AF)) },
                         singleLine = true,
-                        textStyle = TextStyle(color = Color(0xFFFFF8E7), fontSize = 14.sp),
+                        textStyle = TextStyle(color = Color(0xFFE5E7EB), fontSize = 14.sp),
                         modifier = Modifier.fillMaxWidth()
                     )
 
@@ -627,9 +579,9 @@ fun FloatingToolbarContent(
                     OutlinedTextField(
                         value = editInstruction,
                         onValueChange = { editInstruction = it },
-                        label = { Text("System Instruction", color = Color(0xFFDCD7C9)) },
+                        label = { Text("System Instruction", color = Color(0xFF9CA3AF)) },
                         maxLines = 4,
-                        textStyle = TextStyle(color = Color(0xFFFFF8E7), fontSize = 13.sp),
+                        textStyle = TextStyle(color = Color(0xFFE5E7EB), fontSize = 13.sp),
                         modifier = Modifier.fillMaxWidth()
                     )
 
@@ -647,8 +599,8 @@ fun FloatingToolbarContent(
                                 onEditorFocusMode(false)
                                 Toast.makeText(context, "Prompt deleted", Toast.LENGTH_SHORT).show()
                             },
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFE57373)),
-                            border = BorderStroke(1.dp, Color(0x66E57373)),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFEF4444)),
+                            border = BorderStroke(1.dp, Color(0x66EF4444)),
                             modifier = Modifier.padding(end = 8.dp)
                         ) {
                             Text("Delete", fontSize = 12.sp)
@@ -668,8 +620,8 @@ fun FloatingToolbarContent(
                                 }
                             },
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = Color(0xFFA27B5C),
-                                contentColor = Color(0xFFFFF8E7)
+                                containerColor = Color(0xFF2563EB),
+                                contentColor = Color.White
                             )
                         ) {
                             Text("Save", fontSize = 12.sp, fontWeight = FontWeight.Bold)
@@ -678,78 +630,54 @@ fun FloatingToolbarContent(
                 }
             }
         } else {
-            // EXPANDED COMPANION RIBBON (44dp single-row dock)
-            val liveText = getLiveInputText()
-            val latestIncoming = getLatestIncomingMessage()
-            val isChat = isConversationContext()
-            val screenText = getScreenVisibleText()
-            val isChatContext = liveText.isBlank() && ((isChat && !latestIncoming.isNullOrBlank()) || screenText.isNotBlank())
-
+            // EXPANDED COMPANION RIBBON (44dp single-row dock, Charcoal Slate styled)
             Surface(
-                shape = RoundedCornerShape(22.dp),
-                color = Color(0xF22C3930),
+                shape = RoundedCornerShape(12.dp),
+                color = Color(0xF2111827),
                 shadowElevation = 10.dp,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(44.dp)
-                    .border(1.5.dp, Color(0x88A27B5C), RoundedCornerShape(22.dp))
+                    .border(1.5.dp, Color(0x663B82F6), RoundedCornerShape(12.dp))
             ) {
                 Row(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(horizontal = 8.dp),
+                        .padding(horizontal = 6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Left Status / Leading Action Icon
-                    Box(
-                        modifier = Modifier
-                            .size(30.dp)
-                            .background(Color(0x33A27B5C), CircleShape)
-                            .clickable {
-                                if (state == FloatingButtonState.GENERATING) {
-                                    activeJob?.cancel()
-                                    activeJob = null
-                                    state = FloatingButtonState.REVERT_WINDOW
-                                    Toast.makeText(context, "Generation stopped.", Toast.LENGTH_SHORT).show()
-                                } else if (state == FloatingButtonState.REVERT_WINDOW) {
-                                    onRevertText()
-                                    state = FloatingButtonState.IDLE
-                                    Toast.makeText(context, "Text reverted.", Toast.LENGTH_SHORT).show()
-                                } else {
-                                    setExpanded(false)
-                                }
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        when (state) {
-                            FloatingButtonState.GENERATING -> {
-                                Icon(
-                                    imageVector = Icons.Default.Stop,
-                                    contentDescription = "Stop",
-                                    tint = Color(0xFFE57373),
-                                    modifier = Modifier.size(16.dp)
-                                )
-                            }
-                            FloatingButtonState.REVERT_WINDOW -> {
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Filled.Undo,
-                                    contentDescription = "Revert",
-                                    tint = Color(0xFFFFD54F),
-                                    modifier = Modifier.size(16.dp)
-                                )
-                            }
-                            else -> {
-                                Icon(
-                                    imageVector = Icons.Default.AutoAwesome,
-                                    contentDescription = "Companion",
-                                    tint = Color(0xFFFFF8E7),
-                                    modifier = Modifier.size(16.dp)
-                                )
+                    // Left Status / Leading Action Square Icon Button
+                    CompanionSquareIconButton(
+                        icon = when (state) {
+                            FloatingButtonState.GENERATING -> Icons.Default.Stop
+                            FloatingButtonState.REVERT_WINDOW -> Icons.AutoMirrored.Filled.Undo
+                            FloatingButtonState.IDLE -> Icons.Default.AutoAwesome
+                        },
+                        contentDescription = "Companion Action",
+                        tint = when (state) {
+                            FloatingButtonState.GENERATING -> Color(0xFFEF4444)
+                            FloatingButtonState.REVERT_WINDOW -> Color(0xFFFBBF24)
+                            FloatingButtonState.IDLE -> Color(0xFF60A5FA)
+                        },
+                        backgroundColor = Color(0x331F2937),
+                        borderColor = Color(0x55374151),
+                        onClick = {
+                            if (state == FloatingButtonState.GENERATING) {
+                                activeJob?.cancel()
+                                activeJob = null
+                                state = FloatingButtonState.REVERT_WINDOW
+                                Toast.makeText(context, "Generation stopped.", Toast.LENGTH_SHORT).show()
+                            } else if (state == FloatingButtonState.REVERT_WINDOW) {
+                                onRevertText()
+                                state = FloatingButtonState.IDLE
+                                Toast.makeText(context, "Text reverted.", Toast.LENGTH_SHORT).show()
+                            } else {
+                                setExpanded(false)
                             }
                         }
-                    }
+                    )
 
-                    Spacer(modifier = Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
 
                     // Center Scrollable Action Chips
                     LazyRow(
@@ -760,9 +688,12 @@ fun FloatingToolbarContent(
                         when (state) {
                             FloatingButtonState.REVERT_WINDOW -> {
                                 item {
-                                    CompanionActionChip(
-                                        label = "↩️ Revert Text",
-                                        accent = true,
+                                    CompanionSquareIconButton(
+                                        icon = Icons.AutoMirrored.Filled.Undo,
+                                        contentDescription = "Revert Text",
+                                        tint = Color(0xFFFBBF24),
+                                        backgroundColor = Color(0x331F2937),
+                                        borderColor = Color(0xFFFBBF24),
                                         onClick = {
                                             onRevertText()
                                             state = FloatingButtonState.IDLE
@@ -771,9 +702,12 @@ fun FloatingToolbarContent(
                                     )
                                 }
                                 item {
-                                    CompanionActionChip(
-                                        label = "✓ Keep Output",
-                                        accent = false,
+                                    CompanionSquareIconButton(
+                                        icon = Icons.Default.Check,
+                                        contentDescription = "Keep Output",
+                                        tint = Color(0xFF10B981),
+                                        backgroundColor = Color(0x331F2937),
+                                        borderColor = Color(0xFF10B981),
                                         onClick = {
                                             state = FloatingButtonState.IDLE
                                         }
@@ -782,9 +716,12 @@ fun FloatingToolbarContent(
                             }
                             FloatingButtonState.GENERATING -> {
                                 item {
-                                    CompanionActionChip(
-                                        label = "⏹ Stop Generating",
-                                        accent = true,
+                                    CompanionSquareIconButton(
+                                        icon = Icons.Default.Stop,
+                                        contentDescription = "Stop Generating",
+                                        tint = Color(0xFFEF4444),
+                                        backgroundColor = Color(0x331F2937),
+                                        borderColor = Color(0xFFEF4444),
                                         onClick = {
                                             activeJob?.cancel()
                                             activeJob = null
@@ -795,97 +732,6 @@ fun FloatingToolbarContent(
                                 }
                             }
                             FloatingButtonState.IDLE -> {
-                                // Smart Reply Chips (when in chat context with empty input & auto-replies enabled)
-                                if (isChatContext && autoSuggestReplies) {
-                                    if (isLoadingSmartReplies) {
-                                        item {
-                                            CompanionActionChip(
-                                                label = "✨ Generating replies...",
-                                                accent = true,
-                                                onClick = {}
-                                            )
-                                        }
-                                    } else {
-                                        items(smartReplies) { reply ->
-                                            CompanionActionChip(
-                                                label = reply,
-                                                accent = true,
-                                                onClick = {
-                                                    val original = getLiveInputText()
-                                                    onSnapshotOriginalText(original)
-                                                    onInsertText(reply, false)
-                                                    state = FloatingButtonState.REVERT_WINDOW
-                                                    setExpanded(false)
-                                                }
-                                            )
-                                        }
-                                    }
-
-                                    // Quick Smart Style Archetypes
-                                    item {
-                                        CompanionActionChip(
-                                            label = "👍 Agree",
-                                            accent = false,
-                                            onClick = {
-                                                startSmartReplyGeneration("Generate a polite, enthusiastic affirmative response to the incoming message.")
-                                            }
-                                        )
-                                    }
-                                    item {
-                                        CompanionActionChip(
-                                            label = "🙅 Decline",
-                                            accent = false,
-                                            onClick = {
-                                                startSmartReplyGeneration("Generate a polite and thoughtful decline response to the incoming message.")
-                                            }
-                                        )
-                                    }
-                                    item {
-                                        CompanionActionChip(
-                                            label = "🤔 Inquire",
-                                            accent = false,
-                                            onClick = {
-                                                startSmartReplyGeneration("Generate a friendly follow-up question asking for more details or clarification.")
-                                            }
-                                        )
-                                    }
-                                    if (smartReplies.isNotEmpty()) {
-                                        item {
-                                            IconButton(
-                                                onClick = {
-                                                    val target = if (isChat && !latestIncoming.isNullOrBlank()) latestIncoming else screenText.take(200)
-                                                    fetchSmartReplies(target)
-                                                },
-                                                modifier = Modifier.size(28.dp)
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Default.Refresh,
-                                                    contentDescription = "Refresh",
-                                                    tint = Color(0xFFDCD7C9),
-                                                    modifier = Modifier.size(16.dp)
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-
-                                // AI Smart Reply Toggle Chip inside the bar
-                                item {
-                                    CompanionActionChip(
-                                        label = if (autoSuggestReplies) "✨ AI ON" else "⚪ AI OFF",
-                                        accent = autoSuggestReplies,
-                                        onClick = {
-                                            val next = !autoSuggestReplies
-                                            onToggleAutoSuggestReplies(next)
-                                            Toast.makeText(
-                                                context,
-                                                if (next) "Smart Replies: ON" else "Smart Replies: OFF",
-                                                Toast.LENGTH_SHORT
-                                            ).show()
-                                        }
-                                    )
-                                }
-
                                 // Standard Transform Prompts
                                 items(prompts) { prompt ->
                                     CompanionActionChip(
@@ -900,85 +746,84 @@ fun FloatingToolbarContent(
                                         }
                                     )
                                 }
-
-                                // Compact / Expand Toggle Chip at the end of prompt options
-                                item {
-                                    CompanionActionChip(
-                                        label = if (isCompactMode) "📖 Expand" else "🗜️ Compact",
-                                        accent = false,
-                                        onClick = {
-                                            val nextMode = !isCompactMode
-                                            isCompactMode = nextMode
-                                            onToggleCompactMode(nextMode)
-                                        }
-                                    )
-                                }
                             }
                         }
                     }
 
                     Spacer(modifier = Modifier.width(6.dp))
 
-                    // Right Controls: Permanent Undo, Quick Execute, and Collapse ('x') Button
+                    // Right Controls: Square Icon Buttons (Neat, well-spaced, icons only)
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        // 1. Fixed Permanent Undo Button
+                        // 1. Fixed Permanent Undo Button (10-step history)
                         val canUndo = hasUndo() || state == FloatingButtonState.REVERT_WINDOW
-                        IconButton(
+                        CompanionSquareIconButton(
+                            icon = Icons.AutoMirrored.Filled.Undo,
+                            contentDescription = "Undo",
+                            enabled = canUndo,
+                            tint = if (canUndo) Color(0xFF60A5FA) else Color(0x339CA3AF),
+                            backgroundColor = Color(0x331F2937),
+                            borderColor = if (canUndo) Color(0x663B82F6) else Color(0x22374151),
                             onClick = {
                                 onRevertText()
                                 state = FloatingButtonState.IDLE
-                                Toast.makeText(context, "Text reverted.", Toast.LENGTH_SHORT).show()
-                            },
-                            enabled = canUndo,
-                            modifier = Modifier.size(28.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.Undo,
-                                contentDescription = "Permanent Undo",
-                                tint = if (canUndo) Color(0xFFFFD54F) else Color(0x44DCD7C9),
-                                modifier = Modifier.size(16.dp)
-                            )
-                        }
+                                Toast.makeText(context, "Undone to previous input.", Toast.LENGTH_SHORT).show()
+                            }
+                        )
 
-                        // 2. Quick Execute / Run Button (to the left of 'x')
-                        IconButton(
+                        // 2. Quick Execute Button (Checks for /command in text or runs direct execution)
+                        CompanionSquareIconButton(
+                            icon = Icons.Default.Bolt,
+                            contentDescription = "Quick Execute",
+                            tint = Color(0xFFFBBF24),
+                            backgroundColor = Color(0x333B82F6),
+                            borderColor = Color(0xFF3B82F6),
                             onClick = {
-                                startGeneration("", directExecute = true)
-                            },
-                            modifier = Modifier
-                                .size(28.dp)
-                                .background(Color(0x44A27B5C), CircleShape)
-                                .border(1.dp, Color(0xFFA27B5C), CircleShape)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Bolt,
-                                contentDescription = "Quick Execute",
-                                tint = Color(0xFFFFD54F),
-                                modifier = Modifier.size(16.dp)
-                            )
-                        }
+                                val liveText = getLiveInputText()
+                                if (liveText.isBlank()) {
+                                    Toast.makeText(context, "Please type or place cursor in a text field first.", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    val (matchedCommand, cleanedText) = slashCommandRepository.matchAndExtractCommand(liveText)
+                                    if (matchedCommand != null) {
+                                        executeSlashCommand(matchedCommand, cleanedText)
+                                    } else {
+                                        startGeneration("", directExecute = true)
+                                    }
+                                }
+                            }
+                        )
 
-                        // 3. Collapse ('x') Button
-                        IconButton(
+                        // 3. Compact / Expand Mode Toggle Button
+                        CompanionSquareIconButton(
+                            icon = if (isCompactMode) Icons.Default.UnfoldMore else Icons.Default.UnfoldLess,
+                            contentDescription = if (isCompactMode) "Expand Prompts" else "Compact Prompts",
+                            tint = Color(0xFF9CA3AF),
+                            backgroundColor = Color(0x331F2937),
+                            borderColor = Color(0x33374151),
+                            onClick = {
+                                val nextMode = !isCompactMode
+                                isCompactMode = nextMode
+                                onToggleCompactMode(nextMode)
+                            }
+                        )
+
+                        // 4. Collapse ('x') Button
+                        CompanionSquareIconButton(
+                            icon = Icons.Default.Close,
+                            contentDescription = "Collapse",
+                            tint = Color(0xFF9CA3AF),
+                            backgroundColor = Color(0x331F2937),
+                            borderColor = Color(0x33374151),
                             onClick = {
                                 if (editingPromptInline != null) {
                                     editingPromptInline = null
                                     onEditorFocusMode(false)
                                 }
                                 setExpanded(false)
-                            },
-                            modifier = Modifier.size(28.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Close,
-                                contentDescription = "Collapse",
-                                tint = Color(0xFFDCD7C9),
-                                modifier = Modifier.size(16.dp)
-                            )
-                        }
+                            }
+                        )
                     }
                 }
             }
@@ -987,7 +832,40 @@ fun FloatingToolbarContent(
 }
 
 /**
- * Modern, low-footprint chip for the TextMorph Companion Ribbon with optional long-press support.
+ * Neat 30x30dp square icon button for the floating companion toolbar.
+ */
+@Composable
+fun CompanionSquareIconButton(
+    icon: ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    tint: Color = Color(0xFFE5E7EB),
+    backgroundColor: Color = Color(0x331F2937),
+    borderColor: Color = Color(0x44374151)
+) {
+    Surface(
+        shape = RoundedCornerShape(8.dp),
+        color = backgroundColor,
+        border = BorderStroke(1.dp, borderColor),
+        enabled = enabled,
+        onClick = onClick,
+        modifier = modifier.size(30.dp)
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(
+                imageVector = icon,
+                contentDescription = contentDescription,
+                tint = tint,
+                modifier = Modifier.size(16.dp)
+            )
+        }
+    }
+}
+
+/**
+ * Modern, low-footprint chip for prompt transform actions in Charcoal Slate styling.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -999,23 +877,23 @@ fun CompanionActionChip(
     onLongClick: (() -> Unit)? = null
 ) {
     val backgroundColor = when {
-        grayedOut -> Color(0x1A3F4F44)
-        accent -> Color(0x44A27B5C)
-        else -> Color(0x333F4F44)
+        grayedOut -> Color(0x1A1F2937)
+        accent -> Color(0x442563EB)
+        else -> Color(0x331F2937)
     }
     val borderColor = when {
-        grayedOut -> Color(0x22DCD7C9)
-        accent -> Color(0xFFA27B5C)
-        else -> Color(0x66A27B5C)
+        grayedOut -> Color(0x22374151)
+        accent -> Color(0xFF3B82F6)
+        else -> Color(0x44374151)
     }
     val textColor = when {
-        grayedOut -> Color(0x44DCD7C9)
-        accent -> Color(0xFFFFF8E7)
-        else -> Color(0xFFDCD7C9)
+        grayedOut -> Color(0x449CA3AF)
+        accent -> Color.White
+        else -> Color(0xFFE5E7EB)
     }
 
     Surface(
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(8.dp),
         color = backgroundColor,
         border = BorderStroke(1.dp, borderColor),
         modifier = Modifier.combinedClickable(
@@ -1024,7 +902,7 @@ fun CompanionActionChip(
         )
     ) {
         Box(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
             contentAlignment = Alignment.Center
         ) {
             Text(

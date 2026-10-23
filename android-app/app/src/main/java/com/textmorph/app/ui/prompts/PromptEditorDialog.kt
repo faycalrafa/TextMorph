@@ -128,7 +128,7 @@ fun PromptEditorDialog(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    PromptCategory.entries.forEach { cat ->
+                    PromptCategory.entries.filter { it != PromptCategory.SMART_REPLY }.forEach { cat ->
                         FilterChip(
                             selected = category == cat,
                             onClick = {

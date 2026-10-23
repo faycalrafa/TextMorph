@@ -172,6 +172,14 @@ class ModelStorageRepository(private val context: Context) {
             list.filterNot { item -> catalogList.any { it.name.equals(item.name, ignoreCase = true) } }
                 .forEach { finalList.add(it) }
 
+            // Preserve registered SAF models from current availableModels
+            val currentSafModels = _availableModels.value.filter { it.uriString != null || it.id.startsWith("saf_") }
+            currentSafModels.forEach { safModel ->
+                if (finalList.none { it.id == safModel.id || it.name.equals(safModel.name, ignoreCase = true) }) {
+                    finalList.add(0, safModel)
+                }
+            }
+
             _availableModels.value = finalList
             AppLogger.i(TAG, "Scanned models complete: ${finalList.size} models available (${list.size} local files found).")
         } catch (e: Exception) {
@@ -183,9 +191,13 @@ class ModelStorageRepository(private val context: Context) {
 
     suspend fun registerSafModelUri(uri: Uri): ModelInfo? = withContext(Dispatchers.IO) {
         try {
-            // Take persistable permission
-            val takeFlags: Int = Intent.FLAG_GRANT_READ_URI_PERMISSION
-            context.contentResolver.takePersistableUriPermission(uri, takeFlags)
+            // Attempt persistable permission grant (safely ignore if not supported by provider)
+            try {
+                val takeFlags: Int = Intent.FLAG_GRANT_READ_URI_PERMISSION
+                context.contentResolver.takePersistableUriPermission(uri, takeFlags)
+            } catch (secEx: SecurityException) {
+                AppLogger.w(TAG, "Could not take persistable URI permission for $uri: ${secEx.message}")
+            }
 
             var displayName = "custom_model.litertlm"
             var size = 0L
@@ -197,6 +209,23 @@ class ModelStorageRepository(private val context: Context) {
                     if (nameIndex != -1) displayName = cursor.getString(nameIndex) ?: displayName
                     if (sizeIndex != -1) size = cursor.getLong(sizeIndex)
                 }
+            }
+
+            // Inspect header bytes to accurately identify GGUF or LiteRT binary magic
+            val headerBytes = try {
+                context.contentResolver.openInputStream(uri)?.use { stream ->
+                    val buf = ByteArray(16)
+                    val read = stream.read(buf)
+                    if (read >= 4) buf else null
+                }
+            } catch (e: Exception) {
+                AppLogger.d(TAG, "Could not read header bytes for $displayName: ${e.message}")
+                null
+            }
+
+            var detectedType = ModelFileType.detect(displayName, headerBytes)
+            if (detectedType == ModelFileType.GGUF && !displayName.endsWith(".gguf", ignoreCase = true)) {
+                displayName = "$displayName.gguf"
             }
 
             // Check if direct filesystem path exists and is readable
@@ -233,7 +262,6 @@ class ModelStorageRepository(private val context: Context) {
                 }
             }
 
-            val detectedType = ModelFileType.detect(displayName)
             val modelInfo = ModelInfo(
                 id = "saf_${uri.toString().hashCode()}",
                 name = displayName,
@@ -263,8 +291,12 @@ class ModelStorageRepository(private val context: Context) {
 
     suspend fun registerSafMmprojUri(uri: Uri): Pair<String, String?> = withContext(Dispatchers.IO) {
         try {
-            val takeFlags: Int = Intent.FLAG_GRANT_READ_URI_PERMISSION
-            context.contentResolver.takePersistableUriPermission(uri, takeFlags)
+            try {
+                val takeFlags: Int = Intent.FLAG_GRANT_READ_URI_PERMISSION
+                context.contentResolver.takePersistableUriPermission(uri, takeFlags)
+            } catch (secEx: SecurityException) {
+                AppLogger.w(TAG, "Could not take persistable URI permission for mmproj $uri: ${secEx.message}")
+            }
 
             var displayName = "mmproj.gguf"
             context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->

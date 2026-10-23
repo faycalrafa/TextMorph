@@ -112,6 +112,9 @@ import com.textmorph.app.ui.common.UpdateDialog
 import com.textmorph.app.ui.dashboard.components.ReadinessBanner
 import com.textmorph.app.ui.modelhub.ModelHubContent
 import com.textmorph.app.ui.prompts.PromptEditorDialog
+import com.textmorph.app.data.repository.SlashCommandRepository
+import com.textmorph.app.ui.commands.CustomCommandsContent
+import androidx.compose.material.icons.filled.Terminal
 import com.textmorph.app.ui.settings.SettingsContent
 import com.textmorph.app.util.AppLogger
 import com.textmorph.app.util.PermissionUtils
@@ -119,6 +122,7 @@ import kotlinx.coroutines.launch
 
 enum class AppDestination(val title: String) {
     PROMPTS("Custom Prompts"),
+    CUSTOM_COMMANDS("Custom Commands"),
     MODEL_HUB("Model Hub"),
     CHAT("AI Playground"),
     SETTINGS("Settings"),
@@ -133,7 +137,8 @@ fun DashboardScreen(
     promptRepository: PromptRepository,
     settingsRepository: SettingsRepository,
     modelRepository: ModelStorageRepository,
-    updateRepository: UpdateRepository
+    updateRepository: UpdateRepository,
+    slashCommandRepository: SlashCommandRepository = SlashCommandRepository.getInstance(LocalContext.current)
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -160,15 +165,16 @@ fun DashboardScreen(
     // Prompts & Category filtering
     val allPrompts by promptRepository.promptsState.collectAsState()
     var selectedCategoryIndex by remember { mutableIntStateOf(0) }
-    val categories = remember { listOf("All") + PromptCategory.entries.map { it.displayName } }
+    val categories = remember {
+        listOf("All", PromptCategory.TEXT_TRANSFORM.displayName, PromptCategory.VISION_ACTION.displayName)
+    }
 
     val filteredPrompts = remember(allPrompts, selectedCategoryIndex, searchQuery) {
         allPrompts.filter { prompt ->
             val matchesCategory = when (selectedCategoryIndex) {
                 0 -> true
                 1 -> prompt.category == PromptCategory.TEXT_TRANSFORM
-                2 -> prompt.category == PromptCategory.SMART_REPLY
-                3 -> prompt.category == PromptCategory.VISION_ACTION
+                2 -> prompt.category == PromptCategory.VISION_ACTION
                 else -> true
             }
             val matchesSearch = if (searchQuery.isBlank()) true else {
@@ -326,6 +332,17 @@ fun DashboardScreen(
                         selected = currentDestination == AppDestination.PROMPTS,
                         onClick = {
                             currentDestination = AppDestination.PROMPTS
+                            scope.launch { drawerState.close() }
+                        },
+                        modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+                    )
+
+                    NavigationDrawerItem(
+                        icon = { Icon(Icons.Default.Terminal, contentDescription = null) },
+                        label = { Text("Custom Commands") },
+                        selected = currentDestination == AppDestination.CUSTOM_COMMANDS,
+                        onClick = {
+                            currentDestination = AppDestination.CUSTOM_COMMANDS
                             scope.launch { drawerState.close() }
                         },
                         modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
@@ -688,6 +705,12 @@ fun DashboardScreen(
                                     Spacer(modifier = Modifier.height(80.dp)) // Space for FAB
                                 }
                             }
+                        }
+
+                        AppDestination.CUSTOM_COMMANDS -> {
+                            CustomCommandsContent(
+                                slashCommandRepository = slashCommandRepository
+                            )
                         }
 
                         AppDestination.MODEL_HUB -> {

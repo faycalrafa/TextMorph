@@ -6,6 +6,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -144,9 +145,9 @@ fun ModelHubContent(
                 val registered = modelRepository.registerSafModelUri(uri)
                 if (registered != null) {
                     val isGguf = registered.modelFileType == ModelFileType.GGUF || registered.name.endsWith(".gguf", ignoreCase = true)
-                    settingsRepository.setActiveModel(registered.name, registered.path, registered.uriString)
+                    val targetEngine = if (isGguf) EngineType.ON_DEVICE_LLAMA_CPP else EngineType.ON_DEVICE_LITERT
+                    settingsRepository.setActiveModel(registered.name, registered.path, registered.uriString, targetEngine)
                     if (isGguf) {
-                        settingsRepository.setSelectedEngine(EngineType.ON_DEVICE_LLAMA_CPP)
                         settingsRepository.setActiveMmproj(registered.mmprojName, registered.mmprojPath, registered.mmprojUriString)
                         llamaCppEngine.initialize(
                             modelPath = registered.path,
@@ -158,7 +159,6 @@ fun ModelHubContent(
                             probeTimeoutMs = settings.probeTimeoutMs
                         )
                     } else {
-                        settingsRepository.setSelectedEngine(EngineType.ON_DEVICE_LITERT)
                         liteRtEngine.initialize(registered.path, registered.name, uri, settings.preferredAccelerator, settings.probeTimeoutMs)
                     }
                     Toast.makeText(context, "Loading: ${registered.name}", Toast.LENGTH_SHORT).show()
@@ -256,7 +256,7 @@ fun ModelHubContent(
                     ) {
                         Button(
                             onClick = {
-                                safLauncher.launch(arrayOf("*/*"))
+                                safLauncher.launch(arrayOf("*/*", "application/octet-stream"))
                             },
                             shape = RoundedCornerShape(10.dp)
                         ) {
@@ -313,9 +313,9 @@ fun ModelHubContent(
                     scope.launch {
                         val uri = model.uriString?.let { Uri.parse(it) }
                         val mmprojUri = model.mmprojUriString?.let { Uri.parse(it) }
-                        settingsRepository.setActiveModel(model.name, model.path, model.uriString)
+                        val targetEngine = if (isGguf) EngineType.ON_DEVICE_LLAMA_CPP else EngineType.ON_DEVICE_LITERT
+                        settingsRepository.setActiveModel(model.name, model.path, model.uriString, targetEngine)
                         if (isGguf) {
-                            settingsRepository.setSelectedEngine(EngineType.ON_DEVICE_LLAMA_CPP)
                             settingsRepository.setActiveMmproj(model.mmprojName, model.mmprojPath, model.mmprojUriString)
                             llamaCppEngine.initialize(
                                 modelPath = model.path,
@@ -327,7 +327,6 @@ fun ModelHubContent(
                                 probeTimeoutMs = settings.probeTimeoutMs
                             )
                         } else {
-                            settingsRepository.setSelectedEngine(EngineType.ON_DEVICE_LITERT)
                             liteRtEngine.initialize(model.path, model.name, uri, settings.preferredAccelerator, settings.probeTimeoutMs)
                         }
                         Toast.makeText(context, "Loading: ${model.name}...", Toast.LENGTH_SHORT).show()
@@ -398,7 +397,12 @@ private fun ModelCardItem(
     val isGguf = model.modelFileType == ModelFileType.GGUF || model.name.endsWith(".gguf", ignoreCase = true)
 
     Card(
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable(
+                enabled = model.isDownloaded && !isLoadingEngine && !isCurrentActive,
+                onClick = onActivate
+            ),
         shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(
             containerColor = if (isCurrentActive) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
