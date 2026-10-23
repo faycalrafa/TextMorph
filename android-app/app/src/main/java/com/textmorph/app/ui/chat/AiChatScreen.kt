@@ -10,7 +10,6 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -31,24 +30,16 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.filled.AddPhotoAlternate
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Speed
-import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -70,35 +61,34 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.textmorph.app.data.model.EngineType
 import com.textmorph.app.data.repository.ModelStorageRepository
 import com.textmorph.app.data.repository.SettingsRepository
 import com.textmorph.app.llm.InferenceMetrics
 import com.textmorph.app.llm.LiteRtLmEngine
+import com.textmorph.app.llm.LlamaCppEngine
+import com.textmorph.app.llm.LlamaCppEngineManager
+import com.textmorph.app.ui.chat.components.ChatInputBar
+import com.textmorph.app.ui.chat.components.ChatMessage
+import com.textmorph.app.ui.chat.components.ChatMessageItem
 import com.textmorph.app.util.AppLogger
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import java.io.ByteArrayOutputStream
 import java.util.UUID
 
-data class ChatMessage(
-    val id: String = UUID.randomUUID().toString(),
-    val text: String,
-    val isUser: Boolean,
-    val imageBitmap: Bitmap? = null,
-    val metrics: InferenceMetrics? = null,
-    val isStreaming: Boolean = false
-)
+// Re-export ChatMessage for backward compatibility
+typealias ChatMessage = com.textmorph.app.ui.chat.components.ChatMessage
 
 @Composable
 fun AiChatContent(
     liteRtEngine: LiteRtLmEngine,
     settingsRepository: SettingsRepository,
     modelRepository: ModelStorageRepository,
-    llamaCppEngine: com.textmorph.app.llm.LlamaCppEngine = com.textmorph.app.llm.LlamaCppEngineManager.getInstance(LocalContext.current),
+    llamaCppEngine: LlamaCppEngine = LlamaCppEngineManager.getInstance(LocalContext.current),
     onNavigateToModelHub: () -> Unit
 ) {
     val TAG = "AiChatContent"
@@ -108,7 +98,7 @@ fun AiChatContent(
     val listState = rememberLazyListState()
 
     val settings by settingsRepository.settingsState.collectAsState()
-    val isLlamaActive = settings.selectedEngine == com.textmorph.app.data.model.EngineType.ON_DEVICE_LLAMA_CPP
+    val isLlamaActive = settings.selectedEngine == EngineType.ON_DEVICE_LLAMA_CPP
 
     val messages = remember { mutableStateListOf<ChatMessage>() }
     var inputText by remember { mutableStateOf("") }
@@ -118,50 +108,81 @@ fun AiChatContent(
     var currentJob by remember { mutableStateOf<Job?>(null) }
 
     val liteRtSessionState by liteRtEngine.sessionState.collectAsState()
-    val liteRtLoadingProgress by liteRtEngine.loadingProgress.collectAsState()
     val llamaSessionState by llamaCppEngine.sessionState.collectAsState()
-    val llamaLoadingProgress by llamaCppEngine.loadingProgress.collectAsState()
-
     val sessionState = if (isLlamaActive) llamaSessionState else liteRtSessionState
-    val loadingProgress = if (isLlamaActive) llamaLoadingProgress else liteRtLoadingProgress
 
-    val isModelLoaded = sessionState.isLoaded
-    val activeModelName = sessionState.modelName
-    val activeBackend = sessionState.backend
+    val activeModelName = if (sessionState.isLoaded) {
+        sessionState.modelName
+    } else {
+        settings.activeModelName.ifEmpty { "No Model Active" }
+    }
 
-    // Photo picker launcher
+    // Auto-scroll to bottom as streaming tokens arrive
+    LaunchedEffect(messages.lastOrNull()?.text, messages.size) {
+        if (messages.isNotEmpty()) {
+            listState.animateScrollToItem(messages.size - 1)
+        }
+    }
+
+    // Image Picker Launcher
     val imagePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         if (uri != null) {
             try {
-                context.contentResolver.openInputStream(uri)?.use { stream ->
-                    val rawBitmap = BitmapFactory.decodeStream(stream)
-                    if (rawBitmap != null) {
-                        // Scale to max 1024x1024 to preserve GPU memory
-                        val maxDim = 1024
-                        val scaled = if (rawBitmap.width > maxDim || rawBitmap.height > maxDim) {
-                            val ratio = minOf(maxDim.toFloat() / rawBitmap.width, maxDim.toFloat() / rawBitmap.height)
-                            Bitmap.createScaledBitmap(rawBitmap, (rawBitmap.width * ratio).toInt(), (rawBitmap.height * ratio).toInt(), true)
-                        } else rawBitmap
+                val inputStream = context.contentResolver.openInputStream(uri)
+                val originalBitmap = BitmapFactory.decodeStream(inputStream)
+                inputStream?.close()
 
-                        val bos = ByteArrayOutputStream()
-                        scaled.compress(Bitmap.CompressFormat.PNG, 100, bos)
-                        selectedImageBytes = bos.toByteArray()
-                        selectedBitmap = scaled
-                        AppLogger.i(TAG, "Selected image attached: ${selectedImageBytes?.size} bytes")
+                if (originalBitmap != null) {
+                    val maxDimension = 1024
+                    val scaledBitmap = if (originalBitmap.width > maxDimension || originalBitmap.height > maxDimension) {
+                        val ratio = originalBitmap.width.toFloat() / originalBitmap.height.toFloat()
+                        val (newW, newH) = if (ratio > 1f) {
+                            maxDimension to (maxDimension / ratio).toInt()
+                        } else {
+                            (maxDimension * ratio).toInt() to maxDimension
+                        }
+                        Bitmap.createScaledBitmap(originalBitmap, newW, newH, true)
+                    } else {
+                        originalBitmap
                     }
+
+                    val stream = ByteArrayOutputStream()
+                    scaledBitmap.compress(Bitmap.CompressFormat.JPEG, 85, stream)
+                    selectedImageBytes = stream.toByteArray()
+                    selectedBitmap = scaledBitmap
+
+                    Toast.makeText(context, "Image attached (${selectedImageBytes!!.size / 1024} KB)", Toast.LENGTH_SHORT).show()
                 }
             } catch (e: Exception) {
-                AppLogger.e(TAG, "Failed to load selected image: ${e.message}", e)
+                AppLogger.e(TAG, "Failed to load image: ${e.message}", e)
+                Toast.makeText(context, "Failed to attach image: ${e.message}", Toast.LENGTH_SHORT).show()
             }
         }
     }
 
-    // Auto-scroll when messages update
-    LaunchedEffect(messages.size, messages.lastOrNull()?.text) {
-        if (messages.isNotEmpty()) {
-            listState.animateScrollToItem(messages.size - 1)
+    fun handleSend() {
+        if (inputText.isNotBlank() && !isGenerating) {
+            executePrompt(
+                prompt = inputText,
+                image = selectedImageBytes,
+                imageBmp = selectedBitmap,
+                isLlamaActive = isLlamaActive,
+                liteRtEngine = liteRtEngine,
+                llamaCppEngine = llamaCppEngine,
+                messages = messages,
+                scope = scope,
+                onStart = {
+                    isGenerating = true
+                    inputText = ""
+                    selectedBitmap = null
+                    selectedImageBytes = null
+                    keyboardController?.hide()
+                },
+                onComplete = { isGenerating = false },
+                setJob = { currentJob = it }
+            )
         }
     }
 
@@ -170,20 +191,16 @@ fun AiChatContent(
             .fillMaxSize()
             .imePadding()
     ) {
-        // Top Model & Hardware Acceleration Status Bar
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
-            ),
-            shape = RoundedCornerShape(12.dp)
+        // Top Header Bar: Active Model Badge & Vision Indicator
+        Surface(
+            color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 2.dp,
+            modifier = Modifier.fillMaxWidth()
         ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
@@ -191,75 +208,128 @@ fun AiChatContent(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.weight(1f)
                 ) {
-                    if (loadingProgress.isLoading) {
-                        CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
-                    } else {
-                        Icon(
-                            imageVector = Icons.Default.Memory,
-                            contentDescription = "Model",
-                            tint = if (isModelLoaded) Color(0xFF68D391) else Color(0xFFA27B5C),
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
+                    Icon(
+                        imageVector = Icons.Default.Memory,
+                        contentDescription = null,
+                        tint = if (sessionState.isLoaded) Color(0xFF48BB78) else MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(20.dp)
+                    )
                     Spacer(modifier = Modifier.width(8.dp))
                     Column {
-                        FlowRow(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
+                        Text(
+                            text = activeModelName,
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
-                                text = if (loadingProgress.isLoading) "Loading: ${sessionState.modelName}"
-                                else if (isModelLoaded) activeModelName
-                                else "No Local Model Loaded",
-                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                                text = if (sessionState.isLoaded) "${sessionState.backend} • Warm" else "Idle (Select in Model Hub)",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (sessionState.isLoaded) Color(0xFF48BB78) else MaterialTheme.colorScheme.error
                             )
-                            if (isModelLoaded) {
+                            if (sessionState.isVisionCapable) {
+                                Spacer(modifier = Modifier.width(6.dp))
                                 Surface(
                                     shape = RoundedCornerShape(4.dp),
-                                    color = if (sessionState.isVisionCapable) Color(0x334CAF50) else Color(0x33FF9800)
+                                    color = Color(0xFF2B6CB0)
                                 ) {
                                     Text(
-                                        text = if (sessionState.isVisionCapable) "Vision" else "Text-Only",
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = if (sessionState.isVisionCapable) Color(0xFF68D391) else Color(0xFFFFB74D),
-                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                        text = "Vision Enabled",
+                                        color = Color.White,
+                                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
                                     )
                                 }
                             }
                         }
-                        Text(
-                            text = if (loadingProgress.isLoading) loadingProgress.statusText
-                            else if (isModelLoaded) "Backend: $activeBackend"
-                            else "Tap here to pick model in Hub",
-                            style = MaterialTheme.typography.bodySmall.copy(
-                                color = if (isModelLoaded) MaterialTheme.colorScheme.primary else Color(0xFFA27B5C)
-                            ),
-                            modifier = Modifier.then(
-                                if (!isModelLoaded && !loadingProgress.isLoading) Modifier.clickable { onNavigateToModelHub() } else Modifier
-                            )
-                        )
                     }
                 }
 
-                if (messages.isNotEmpty()) {
-                    IconButton(
-                        onClick = { messages.clear() },
-                        modifier = Modifier.size(32.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.DeleteOutline,
-                            contentDescription = "Clear Chat",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                            modifier = Modifier.size(18.dp)
-                        )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (messages.isNotEmpty()) {
+                        IconButton(
+                            onClick = {
+                                currentJob?.cancel()
+                                isGenerating = false
+                                messages.clear()
+                            },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.DeleteOutline,
+                                contentDescription = "Clear Chat",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                 }
             }
         }
 
-        // Message List
+        // Selected Image Preview Banner (if attached)
+        AnimatedVisibility(
+            visible = selectedBitmap != null,
+            enter = fadeIn(),
+            exit = fadeOut()
+        ) {
+            selectedBitmap?.let { bmp ->
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 6.dp)
+                ) {
+                    Card(
+                        shape = RoundedCornerShape(12.dp),
+                        elevation = CardDefaults.cardElevation(2.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Image(
+                                bitmap = bmp.asImageBitmap(),
+                                contentDescription = "Attached Thumbnail",
+                                modifier = Modifier
+                                    .size(48.dp)
+                                    .clip(RoundedCornerShape(8.dp)),
+                                contentScale = ContentScale.Crop
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Multimodal Image Attached",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = "${bmp.width}x${bmp.height}px • ${selectedImageBytes?.size?.div(1024) ?: 0} KB",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            IconButton(
+                                onClick = {
+                                    selectedBitmap = null
+                                    selectedImageBytes = null
+                                },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Remove Image",
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Messages List
         Box(
             modifier = Modifier
                 .weight(1f)
@@ -276,28 +346,45 @@ fun AiChatContent(
                     Icon(
                         imageVector = Icons.Default.Speed,
                         contentDescription = null,
-                        tint = Color(0xFFA27B5C).copy(alpha = 0.6f),
-                        modifier = Modifier.size(56.dp)
+                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f),
+                        modifier = Modifier.size(64.dp)
                     )
                     Spacer(modifier = Modifier.height(16.dp))
                     Text(
-                        text = "AI Model Playground",
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                        color = MaterialTheme.colorScheme.onBackground
+                        text = "Interactive AI Playground",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
                     )
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(6.dp))
                     Text(
-                        text = "Test real local weights on your Adreno/Mali GPU or CPU with live tokens/sec speed telemetry and multimodal image input.",
+                        text = if (!sessionState.isLoaded) {
+                            "No model is currently loaded in memory.\nVisit Model Hub to scan or activate a model."
+                        } else if (sessionState.isVisionCapable) {
+                            "Ask questions, benchmark native tokens/sec throughput, or attach photos to test Multimodal Vision."
+                        } else {
+                            "Send test prompts to benchmark real-time tokens/sec throughput and test streaming inference."
+                        },
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center
                     )
+
+                    if (!sessionState.isLoaded) {
+                        Spacer(modifier = Modifier.height(16.dp))
+                        androidx.compose.material3.Button(
+                            onClick = onNavigateToModelHub,
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Text("Open Model Hub")
+                        }
+                    }
                 }
             } else {
                 LazyColumn(
                     state = listState,
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     items(messages, key = { it.id }) { message ->
@@ -307,176 +394,21 @@ fun AiChatContent(
             }
         }
 
-        // Selected Image Preview Thumbnail
-        AnimatedVisibility(
-            visible = selectedBitmap != null,
-            enter = fadeIn(),
-            exit = fadeOut()
-        ) {
-            selectedBitmap?.let { bmp ->
-                Box(
-                    modifier = Modifier
-                        .padding(horizontal = 16.dp, vertical = 4.dp)
-                        .size(72.dp)
-                ) {
-                    Image(
-                        bitmap = bmp.asImageBitmap(),
-                        contentDescription = "Attached Image",
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .clip(RoundedCornerShape(8.dp)),
-                        contentScale = ContentScale.Crop
-                    )
-                    IconButton(
-                        onClick = {
-                            selectedBitmap = null
-                            selectedImageBytes = null
-                        },
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .size(22.dp)
-                            .background(Color.Black.copy(alpha = 0.7f), CircleShape)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = "Remove image",
-                            tint = Color.White,
-                            modifier = Modifier.size(14.dp)
-                        )
-                    }
-                }
-            }
-        }
-
         // Bottom Chat Input Bar
-        Surface(
-            color = MaterialTheme.colorScheme.surface,
-            tonalElevation = 3.dp,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // Insert Image Button (Photo Picker)
-                val isVisionCapable = sessionState.isVisionCapable
-                IconButton(
-                    onClick = {
-                        if (!isVisionCapable) {
-                            Toast.makeText(context, "Current model ('$activeModelName') is text-only and does not support image input.", Toast.LENGTH_LONG).show()
-                        } else {
-                            imagePickerLauncher.launch("image/*")
-                        }
-                    },
-                    modifier = Modifier.size(44.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.AddPhotoAlternate,
-                        contentDescription = "Insert Image",
-                        tint = if (!isVisionCapable) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
-                        else if (selectedBitmap != null) Color(0xFF68D391)
-                        else MaterialTheme.colorScheme.primary
-                    )
-                }
-
-                // Text Input Field
-                OutlinedTextField(
-                    value = inputText,
-                    onValueChange = { inputText = it },
-                    placeholder = { Text("Ask or instruct local AI...", fontSize = 14.sp) },
-                    modifier = Modifier
-                        .weight(1f)
-                        .padding(horizontal = 4.dp),
-                    maxLines = 4,
-                    shape = RoundedCornerShape(24.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = MaterialTheme.colorScheme.primary,
-                        unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
-                    ),
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                    keyboardActions = KeyboardActions(
-                        onSend = {
-                            if (inputText.isNotBlank() && !isGenerating) {
-                                executePrompt(
-                                    prompt = inputText,
-                                    image = selectedImageBytes,
-                                    imageBmp = selectedBitmap,
-                                    isLlamaActive = isLlamaActive,
-                                    liteRtEngine = liteRtEngine,
-                                    llamaCppEngine = llamaCppEngine,
-                                    messages = messages,
-                                    scope = scope,
-                                    onStart = {
-                                        isGenerating = true
-                                        inputText = ""
-                                        selectedBitmap = null
-                                        selectedImageBytes = null
-                                        keyboardController?.hide()
-                                    },
-                                    onComplete = { isGenerating = false },
-                                    setJob = { currentJob = it }
-                                )
-                            }
-                        }
-                    )
-                )
-
-                // Send or Stop Button
-                if (isGenerating) {
-                    IconButton(
-                        onClick = {
-                            currentJob?.cancel()
-                            isGenerating = false
-                        },
-                        modifier = Modifier
-                            .size(44.dp)
-                            .background(Color(0xFFE53E3E), CircleShape)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Stop,
-                            contentDescription = "Stop",
-                            tint = Color.White
-                        )
-                    }
-                } else {
-                    IconButton(
-                        onClick = {
-                            if (inputText.isNotBlank()) {
-                                executePrompt(
-                                    prompt = inputText,
-                                    image = selectedImageBytes,
-                                    imageBmp = selectedBitmap,
-                                    isLlamaActive = isLlamaActive,
-                                    liteRtEngine = liteRtEngine,
-                                    llamaCppEngine = llamaCppEngine,
-                                    messages = messages,
-                                    scope = scope,
-                                    onStart = {
-                                        isGenerating = true
-                                        inputText = ""
-                                        selectedBitmap = null
-                                        selectedImageBytes = null
-                                        keyboardController?.hide()
-                                    },
-                                    onComplete = { isGenerating = false },
-                                    setJob = { currentJob = it }
-                                )
-                            }
-                        },
-                        enabled = inputText.isNotBlank(),
-                        modifier = Modifier.size(44.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.Send,
-                            contentDescription = "Send",
-                            tint = if (inputText.isNotBlank()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-                        )
-                    }
-                }
+        ChatInputBar(
+            inputText = inputText,
+            onInputTextChanged = { inputText = it },
+            isGenerating = isGenerating,
+            isVisionCapable = sessionState.isVisionCapable,
+            activeModelName = activeModelName,
+            selectedBitmap = selectedBitmap,
+            onPickImage = { imagePickerLauncher.launch("image/*") },
+            onSend = ::handleSend,
+            onStop = {
+                currentJob?.cancel()
+                isGenerating = false
             }
-        }
+        )
     }
 }
 
@@ -486,7 +418,7 @@ private fun executePrompt(
     imageBmp: Bitmap?,
     isLlamaActive: Boolean,
     liteRtEngine: LiteRtLmEngine,
-    llamaCppEngine: com.textmorph.app.llm.LlamaCppEngine,
+    llamaCppEngine: LlamaCppEngine,
     messages: androidx.compose.runtime.snapshots.SnapshotStateList<ChatMessage>,
     scope: kotlinx.coroutines.CoroutineScope,
     onStart: () -> Unit,
@@ -577,122 +509,4 @@ private fun executePrompt(
         }
     }
     setJob(job)
-}
-
-@Composable
-fun ChatMessageItem(message: ChatMessage) {
-    val isUser = message.isUser
-    val alignment = if (isUser) Alignment.End else Alignment.Start
-
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalAlignment = alignment
-    ) {
-        // Optional attached image preview in user message
-        if (message.imageBitmap != null) {
-            Image(
-                bitmap = message.imageBitmap.asImageBitmap(),
-                contentDescription = "User Attachment",
-                modifier = Modifier
-                    .padding(bottom = 4.dp)
-                    .size(width = 160.dp, height = 120.dp)
-                    .clip(RoundedCornerShape(12.dp)),
-                contentScale = ContentScale.Crop
-            )
-        }
-
-        // Message Bubble
-        Surface(
-            shape = RoundedCornerShape(
-                topStart = 16.dp,
-                topEnd = 16.dp,
-                bottomStart = if (isUser) 16.dp else 4.dp,
-                bottomEnd = if (isUser) 4.dp else 16.dp
-            ),
-            color = if (isUser) {
-                MaterialTheme.colorScheme.primaryContainer
-            } else {
-                MaterialTheme.colorScheme.surfaceVariant
-            },
-            modifier = Modifier.fillMaxWidth(0.85f)
-        ) {
-            Column(
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
-            ) {
-                if (message.text.isEmpty() && message.isStreaming) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(16.dp),
-                            strokeWidth = 2.dp,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "Initializing native tensor forward-pass...",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                } else {
-                    Text(
-                        text = message.text,
-                        style = MaterialTheme.typography.bodyMedium.copy(fontSize = 15.sp),
-                        color = if (isUser) {
-                            MaterialTheme.colorScheme.onPrimaryContainer
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        }
-                    )
-                }
-
-                // Speed & Performance Metrics Badge
-                if (!isUser && message.metrics != null) {
-                    val m = message.metrics
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Surface(
-                        color = Color.Black.copy(alpha = 0.15f),
-                        shape = RoundedCornerShape(6.dp)
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Speed,
-                                contentDescription = "Speed",
-                                tint = Color(0xFFA27B5C),
-                                modifier = Modifier.size(14.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = buildString {
-                                    append(String.format("%.1f", m.tokensPerSecond))
-                                    append(" tok/s")
-                                    if (m.timeToFirstTokenMs > 0) {
-                                        append(" • TTFT: ")
-                                        append(m.timeToFirstTokenMs)
-                                        append("ms")
-                                    }
-                                    if (m.totalDurationMs > 0) {
-                                        append(" • ")
-                                        append(String.format("%.1fs", m.totalDurationMs / 1000f))
-                                    }
-                                    if (m.activeBackend.isNotEmpty()) {
-                                        append(" • ")
-                                        append(m.activeBackend.substringBefore(" "))
-                                    }
-                                },
-                                style = MaterialTheme.typography.labelSmall.copy(
-                                    fontFamily = FontFamily.Monospace,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = Color(0xFFA27B5C)
-                                )
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
 }

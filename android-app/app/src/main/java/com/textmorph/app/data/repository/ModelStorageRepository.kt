@@ -235,7 +235,10 @@ class ModelStorageRepository(private val context: Context) {
             } else {
                 val docId = try {
                     android.provider.DocumentsContract.getDocumentId(uri)
-                } catch (e: Exception) { null }
+                } catch (e: Exception) {
+                    AppLogger.d(TAG, "SAF getDocumentId query skipped/unsupported for $uri: ${e.message}")
+                    null
+                }
 
                 if (docId != null) {
                     if (docId.startsWith("primary:")) {
@@ -310,7 +313,12 @@ class ModelStorageRepository(private val context: Context) {
             if (uri.scheme == "file") {
                 directPath = uri.path
             } else {
-                val docId = try { android.provider.DocumentsContract.getDocumentId(uri) } catch (e: Exception) { null }
+                val docId = try {
+                    android.provider.DocumentsContract.getDocumentId(uri)
+                } catch (e: Exception) {
+                    AppLogger.d(TAG, "SAF mmproj getDocumentId query skipped/unsupported for $uri: ${e.message}")
+                    null
+                }
                 if (docId != null && docId.startsWith("primary:")) {
                     val relativePath = docId.removePrefix("primary:")
                     val directFile = File(Environment.getExternalStorageDirectory(), relativePath)

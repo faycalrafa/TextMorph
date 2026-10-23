@@ -198,7 +198,9 @@ class UpdateRepository(private val context: Context) {
         } finally {
             try {
                 activeConnection?.disconnect()
-            } catch (_: Exception) {}
+            } catch (discEx: Exception) {
+                AppLogger.d(TAG, "Connection disconnect: ${discEx.message}")
+            }
         }
     }.flowOn(Dispatchers.IO)
 

@@ -37,10 +37,64 @@ data class LogItem(
 object AppLogger {
     private const val TAG = "AppLogger"
     private const val MAX_LOGS = 1000
+    private const val MAX_LOG_FILE_SIZE = 1024 * 1024L // 1 MB cap
     private val idCounter = AtomicLong(0)
     private val logs = mutableListOf<LogItem>()
     private val _logsState = MutableStateFlow<List<LogItem>>(emptyList())
     val logsState: StateFlow<List<LogItem>> = _logsState.asStateFlow()
+
+    private var logFile: java.io.File? = null
+    private val diskExecutor = java.util.concurrent.Executors.newSingleThreadExecutor { r ->
+        Thread(r, "AppLogger-DiskWriter").apply { isDaemon = true }
+    }
+
+    /**
+     * Initializes disk-buffered logging so logs survive app exits and crashes.
+     */
+    fun init(context: android.content.Context) {
+        try {
+            val logsDir = java.io.File(context.filesDir, "logs").apply {
+                if (!exists()) mkdirs()
+            }
+            val file = java.io.File(logsDir, "app_logs.log")
+            logFile = file
+
+            if (file.exists() && file.length() > 0) {
+                // Re-hydrate recent log lines from disk
+                try {
+                    val lines = file.readLines().takeLast(100)
+                    val restoredItems = mutableListOf<LogItem>()
+                    val now = System.currentTimeMillis()
+                    for (line in lines) {
+                        if (line.isBlank()) continue
+                        restoredItems.add(
+                            LogItem(
+                                id = idCounter.incrementAndGet(),
+                                timestamp = now,
+                                level = when {
+                                    line.contains(" E/") -> LogLevel.ERROR
+                                    line.contains(" W/") -> LogLevel.WARN
+                                    line.contains(" I/") -> LogLevel.INFO
+                                    else -> LogLevel.DEBUG
+                                },
+                                tag = "SavedLog",
+                                message = line
+                            )
+                        )
+                    }
+                    synchronized(this) {
+                        logs.addAll(restoredItems)
+                        _logsState.value = logs.toList()
+                    }
+                } catch (readEx: Exception) {
+                    android.util.Log.w(TAG, "Failed reading previous logs from disk: ${readEx.message}")
+                }
+            }
+            i(TAG, "Persistent disk logger initialized: ${file.absolutePath}")
+        } catch (e: Exception) {
+            android.util.Log.e(TAG, "Failed initializing persistent logger: ${e.message}", e)
+        }
+    }
 
     @Synchronized
     private fun addLog(level: LogLevel, tag: String, message: String, throwable: Throwable? = null) {
@@ -64,6 +118,31 @@ object AppLogger {
             logs.removeAt(0)
         }
         _logsState.value = logs.toList()
+
+        // Asynchronously persist to disk
+        val currentFile = logFile
+        if (currentFile != null) {
+            diskExecutor.execute {
+                try {
+                    if (currentFile.exists() && currentFile.length() > MAX_LOG_FILE_SIZE) {
+                        val backup = java.io.File(currentFile.parentFile, "app_logs.1.log")
+                        if (backup.exists()) backup.delete()
+                        currentFile.renameTo(backup)
+                    }
+                    val line = buildString {
+                        append("[${item.formattedTime}] ${item.level.name.first()}/${item.tag}: ${item.message}\n")
+                        if (!item.stackTrace.isNullOrBlank()) {
+                            append(item.stackTrace).append("\n")
+                        }
+                    }
+                    java.io.FileOutputStream(currentFile, true).use { fos ->
+                        fos.write(line.toByteArray(Charsets.UTF_8))
+                    }
+                } catch (diskEx: Exception) {
+                    android.util.Log.w(TAG, "Failed appending log to disk: ${diskEx.message}")
+                }
+            }
+        }
     }
 
     fun d(tag: String, message: String) {

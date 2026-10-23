@@ -6,6 +6,7 @@ import android.os.ParcelFileDescriptor
 import com.textmorph.app.data.model.ModelFileType
 import com.textmorph.app.data.repository.SettingsRepository
 import com.textmorph.app.util.AppLogger
+import com.textmorph.app.util.NativeFlightRecorder
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -256,7 +257,9 @@ class LlamaCppEngine(private val context: Context) : LlmEngine {
                         if (canonical != null && canonical.endsWith(".gguf", ignoreCase = true) && File(canonical).exists() && File(canonical).canRead()) {
                             return canonical
                         }
-                    } catch (_: Exception) {}
+                    } catch (readlinkEx: Exception) {
+                        AppLogger.d(TAG, "Could not resolve procFdPath via readlink: ${readlinkEx.message}")
+                    }
                 }
             }
 
@@ -286,7 +289,9 @@ class LlamaCppEngine(private val context: Context) : LlmEngine {
                         if (canonical != null && File(canonical).exists() && File(canonical).canRead()) {
                             return canonical
                         }
-                    } catch (_: Exception) {}
+                    } catch (readlinkEx: Exception) {
+                        AppLogger.d(TAG, "Could not resolve mmproj procFdPath via readlink: ${readlinkEx.message}")
+                    }
                 }
             }
             return uri.toString()
@@ -343,7 +348,8 @@ class LlamaCppEngine(private val context: Context) : LlmEngine {
             } else {
                 ModelFileType.detect(filePath)
             }
-        } catch (_: Exception) {
+        } catch (inspectEx: Exception) {
+            AppLogger.d(TAG, "Header inspection error for $filePath: ${inspectEx.message}")
             ModelFileType.detect(filePath)
         }
     }
@@ -365,6 +371,7 @@ class LlamaCppEngine(private val context: Context) : LlmEngine {
 
             val ctx = nativeContext
             if (ctx != null) {
+                NativeFlightRecorder.recordFlightStart(context, "LLAMA_CPP_INFERENCE", currentModelName, activeBackend)
                 var tempImageFile: File? = null
                 val imageFds = mutableListOf<Int>()
 
@@ -421,16 +428,17 @@ class LlamaCppEngine(private val context: Context) : LlmEngine {
                     }
                 } catch (cancelEx: CancellationException) {
                     AppLogger.i(TAG, "llama.cpp generation cancelled by caller.")
-                    try { ctx.stopCompletion() } catch (_: Throwable) {}
+                    try { ctx.stopCompletion() } catch (stopEx: Throwable) { AppLogger.d(TAG, "Stop completion on cancel: ${stopEx.message}") }
                     throw cancelEx
                 } catch (nativeEx: Throwable) {
                     AppLogger.e(TAG, "Native llama.cpp generation error: ${nativeEx.message}", nativeEx)
                     streamStandbyFallback(prompt, systemInstruction, imageBytes).collect { send(it) }
                 } finally {
-                    try { ctx.setTokenCallback { } } catch (_: Throwable) {}
+                    try { ctx.setTokenCallback { } } catch (tokenCbEx: Throwable) { AppLogger.d(TAG, "Clear token callback: ${tokenCbEx.message}") }
                     imageFds.forEach { fd -> safelyCloseDetachedFd(fd) }
                     imageFds.clear()
-                    try { tempImageFile?.delete() } catch (_: Throwable) {}
+                    try { tempImageFile?.delete() } catch (delEx: Throwable) { AppLogger.d(TAG, "Delete temp image file: ${delEx.message}") }
+                    NativeFlightRecorder.recordFlightEnd(context)
                 }
             } else {
                 streamStandbyFallback(prompt, systemInstruction, imageBytes).collect { send(it) }
@@ -541,8 +549,8 @@ class LlamaCppEngine(private val context: Context) : LlmEngine {
             nativeHandle = 0L
         }
 
-        try { createdSymlinkFile?.delete() } catch (_: Exception) {}
-        try { createdMmprojSymlinkFile?.delete() } catch (_: Exception) {}
+        try { createdSymlinkFile?.delete() } catch (symlinkEx: Exception) { AppLogger.d(TAG, "Delete symlink: ${symlinkEx.message}") }
+        try { createdMmprojSymlinkFile?.delete() } catch (symlinkMmprojEx: Exception) { AppLogger.d(TAG, "Delete mmproj symlink: ${symlinkMmprojEx.message}") }
         createdSymlinkFile = null
         createdMmprojSymlinkFile = null
 

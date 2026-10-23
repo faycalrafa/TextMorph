@@ -36,28 +36,12 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import com.textmorph.app.util.NativeFlightRecorder
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-
-data class ModelSessionState(
-    val isLoaded: Boolean = false,
-    val modelName: String = "No Model Loaded",
-    val modelPath: String? = null,
-    val backend: String = "Standby (Simulated)",
-    val isVisionCapable: Boolean = true
-)
-
-data class ModelLoadingProgress(
-    val isLoading: Boolean = false,
-    val progress: Float = 0f,
-    val statusText: String = "Idle",
-    val logLines: List<String> = emptyList(),
-    val error: String? = null,
-    val success: Boolean = false
-)
 
 class LiteRtLmEngine(private val context: Context) : LlmEngine {
 
@@ -491,6 +475,7 @@ class LiteRtLmEngine(private val context: Context) : LlmEngine {
             val eng = nativeEngine
             if (isSessionActive && eng != null) {
                 AppLogger.i(TAG, "Executing native forward-pass on $activeBackend...")
+                NativeFlightRecorder.recordFlightStart(context, "LITERT_INFERENCE", currentModelName, activeBackend)
                 var conversation: Conversation? = null
                 var session: Session? = null
                 try {
@@ -653,6 +638,7 @@ class LiteRtLmEngine(private val context: Context) : LlmEngine {
                     } catch (e: Exception) {
                         AppLogger.w(TAG, "Error closing session: ${e.message}")
                     }
+                    NativeFlightRecorder.recordFlightEnd(context)
                 }
             } else {
                 AppLogger.d(TAG, "No native model session active. Generating simulated standby response.")

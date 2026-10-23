@@ -190,7 +190,7 @@ class TextMorphAccessibilityService : AccessibilityService() {
         return try {
             node.isEditable
         } finally {
-            try { node.recycle() } catch (_: Exception) {}
+            try { node.recycle() } catch (recycleEx: Exception) { AppLogger.d(TAG, "Node recycle: ${recycleEx.message}") }
         }
     }
 
@@ -200,7 +200,7 @@ class TextMorphAccessibilityService : AccessibilityService() {
             if (direct != null) return direct
             val root = rootInActiveWindow
             val fromRoot = root?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
-            try { root?.recycle() } catch (_: Exception) {}
+            try { root?.recycle() } catch (recycleEx: Exception) { AppLogger.d(TAG, "Root recycle: ${recycleEx.message}") }
             fromRoot
         } catch (e: Exception) {
             AppLogger.e(TAG, "Failed finding focused input node: ${e.message}", e)
@@ -219,7 +219,7 @@ class TextMorphAccessibilityService : AccessibilityService() {
             AppLogger.e(TAG, "Error reading live input text: ${e.message}", e)
             ""
         } finally {
-            try { node.recycle() } catch (_: Exception) {}
+            try { node.recycle() } catch (recycleEx: Exception) { AppLogger.d(TAG, "Node recycle: ${recycleEx.message}") }
         }
     }
 
@@ -295,7 +295,7 @@ class TextMorphAccessibilityService : AccessibilityService() {
             AppLogger.e(TAG, "Failed pasting recent clipboard: ${e.message}", e)
             false
         } finally {
-            try { node.recycle() } catch (_: Exception) {}
+            try { node.recycle() } catch (recycleEx: Exception) { AppLogger.d(TAG, "Node recycle: ${recycleEx.message}") }
         }
     }
 
@@ -333,7 +333,7 @@ class TextMorphAccessibilityService : AccessibilityService() {
                 AppLogger.e(TAG, "Failed replacing live input text: ${e.message}", e)
                 false
             } finally {
-                try { node.recycle() } catch (_: Exception) {}
+                try { node.recycle() } catch (recycleEx: Exception) { AppLogger.d(TAG, "Node recycle: ${recycleEx.message}") }
             }
         } finally {
             mainHandler.postDelayed({ isInternalUpdating = false }, 100L)
@@ -361,7 +361,7 @@ class TextMorphAccessibilityService : AccessibilityService() {
                                             hardwareBuffer,
                                             screenshot.colorSpace
                                         )
-                                        try { hardwareBuffer.close() } catch (_: Exception) {}
+                                        try { hardwareBuffer.close() } catch (closeEx: Exception) { AppLogger.d(TAG, "HardwareBuffer close: ${closeEx.message}") }
                                         if (bitmap != null) {
                                             val stream = ByteArrayOutputStream()
                                             bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)
@@ -430,7 +430,7 @@ class TextMorphAccessibilityService : AccessibilityService() {
                     for (i in 0 until node.childCount) {
                         val child = node.getChild(i)
                         traverse(child)
-                        try { child?.recycle() } catch (_: Exception) {}
+                        try { child?.recycle() } catch (recycleEx: Exception) { AppLogger.d(TAG, "Child recycle: ${recycleEx.message}") }
                     }
                 } catch (e: Exception) {
                     AppLogger.w(TAG, "Error traversing accessibility node: ${e.message}")
@@ -439,7 +439,7 @@ class TextMorphAccessibilityService : AccessibilityService() {
 
             traverse(root)
         } finally {
-            try { root.recycle() } catch (_: Exception) {}
+            try { root.recycle() } catch (recycleEx: Exception) { AppLogger.d(TAG, "Root recycle: ${recycleEx.message}") }
         }
 
         bubbles.sortBy { it.top }
@@ -499,7 +499,7 @@ class TextMorphAccessibilityService : AccessibilityService() {
                 return true
             }
         } finally {
-            try { root?.recycle() } catch (_: Exception) {}
+            try { root?.recycle() } catch (recycleEx: Exception) { AppLogger.d(TAG, "Root recycle: ${recycleEx.message}") }
         }
         return false
     }
@@ -522,7 +522,7 @@ class TextMorphAccessibilityService : AccessibilityService() {
                     for (i in 0 until node.childCount) {
                         val child = node.getChild(i)
                         traverse(child)
-                        try { child?.recycle() } catch (_: Exception) {}
+                        try { child?.recycle() } catch (recycleEx: Exception) { AppLogger.d(TAG, "Child recycle: ${recycleEx.message}") }
                     }
                 } catch (e: Exception) {
                     AppLogger.w(TAG, "Error traversing node for screen text: ${e.message}")
@@ -530,7 +530,7 @@ class TextMorphAccessibilityService : AccessibilityService() {
             }
             traverse(root)
         } finally {
-            try { root.recycle() } catch (_: Exception) {}
+            try { root.recycle() } catch (recycleEx: Exception) { AppLogger.d(TAG, "Root recycle: ${recycleEx.message}") }
         }
         return sb.toString().trim()
     }

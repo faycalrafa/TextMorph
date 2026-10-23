@@ -1,36 +1,20 @@
 package com.textmorph.app.service.overlay
 
 import android.content.Context
-import android.os.Build
 import android.widget.Toast
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.tween
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ShortText
 import androidx.compose.material.icons.automirrored.filled.Undo
@@ -41,20 +25,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material.icons.filled.UnfoldLess
-import androidx.compose.material.icons.filled.UnfoldMore
-import com.textmorph.app.ui.prompts.getVectorIcon
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
@@ -65,22 +36,20 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.textmorph.app.data.model.ContextAction
 import com.textmorph.app.data.model.PromptEntity
 import com.textmorph.app.data.model.SlashCommandEntity
 import com.textmorph.app.data.repository.SlashCommandRepository
 import com.textmorph.app.llm.LlmEngine
+import com.textmorph.app.service.overlay.components.CompanionActionChip
+import com.textmorph.app.service.overlay.components.CompanionSquareIconButton
+import com.textmorph.app.service.overlay.components.FloatingEdgePill
+import com.textmorph.app.service.overlay.components.FloatingInlinePromptEditor
 import com.textmorph.app.ui.camera.CameraCaptureActivity
+import com.textmorph.app.ui.prompts.getVectorIcon
 import com.textmorph.app.util.AppLogger
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.isActive
@@ -540,191 +509,46 @@ fun FloatingToolbarContent(
     // ─────────────────────────────────────────────────────────────────────────────
 
     if (!isExpanded) {
-        // COLLAPSED EDGE PILL (36dp, Charcoal Slate styled)
-        Box(
-            modifier = Modifier.size(44.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Surface(
-                shape = CircleShape,
-                color = Color(0xF2111827),
-                shadowElevation = if (isDragging) 12.dp else 6.dp,
-                modifier = Modifier
-                    .size(36.dp)
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null
-                    ) {
-                        AppLogger.d(TAG, "Collapsed companion pill clicked directly in Compose: state=$state")
-                        when (state) {
-                            FloatingButtonState.IDLE -> setExpanded(!isExpanded)
-                            FloatingButtonState.GENERATING -> {
-                                activeJob?.cancel()
-                                activeJob = null
-                                state = FloatingButtonState.REVERT_WINDOW
-                                Toast.makeText(context, "Generation stopped.", Toast.LENGTH_SHORT).show()
-                            }
-                            FloatingButtonState.REVERT_WINDOW -> {
-                                onRevertText()
-                                state = FloatingButtonState.IDLE
-                                Toast.makeText(context, "Text reverted.", Toast.LENGTH_SHORT).show()
-                            }
-                        }
+        FloatingEdgePill(
+            state = state,
+            isDragging = isDragging,
+            onClick = {
+                AppLogger.d(TAG, "Collapsed companion pill clicked directly in Compose: state=$state")
+                when (state) {
+                    FloatingButtonState.IDLE -> setExpanded(!isExpanded)
+                    FloatingButtonState.GENERATING -> {
+                        activeJob?.cancel()
+                        activeJob = null
+                        state = FloatingButtonState.REVERT_WINDOW
+                        Toast.makeText(context, "Generation stopped.", Toast.LENGTH_SHORT).show()
                     }
-                    .border(
-                        width = 1.5.dp,
-                        brush = Brush.linearGradient(
-                            listOf(
-                                Color(0xFF3B82F6),
-                                Color(0xFF2563EB)
-                            )
-                        ),
-                        shape = CircleShape
-                    )
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    when (state) {
-                        FloatingButtonState.GENERATING -> {
-                            Icon(
-                                imageVector = Icons.Default.Stop,
-                                contentDescription = "Stop",
-                                tint = Color(0xFFEF4444),
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-                        FloatingButtonState.REVERT_WINDOW -> {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.Undo,
-                                contentDescription = "Revert",
-                                tint = Color(0xFFFBBF24),
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-                        FloatingButtonState.IDLE -> {
-                            Icon(
-                                imageVector = Icons.Default.AutoAwesome,
-                                contentDescription = "Expand TextMorph",
-                                tint = Color(0xFFE5E7EB),
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
+                    FloatingButtonState.REVERT_WINDOW -> {
+                        onRevertText()
+                        state = FloatingButtonState.IDLE
+                        Toast.makeText(context, "Text reverted.", Toast.LENGTH_SHORT).show()
                     }
                 }
             }
-        }
+        )
     } else {
         if (editingPromptInline != null) {
-            // Inline Quick Edit Prompt Card taking up the upper half of the screen
-            val currentPrompt = editingPromptInline!!
-            var editTitle by remember(currentPrompt.id) { mutableStateOf(currentPrompt.title) }
-            var editInstruction by remember(currentPrompt.id) { mutableStateOf(currentPrompt.systemInstruction) }
-
-            Card(
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = Color(0xF2111827)),
-                border = BorderStroke(1.5.dp, Color(0xFF3B82F6)),
-                elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
-                modifier = Modifier.fillMaxSize()
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(14.dp)
-                        .verticalScroll(rememberScrollState())
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "Quick Edit Prompt",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFFE5E7EB)
-                        )
-                        IconButton(
-                            onClick = {
-                                editingPromptInline = null
-                                onEditorFocusMode(false)
-                            },
-                            modifier = Modifier.size(28.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Close,
-                                contentDescription = "Close Edit",
-                                tint = Color(0xFF9CA3AF),
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    OutlinedTextField(
-                        value = editTitle,
-                        onValueChange = { editTitle = it },
-                        label = { Text("Prompt Title", color = Color(0xFF9CA3AF)) },
-                        singleLine = true,
-                        textStyle = TextStyle(color = Color(0xFFE5E7EB), fontSize = 14.sp),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    OutlinedTextField(
-                        value = editInstruction,
-                        onValueChange = { editInstruction = it },
-                        label = { Text("System Instruction", color = Color(0xFF9CA3AF)) },
-                        maxLines = 4,
-                        textStyle = TextStyle(color = Color(0xFFE5E7EB), fontSize = 13.sp),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.End,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        OutlinedButton(
-                            onClick = {
-                                onQuickEditDelete(currentPrompt.id)
-                                editingPromptInline = null
-                                onEditorFocusMode(false)
-                                Toast.makeText(context, "Prompt deleted", Toast.LENGTH_SHORT).show()
-                            },
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFEF4444)),
-                            border = BorderStroke(1.dp, Color(0x66EF4444)),
-                            modifier = Modifier.padding(end = 8.dp)
-                        ) {
-                            Text("Delete", fontSize = 12.sp)
-                        }
-
-                        Button(
-                            onClick = {
-                                if (editTitle.isNotBlank() && editInstruction.isNotBlank()) {
-                                    val updated = currentPrompt.copy(
-                                        title = editTitle.trim(),
-                                        systemInstruction = editInstruction.trim()
-                                    )
-                                    onQuickEditSave(updated)
-                                    editingPromptInline = null
-                                    onEditorFocusMode(false)
-                                    Toast.makeText(context, "Prompt updated!", Toast.LENGTH_SHORT).show()
-                                }
-                            },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = Color(0xFF2563EB),
-                                contentColor = Color.White
-                            )
-                        ) {
-                            Text("Save", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                        }
-                    }
+            FloatingInlinePromptEditor(
+                prompt = editingPromptInline!!,
+                onSave = { updated ->
+                    onQuickEditSave(updated)
+                    editingPromptInline = null
+                    onEditorFocusMode(false)
+                },
+                onDelete = { id ->
+                    onQuickEditDelete(id)
+                    editingPromptInline = null
+                    onEditorFocusMode(false)
+                },
+                onClose = {
+                    editingPromptInline = null
+                    onEditorFocusMode(false)
                 }
-            }
+            )
         } else {
             // EXPANDED COMPANION RIBBON (44dp single-row dock, Charcoal Slate styled)
             Surface(
@@ -966,111 +790,6 @@ fun FloatingToolbarContent(
                         )
                     }
                 }
-            }
-        }
-    }
-}
-
-/**
- * Neat 30x30dp square icon button for the floating companion toolbar.
- */
-@Composable
-fun CompanionSquareIconButton(
-    icon: ImageVector,
-    contentDescription: String,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    enabled: Boolean = true,
-    tint: Color = Color(0xFFE5E7EB),
-    backgroundColor: Color = Color(0x331F2937),
-    borderColor: Color = Color(0x44374151)
-) {
-    Surface(
-        shape = RoundedCornerShape(8.dp),
-        color = backgroundColor,
-        border = BorderStroke(1.dp, borderColor),
-        enabled = enabled,
-        onClick = onClick,
-        modifier = modifier.size(30.dp)
-    ) {
-        Box(contentAlignment = Alignment.Center) {
-            Icon(
-                imageVector = icon,
-                contentDescription = contentDescription,
-                tint = tint,
-                modifier = Modifier.size(16.dp)
-            )
-        }
-    }
-}
-
-/**
- * Modern, low-footprint chip for prompt transform actions in Charcoal Slate styling.
- * Supports native Material Vector Icons, text labels, and legacy emojis.
- */
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-fun CompanionActionChip(
-    icon: ImageVector? = null,
-    label: String? = null,
-    emoji: String? = null,
-    accent: Boolean = false,
-    grayedOut: Boolean = false,
-    onClick: () -> Unit,
-    onLongClick: (() -> Unit)? = null
-) {
-    val backgroundColor = when {
-        grayedOut -> Color(0x1A1F2937)
-        accent -> Color(0x442563EB)
-        else -> Color(0x331F2937)
-    }
-    val borderColor = when {
-        grayedOut -> Color(0x22374151)
-        accent -> Color(0xFF3B82F6)
-        else -> Color(0x44374151)
-    }
-    val textColor = when {
-        grayedOut -> Color(0x449CA3AF)
-        accent -> Color.White
-        else -> Color(0xFFE5E7EB)
-    }
-
-    Surface(
-        shape = RoundedCornerShape(8.dp),
-        color = backgroundColor,
-        border = BorderStroke(1.dp, borderColor),
-        modifier = Modifier.combinedClickable(
-            onClick = onClick,
-            onLongClick = onLongClick
-        )
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            if (icon != null) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = label,
-                    tint = textColor,
-                    modifier = Modifier.size(14.dp)
-                )
-            } else if (!emoji.isNullOrBlank()) {
-                Text(
-                    text = emoji,
-                    fontSize = 12.sp
-                )
-            }
-            if (!label.isNullOrBlank()) {
-                Text(
-                    text = label,
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = if (accent && !grayedOut) FontWeight.Bold else FontWeight.Medium,
-                    color = textColor,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
             }
         }
     }

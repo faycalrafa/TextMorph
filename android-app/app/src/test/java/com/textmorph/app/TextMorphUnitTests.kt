@@ -959,6 +959,73 @@ class TextMorphUnitTests {
         assertEquals(originalInput, reverted)
         assertTrue(history.isEmpty())
     }
+
+    @Test
+    fun testCrashReportSerializationAndExportFormat() {
+        val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+        val report = com.textmorph.app.util.CrashReport(
+            crashTimeFormatted = "2026-10-23 12:34:56",
+            crashType = "NATIVE_CRASH_OR_KILL",
+            exceptionClass = "NativeSignalAbort",
+            message = "Process was terminated during GPU inference (SIGSEGV or out-of-memory abort)",
+            stackTrace = "at liblitert_lm.so (native mmap tensor compute)",
+            threadName = "InferenceThread-1",
+            deviceModel = "Pixel 8 Pro",
+            androidVersion = "15 (API 35)",
+            memoryUsageMb = "650 MB / 4096 MB (max)",
+            activeModelName = "gemma-4-E2B-it.litertlm",
+            activeBackend = "GPU (OpenCL)",
+            recentLogs = listOf("[INFO] Initializing GPU session", "[WARN] Low VRAM condition detected")
+        )
+
+        val encoded = json.encodeToString(com.textmorph.app.util.CrashReport.serializer(), report)
+        assertTrue(encoded.contains("NATIVE_CRASH_OR_KILL"))
+        assertTrue(encoded.contains("gemma-4-E2B-it.litertlm"))
+
+        val decoded = json.decodeFromString(com.textmorph.app.util.CrashReport.serializer(), encoded)
+        assertEquals(report.id, decoded.id)
+        assertEquals(report.crashType, decoded.crashType)
+        assertEquals(report.message, decoded.message)
+        assertEquals(report.activeModelName, decoded.activeModelName)
+        assertEquals(report.activeBackend, decoded.activeBackend)
+        assertEquals(2, decoded.recentLogs.size)
+
+        // Verify export format
+        val export = buildString {
+            appendLine("=== TextMorph Crash Report ===")
+            appendLine("Crash ID: ${decoded.id}")
+            appendLine("Time: ${decoded.crashTimeFormatted}")
+            appendLine("Type: ${decoded.crashType}")
+            appendLine("Exception: ${decoded.exceptionClass}")
+            appendLine("Message: ${decoded.message}")
+            appendLine("Active Model: ${decoded.activeModelName} (${decoded.activeBackend})")
+        }
+        assertTrue(export.contains("=== TextMorph Crash Report ==="))
+        assertTrue(export.contains("Type: NATIVE_CRASH_OR_KILL"))
+        assertTrue(export.contains("Active Model: gemma-4-E2B-it.litertlm (GPU (OpenCL))"))
+    }
+
+    @Test
+    fun testNativeFlightMarkerSerialization() {
+        val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+        val marker = com.textmorph.app.util.FlightMarker(
+            pid = 1234,
+            operation = "Inference: generateStream",
+            modelName = "gemma-4-E2B-it.litertlm",
+            backend = "GPU",
+            timestamp = 1729700000000L,
+            details = "Vulkan memory mapping"
+        )
+        val encoded = json.encodeToString(com.textmorph.app.util.FlightMarker.serializer(), marker)
+        val decoded = json.decodeFromString(com.textmorph.app.util.FlightMarker.serializer(), encoded)
+
+        assertEquals(1234, decoded.pid)
+        assertEquals("Inference: generateStream", decoded.operation)
+        assertEquals("gemma-4-E2B-it.litertlm", decoded.modelName)
+        assertEquals("GPU", decoded.backend)
+        assertEquals("Vulkan memory mapping", decoded.details)
+    }
 }
+
 
 

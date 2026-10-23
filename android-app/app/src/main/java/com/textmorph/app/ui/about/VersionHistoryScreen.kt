@@ -58,9 +58,22 @@ fun VersionHistoryScreen(
 
     val releaseLog = listOf(
         ReleaseItem(
-            version = "v2.2.0",
+            version = "v2.4.0",
             tag = "Latest Release",
             isLatest = true,
+            changes = listOf(
+                "Native Flight Breadcrumbs: Detects native C++ / GPU driver crashes (SIGSEGV/Vulkan OOM) and records persistent crash reports across app restarts.",
+                "Persistent Crash Recording & Export: Stores structured crash logs on disk with 10-crash rolling window and stack trace explorer in Dev Logs.",
+                "Architectural Modularization: Decomposed monolithic screens (>500 lines) into dedicated feature packages (ui/navigation, ui/dashboard, ui/settings, ui/modelhub, ui/chat, ui/commands, ui/about).",
+                "Zero Silent Exception Swallowing: Replaced all 20 silent catch blocks with callsite Near Logging via AppLogger.d.",
+                "Global Coroutine Exception Handling: Added TextMorphCoroutineExceptionHandler to intercept and report asynchronous coroutine failures.",
+                "Rolling Disk Logger: AppLogger now buffers logs to rolling 1MB disk logs, surviving process termination and restoring across app launches."
+            )
+        ),
+        ReleaseItem(
+            version = "v2.2.0",
+            tag = "Previous Release",
+            isLatest = false,
             changes = listOf(
                 "Quick Paste: Automatically proposes recently copied clipboard text in the floating companion bar.",
                 "Instant Single-Press Undo: Fixed double-press undo bug by maintaining a single clean snapshot per transformation.",
