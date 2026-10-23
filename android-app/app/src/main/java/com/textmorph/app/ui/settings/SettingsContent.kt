@@ -542,6 +542,26 @@ fun SettingsContent(
                     )
                 }
 
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Auto Quick Fix", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                        Text("Automatically propose grammar & spelling fixes for short text 500ms after you stop typing", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Switch(
+                        checked = settings.quickFixEnabled,
+                        enabled = settings.floatingToolbarEnabled,
+                        onCheckedChange = { isChecked ->
+                            scope.launch { settingsRepository.setQuickFixEnabled(isChecked) }
+                        }
+                    )
+                }
+
             }
         }
 

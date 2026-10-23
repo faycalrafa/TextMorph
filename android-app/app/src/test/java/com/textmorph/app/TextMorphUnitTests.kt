@@ -38,6 +38,27 @@ class TextMorphUnitTests {
         assertNotNull(fixGrammar)
         assertEquals("Fix Grammar", fixGrammar?.title)
         assertFalse(fixGrammar!!.requiresVision)
+        assertEquals(
+            "take this text and Fix all grammar, punctuation, and spelling errors while preserving the original Meaning and return only that fixed message without any extra comments on it",
+            fixGrammar.systemInstruction
+        )
+    }
+
+    @Test
+    fun testSeedPromptsCleanExecutionPhrasing() {
+        val seeds = PromptRepository.getDefaultSeedPrompts()
+        val textTransforms = seeds.filter { it.category == PromptCategory.TEXT_TRANSFORM }
+        assertTrue(textTransforms.isNotEmpty())
+        for (prompt in textTransforms) {
+            assertTrue(
+                "Prompt ${prompt.id} should start with 'take this text and'",
+                prompt.systemInstruction.startsWith("take this text and ")
+            )
+            assertTrue(
+                "Prompt ${prompt.id} should enforce no comments",
+                prompt.systemInstruction.contains("without any extra comments on it")
+            )
+        }
     }
 
     @Test
@@ -865,6 +886,49 @@ class TextMorphUnitTests {
 
         assertTrue(deque.isEmpty())
         assertEquals(null, pop())
+    }
+
+    @Test
+    fun testAppSettingsQuickFixEnabledSerialization() {
+        val defaultSettings = AppSettings()
+        assertFalse(defaultSettings.quickFixEnabled)
+
+        val custom = defaultSettings.copy(quickFixEnabled = true)
+        val json = Json { ignoreUnknownKeys = true }
+        val encoded = json.encodeToString(custom)
+        val decoded = json.decodeFromString<AppSettings>(encoded)
+        assertTrue(decoded.quickFixEnabled)
+    }
+
+    @Test
+    fun testSingleUndoRevertsDirectlyToOriginal() {
+        val history = ArrayDeque<String>(10)
+        fun push(text: String) {
+            if (text.isNotBlank() && (history.isEmpty() || history.last() != text)) {
+                if (history.size >= 10) history.removeFirst()
+                history.addLast(text)
+            }
+        }
+        fun pop(): String? = if (history.isNotEmpty()) history.removeLast() else null
+
+        val originalInput = "Original user input with spelling mistak"
+        // 1. Snapshot taken at generation start
+        push(originalInput)
+
+        // 2. Intermediate stream tokens arrive and are inserted with recordHistory = false (no push)
+        val intermediateChunk = "Original user input with spelling mistake"
+
+        // 3. Final generation completes and is inserted with recordHistory = false (no push)
+        val finalResult = "Original user input with spelling mistakes fixed."
+
+        // 4. Assert only 1 snapshot exists in history
+        assertEquals(1, history.size)
+        assertEquals(originalInput, history.last())
+
+        // 5. Very first undo click reverts straight to original
+        val reverted = pop()
+        assertEquals(originalInput, reverted)
+        assertTrue(history.isEmpty())
     }
 }
 

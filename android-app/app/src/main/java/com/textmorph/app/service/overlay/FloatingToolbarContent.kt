@@ -79,6 +79,7 @@ import com.textmorph.app.llm.LlmEngine
 import com.textmorph.app.ui.camera.CameraCaptureActivity
 import com.textmorph.app.util.AppLogger
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
@@ -106,10 +107,14 @@ fun FloatingToolbarContent(
     onSnapshotOriginalText: (original: String) -> Unit,
     onRevertText: () -> Unit,
     hasUndo: () -> Boolean,
+    getRecentClipboardText: () -> String? = { null },
+    onQuickPaste: () -> Unit = {},
     isPlacedOnRight: () -> Boolean,
     isDragging: Boolean = false,
     onRegisterSingleTapHandler: (((() -> Unit)) -> Unit)? = null,
     onRegisterCollapseHandler: (((() -> Unit)) -> Unit)? = null,
+    onRegisterUserTypedHandler: (((String) -> Unit) -> Unit)? = null,
+    onRegisterUserNavigatedBackHandler: (((() -> Unit)) -> Unit)? = null,
     onExpandedStateChanged: (isExpanded: Boolean) -> Unit,
     onBusyStateChanged: (isBusy: Boolean) -> Unit,
     onTakeScreenshotContext: (((ByteArray) -> Unit) -> Unit)? = null,
@@ -120,6 +125,7 @@ fun FloatingToolbarContent(
     onEditorFocusMode: (Boolean) -> Unit = {},
     compactChipsMode: Boolean = false,
     onToggleCompactMode: (Boolean) -> Unit = {},
+    quickFixEnabled: Boolean = false,
     slashCommandRepository: SlashCommandRepository = SlashCommandRepository.getInstance(LocalContext.current),
     onDismiss: () -> Unit,
     engineProvider: () -> LlmEngine
@@ -136,30 +142,27 @@ fun FloatingToolbarContent(
     var editingPromptInline by remember { mutableStateOf<PromptEntity?>(null) }
     var isCompactMode by remember(compactChipsMode) { mutableStateOf(compactChipsMode) }
 
-    // Countdown Animation for 5s REVERT_WINDOW state
-    val revertCountdown = remember { Animatable(1f) }
+    // Quick Fix debounced suggestion state
+    var proposedQuickFix by remember { mutableStateOf<String?>(null) }
+    var quickFixJob by remember { mutableStateOf<Job?>(null) }
 
     LaunchedEffect(state) {
-        val isBusy = state == FloatingButtonState.GENERATING || state == FloatingButtonState.REVERT_WINDOW
+        val isBusy = state == FloatingButtonState.GENERATING
         onBusyStateChanged(isBusy)
-
-        if (state == FloatingButtonState.REVERT_WINDOW) {
-            revertCountdown.snapTo(1f)
-            revertCountdown.animateTo(
-                targetValue = 0f,
-                animationSpec = tween(durationMillis = 5000, easing = LinearEasing)
-            )
-            if (state == FloatingButtonState.REVERT_WINDOW) {
-                state = FloatingButtonState.IDLE
-            }
-        }
     }
 
     fun setExpanded(expanded: Boolean) {
         isExpanded = expanded
-        if (!expanded && editingPromptInline != null) {
-            editingPromptInline = null
-            onEditorFocusMode(false)
+        if (!expanded) {
+            if (editingPromptInline != null) {
+                editingPromptInline = null
+                onEditorFocusMode(false)
+            }
+            if (state == FloatingButtonState.REVERT_WINDOW) {
+                state = FloatingButtonState.IDLE
+            }
+            quickFixJob?.cancel()
+            proposedQuickFix = null
         }
         onExpandedStateChanged(expanded)
     }
@@ -195,6 +198,54 @@ fun FloatingToolbarContent(
             if (isExpanded) {
                 setExpanded(false)
             }
+        }
+
+        onRegisterUserTypedHandler?.invoke { newText ->
+            if (state == FloatingButtonState.REVERT_WINDOW) {
+                state = FloatingButtonState.IDLE
+            }
+            if (quickFixEnabled && state == FloatingButtonState.IDLE) {
+                quickFixJob?.cancel()
+                proposedQuickFix = null
+                val trimmed = newText.trim()
+                val wordCount = trimmed.split(Regex("\\s+")).filter { it.isNotBlank() }.size
+                if (trimmed.length in 3..120 && wordCount <= 25) {
+                    quickFixJob = scope.launch {
+                        kotlinx.coroutines.delay(500L)
+                        if (!isActive) return@launch
+                        val current = getLiveInputText().trim()
+                        if (current != trimmed || current.length < 3 || current.length > 120) return@launch
+                        try {
+                            val engine = engineProvider()
+                            val fixInstruction = "take this text and Fix all grammar, punctuation, and spelling errors while preserving the original Meaning and return only that fixed message without any extra comments on it"
+                            val sb = StringBuilder()
+                            engine.generateStream(current, "$fixInstruction. Strict rule: Output ONLY the transformed result directly. Do not include commentary, explanations, or thinking blocks.").collect { token ->
+                                sb.append(token)
+                            }
+                            val fixed = sb.toString().trim()
+                            if (fixed.isNotBlank() && !fixed.startsWith("Error") && !fixed.equals(current, ignoreCase = false)) {
+                                if (getLiveInputText().trim() == current) {
+                                    proposedQuickFix = fixed
+                                    AppLogger.d(TAG, "Quick fix proposed: '$fixed'")
+                                }
+                            }
+                        } catch (e: Exception) {
+                            AppLogger.w(TAG, "Quick fix background error: ${e.message}")
+                        }
+                    }
+                }
+            } else {
+                quickFixJob?.cancel()
+                proposedQuickFix = null
+            }
+        }
+
+        onRegisterUserNavigatedBackHandler?.invoke {
+            if (state == FloatingButtonState.REVERT_WINDOW) {
+                state = FloatingButtonState.IDLE
+            }
+            quickFixJob?.cancel()
+            proposedQuickFix = null
         }
     }
 
@@ -502,19 +553,6 @@ fun FloatingToolbarContent(
                     }
                 }
             }
-
-            // Radial countdown ring for 5s REVERT_WINDOW state
-            if (state == FloatingButtonState.REVERT_WINDOW) {
-                Canvas(modifier = Modifier.size(42.dp)) {
-                    drawArc(
-                        color = Color(0xFFFBBF24),
-                        startAngle = -90f,
-                        sweepAngle = 360f * revertCountdown.value,
-                        useCenter = false,
-                        style = Stroke(width = 2.5.dp.toPx())
-                    )
-                }
-            }
         }
     } else {
         if (editingPromptInline != null) {
@@ -685,15 +723,28 @@ fun FloatingToolbarContent(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        // 1. Far-left Shrink / Expand options icon button (no text label)
+                        item {
+                            CompanionSquareIconButton(
+                                icon = if (isCompactMode) Icons.Default.UnfoldMore else Icons.Default.UnfoldLess,
+                                contentDescription = if (isCompactMode) "Expand Prompts" else "Compact Prompts",
+                                tint = Color(0xFF9CA3AF),
+                                backgroundColor = Color(0x331F2937),
+                                borderColor = Color(0x33374151),
+                                onClick = {
+                                    val nextMode = !isCompactMode
+                                    isCompactMode = nextMode
+                                    onToggleCompactMode(nextMode)
+                                }
+                            )
+                        }
+
                         when (state) {
                             FloatingButtonState.REVERT_WINDOW -> {
                                 item {
-                                    CompanionSquareIconButton(
-                                        icon = Icons.AutoMirrored.Filled.Undo,
-                                        contentDescription = "Revert Text",
-                                        tint = Color(0xFFFBBF24),
-                                        backgroundColor = Color(0x331F2937),
-                                        borderColor = Color(0xFFFBBF24),
+                                    CompanionActionChip(
+                                        label = if (isCompactMode) "↩" else "↩ Revert",
+                                        accent = true,
                                         onClick = {
                                             onRevertText()
                                             state = FloatingButtonState.IDLE
@@ -702,12 +753,9 @@ fun FloatingToolbarContent(
                                     )
                                 }
                                 item {
-                                    CompanionSquareIconButton(
-                                        icon = Icons.Default.Check,
-                                        contentDescription = "Keep Output",
-                                        tint = Color(0xFF10B981),
-                                        backgroundColor = Color(0x331F2937),
-                                        borderColor = Color(0xFF10B981),
+                                    CompanionActionChip(
+                                        label = if (isCompactMode) "✓" else "✓ Keep Output",
+                                        accent = false,
                                         onClick = {
                                             state = FloatingButtonState.IDLE
                                         }
@@ -732,7 +780,45 @@ fun FloatingToolbarContent(
                                 }
                             }
                             FloatingButtonState.IDLE -> {
-                                // Standard Transform Prompts
+                                // 2. Quick Paste Chip (when user recently copied text)
+                                val recentClip = getRecentClipboardText()
+                                if (!recentClip.isNullOrBlank()) {
+                                    item {
+                                        val preview = if (recentClip.length > 12) recentClip.take(12) + "…" else recentClip
+                                        val label = if (isCompactMode) "📋" else "📋 Paste: \"$preview\""
+                                        CompanionActionChip(
+                                            label = label,
+                                            accent = true,
+                                            onClick = {
+                                                onQuickPaste()
+                                                Toast.makeText(context, "Pasted recent copy.", Toast.LENGTH_SHORT).show()
+                                            }
+                                        )
+                                    }
+                                }
+
+                                // 3. Debounced Quick Fix Suggestion Chip
+                                if (proposedQuickFix != null) {
+                                    item {
+                                        val fixText = proposedQuickFix!!
+                                        val preview = if (fixText.length > 16) fixText.take(16) + "…" else fixText
+                                        val label = if (isCompactMode) "✨ Fix" else "✨ Fix: \"$preview\""
+                                        CompanionActionChip(
+                                            label = label,
+                                            accent = true,
+                                            onClick = {
+                                                val original = getLiveInputText()
+                                                onSnapshotOriginalText(original)
+                                                onInsertText(fixText, false)
+                                                proposedQuickFix = null
+                                                state = FloatingButtonState.REVERT_WINDOW
+                                                Toast.makeText(context, "Quick fix applied.", Toast.LENGTH_SHORT).show()
+                                            }
+                                        )
+                                    }
+                                }
+
+                                // 4. Standard Transform Prompts
                                 items(prompts) { prompt ->
                                     CompanionActionChip(
                                         label = if (isCompactMode) prompt.iconEmoji else "${prompt.iconEmoji} ${prompt.title}",
@@ -795,21 +881,7 @@ fun FloatingToolbarContent(
                             }
                         )
 
-                        // 3. Compact / Expand Mode Toggle Button
-                        CompanionSquareIconButton(
-                            icon = if (isCompactMode) Icons.Default.UnfoldMore else Icons.Default.UnfoldLess,
-                            contentDescription = if (isCompactMode) "Expand Prompts" else "Compact Prompts",
-                            tint = Color(0xFF9CA3AF),
-                            backgroundColor = Color(0x331F2937),
-                            borderColor = Color(0x33374151),
-                            onClick = {
-                                val nextMode = !isCompactMode
-                                isCompactMode = nextMode
-                                onToggleCompactMode(nextMode)
-                            }
-                        )
-
-                        // 4. Collapse ('x') Button
+                        // 3. Collapse ('x') Button
                         CompanionSquareIconButton(
                             icon = Icons.Default.Close,
                             contentDescription = "Collapse",

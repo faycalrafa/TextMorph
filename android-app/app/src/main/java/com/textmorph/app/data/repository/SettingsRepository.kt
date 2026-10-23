@@ -142,6 +142,10 @@ class SettingsRepository(private val context: Context) {
         it.copy(alwaysOpenBarWithKeyboard = enabled)
     }
 
+    suspend fun setQuickFixEnabled(enabled: Boolean) = updateSettings {
+        it.copy(quickFixEnabled = enabled)
+    }
+
     private fun saveSettingsToDisk(settings: AppSettings) {
         try {
             val atomicFile = AtomicFile(settingsFile)

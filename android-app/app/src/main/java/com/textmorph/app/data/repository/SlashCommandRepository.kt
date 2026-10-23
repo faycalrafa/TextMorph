@@ -201,7 +201,7 @@ class SlashCommandRepository(private val context: Context) {
                 id = "cmd_fix",
                 trigger = "fix",
                 title = "Fix Grammar & Spelling",
-                systemInstruction = "Fix all grammar, spelling, and punctuation errors in the user's text while preserving its exact voice. Output ONLY the corrected text directly.",
+                systemInstruction = "take this text and Fix all grammar, punctuation, and spelling errors while preserving the original Meaning and return only that fixed message without any extra comments on it",
                 description = "Quick grammar and typo correction",
                 isBuiltIn = true,
                 sortOrder = 3

@@ -58,9 +58,22 @@ fun VersionHistoryScreen(
 
     val releaseLog = listOf(
         ReleaseItem(
-            version = "v2.1.1",
-            tag = "Latest Hotfix",
+            version = "v2.2.0",
+            tag = "Latest Release",
             isLatest = true,
+            changes = listOf(
+                "Quick Paste: Automatically proposes recently copied clipboard text in the floating companion bar.",
+                "Instant Single-Press Undo: Fixed double-press undo bug by maintaining a single clean snapshot per transformation.",
+                "Persistent Revert & Accept: Removed 5-second timeout on Undo/Accept options until user types, navigates back, or dismisses.",
+                "Options Area Shrink/Expand Button: Relocated compact toggle to the far-left of the scrollable options area as a dedicated icon button.",
+                "Prompt Instructions Refinement: Updated Fix Grammar and default seeds to enforce clean transformed outputs without conversational commentary.",
+                "Auto Quick Fix Setting: Debounced 500ms grammar correction for short text toggleable via Settings."
+            )
+        ),
+        ReleaseItem(
+            version = "v2.1.1",
+            tag = "Hotfix",
+            isLatest = false,
             changes = listOf(
                 "Resolved fdsan SIGABRT Crash: Stripped ownership tags using ParcelFileDescriptor.detachFd() before passing file descriptors to librnllama.so, preventing native close() aborts.",
                 "Robust Detached FD Cleanup: Safely closes unused descriptors with adoptFd() without risking descriptor leaks or double-close exceptions.",

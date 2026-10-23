@@ -36,6 +36,14 @@ class TextMorphAccessibilityService : AccessibilityService() {
     private var userDismissedRibbonForCurrentKeyboardSession = false
     private val serviceScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main + kotlinx.coroutines.SupervisorJob())
 
+    private var clipboardListener: ClipboardManager.OnPrimaryClipChangedListener? = null
+    private var lastCopiedClipText: String? = null
+    private var lastCopiedTimestamp: Long = 0L
+    private var lastConsumedClipText: String? = null
+
+    @Volatile
+    private var isInternalUpdating = false
+
     fun onRibbonManuallyDismissed() {
         userDismissedRibbonForCurrentKeyboardSession = true
         AppLogger.d(TAG, "Ribbon manually dismissed during keyboard session.")
@@ -63,6 +71,28 @@ class TextMorphAccessibilityService : AccessibilityService() {
             cloudEngine = cloudEngine
         )
 
+        try {
+            val cm = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+            clipboardListener = ClipboardManager.OnPrimaryClipChangedListener {
+                try {
+                    val clip = cm?.primaryClip
+                    if (clip != null && clip.itemCount > 0) {
+                        val text = clip.getItemAt(0)?.text?.toString()
+                        if (!text.isNullOrBlank() && text != lastCopiedClipText) {
+                            lastCopiedClipText = text
+                            lastCopiedTimestamp = System.currentTimeMillis()
+                            AppLogger.d(TAG, "New clipboard copy captured: length=${text.length}")
+                        }
+                    }
+                } catch (e: Exception) {
+                    AppLogger.w(TAG, "Error in primary clip listener: ${e.message}")
+                }
+            }
+            cm?.addPrimaryClipChangedListener(clipboardListener)
+        } catch (e: Exception) {
+            AppLogger.e(TAG, "Failed to register clipboard listener: ${e.message}", e)
+        }
+
         serviceScope.launch {
             settingsRepository.settingsState.collect { settings ->
                 if (settings.alwaysShowFloatingToolbar && settings.floatingToolbarEnabled) {
@@ -88,7 +118,14 @@ class TextMorphAccessibilityService : AccessibilityService() {
 
         val source = event.source
         try {
-            // Guard: Never collapse or hide if overlay is busy or user is actively editing a prompt
+            if (event.eventType == AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED && !isInternalUpdating) {
+                val liveText = getLiveInputText()
+                overlayManager?.onUserTyped(liveText)
+            } else if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+                overlayManager?.onUserNavigatedBack()
+            }
+
+            // Guard: Never collapse or hide if overlay is busy (generating or editing prompt)
             if (overlayManager?.isBusy() == true) {
                 return
             }
@@ -97,6 +134,7 @@ class TextMorphAccessibilityService : AccessibilityService() {
 
             if (!keyboardVisible) {
                 userDismissedRibbonForCurrentKeyboardSession = false
+                overlayManager?.onUserNavigatedBack()
                 if (overlayManager?.isBusy() != true) {
                     overlayManager?.collapse()
                     if (!settings.alwaysShowFloatingToolbar) {
@@ -213,39 +251,92 @@ class TextMorphAccessibilityService : AccessibilityService() {
         pushInputHistory(text)
     }
 
-    fun replaceLiveInputText(newText: String, recordHistory: Boolean = true): Boolean {
-        if (recordHistory) {
-            val current = getLiveInputText()
-            if (current.isNotBlank()) {
-                pushInputHistory(current)
-            }
+    fun getRecentClipboardText(maxAgeMs: Long = 90_000L): String? {
+        return try {
+            val cm = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return null
+            val clipDesc = cm.primaryClipDescription
+            val clipTimestamp = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                clipDesc?.timestamp ?: 0L
+            } else 0L
+            val effectiveTimestamp = maxOf(lastCopiedTimestamp, clipTimestamp)
+            val now = System.currentTimeMillis()
+            val age = now - effectiveTimestamp
+            if (effectiveTimestamp > 0L && age in 0L..maxAgeMs) {
+                val clip = cm.primaryClip
+                if (clip != null && clip.itemCount > 0) {
+                    val text = clip.getItemAt(0)?.text?.toString()
+                    if (!text.isNullOrBlank() && text != lastConsumedClipText) {
+                        text
+                    } else null
+                } else null
+            } else null
+        } catch (e: Exception) {
+            AppLogger.d(TAG, "Error checking recent clipboard: ${e.message}")
+            null
         }
+    }
+
+    fun pasteClipboardText(): Boolean {
+        val recent = getRecentClipboardText() ?: return false
         val node = getLiveInputNode() ?: return false
         return try {
-            AppLogger.i(TAG, "Replacing live input text with length=${newText.length}")
-            val arguments = Bundle().apply {
-                putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, newText)
-            }
-            val success = node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, arguments)
-            if (!success) {
-                AppLogger.w(TAG, "ACTION_SET_TEXT failed, selecting all and falling back to clipboard paste...")
-                val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                cm.setPrimaryClip(ClipData.newPlainText("TextMorph", newText))
-                val textLength = node.text?.length ?: 0
-                val selectionArgs = Bundle().apply {
-                    putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, 0)
-                    putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, textLength)
-                }
-                node.performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, selectionArgs)
-                node.performAction(AccessibilityNodeInfo.ACTION_PASTE)
+            val current = getLiveInputText()
+            pushInputHistory(current)
+            lastConsumedClipText = recent
+            val pasted = node.performAction(AccessibilityNodeInfo.ACTION_PASTE)
+            if (!pasted) {
+                val updated = if (current.isEmpty()) recent else "$current $recent"
+                replaceLiveInputText(updated, recordHistory = false)
             } else {
+                AppLogger.i(TAG, "Native ACTION_PASTE successful for recent clipboard.")
                 true
             }
         } catch (e: Exception) {
-            AppLogger.e(TAG, "Failed replacing live input text: ${e.message}", e)
+            AppLogger.e(TAG, "Failed pasting recent clipboard: ${e.message}", e)
             false
         } finally {
             try { node.recycle() } catch (_: Exception) {}
+        }
+    }
+
+    fun replaceLiveInputText(newText: String, recordHistory: Boolean = true): Boolean {
+        isInternalUpdating = true
+        return try {
+            if (recordHistory) {
+                val current = getLiveInputText()
+                if (current.isNotBlank()) {
+                    pushInputHistory(current)
+                }
+            }
+            val node = getLiveInputNode() ?: return false
+            try {
+                AppLogger.i(TAG, "Replacing live input text with length=${newText.length}")
+                val arguments = Bundle().apply {
+                    putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, newText)
+                }
+                val success = node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, arguments)
+                if (!success) {
+                    AppLogger.w(TAG, "ACTION_SET_TEXT failed, selecting all and falling back to clipboard paste...")
+                    val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    cm.setPrimaryClip(ClipData.newPlainText("TextMorph", newText))
+                    val textLength = node.text?.length ?: 0
+                    val selectionArgs = Bundle().apply {
+                        putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, 0)
+                        putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, textLength)
+                    }
+                    node.performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, selectionArgs)
+                    node.performAction(AccessibilityNodeInfo.ACTION_PASTE)
+                } else {
+                    true
+                }
+            } catch (e: Exception) {
+                AppLogger.e(TAG, "Failed replacing live input text: ${e.message}", e)
+                false
+            } finally {
+                try { node.recycle() } catch (_: Exception) {}
+            }
+        } finally {
+            mainHandler.postDelayed({ isInternalUpdating = false }, 100L)
         }
     }
 
@@ -458,6 +549,15 @@ class TextMorphAccessibilityService : AccessibilityService() {
     override fun onDestroy() {
         super.onDestroy()
         AppLogger.i(TAG, "TextMorph Accessibility Service destroyed.")
+        try {
+            clipboardListener?.let {
+                val cm = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                cm?.removePrimaryClipChangedListener(it)
+                clipboardListener = null
+            }
+        } catch (e: Exception) {
+            AppLogger.w(TAG, "Error removing clipboard listener: ${e.message}")
+        }
         try {
             screenshotExecutor.shutdown()
         } catch (e: Exception) {

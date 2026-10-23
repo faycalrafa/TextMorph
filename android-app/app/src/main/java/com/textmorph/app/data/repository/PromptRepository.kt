@@ -53,9 +53,23 @@ class PromptRepository(private val context: Context) {
                     if (p.requiresVision && p.contextAction == ContextAction.NONE) {
                         p = p.copy(contextAction = ContextAction.SCREENSHOT)
                     }
+                    if (p.id == "seed_fix_grammar" && p.systemInstruction.startsWith("Fix all grammar, punctuation")) {
+                        p = p.copy(systemInstruction = "take this text and Fix all grammar, punctuation, and spelling errors while preserving the original Meaning and return only that fixed message without any extra comments on it")
+                    } else if (p.id == "seed_make_concise" && p.systemInstruction.startsWith("Make the text concise")) {
+                        p = p.copy(systemInstruction = "take this text and Make the text concise, clear, and direct without losing key meaning and return only that transformed message without any extra comments on it")
+                    } else if (p.id == "seed_pro_tone" && p.systemInstruction.startsWith("Rewrite the text in an articulate")) {
+                        p = p.copy(systemInstruction = "take this text and Rewrite the text in an articulate, polished, and professional tone and return only that transformed message without any extra comments on it")
+                    } else if (p.id == "seed_casual_tone" && p.systemInstruction.startsWith("Rewrite the text in a friendly")) {
+                        p = p.copy(systemInstruction = "take this text and Rewrite the text in a friendly, conversational, and natural tone and return only that transformed message without any extra comments on it")
+                    } else if (p.id == "seed_expand" && p.systemInstruction.startsWith("Elaborate and expand")) {
+                        p = p.copy(systemInstruction = "take this text and Elaborate and expand on the ideas with helpful detail and clarity and return only that transformed message without any extra comments on it")
+                    } else if (p.id == "seed_clipboard_context" && p.systemInstruction.startsWith("Analyze or polish")) {
+                        p = p.copy(systemInstruction = "take this text and Analyze or polish the clipboard content provided and return only that result without any extra comments on it")
+                    }
                     p
                 }.sortedBy { it.sortOrder }
                 _promptsState.value = migrated
+                savePromptsToDisk(migrated)
             }
         } catch (e: Exception) {
             AppLogger.e(TAG, "Error loading prompts from disk, falling back to seeds: ${e.message}", e)
@@ -168,7 +182,7 @@ class PromptRepository(private val context: Context) {
             PromptEntity(
                 id = "seed_fix_grammar",
                 title = "Fix Grammar",
-                systemInstruction = "Fix all grammar, punctuation, and spelling errors while preserving the original voice.",
+                systemInstruction = "take this text and Fix all grammar, punctuation, and spelling errors while preserving the original Meaning and return only that fixed message without any extra comments on it",
                 iconEmoji = "✏️",
                 category = PromptCategory.TEXT_TRANSFORM,
                 requiresVision = false,
@@ -178,7 +192,7 @@ class PromptRepository(private val context: Context) {
             PromptEntity(
                 id = "seed_make_concise",
                 title = "Make Concise",
-                systemInstruction = "Make the text concise, clear, and direct without losing key meaning.",
+                systemInstruction = "take this text and Make the text concise, clear, and direct without losing key meaning and return only that transformed message without any extra comments on it",
                 iconEmoji = "✂️",
                 category = PromptCategory.TEXT_TRANSFORM,
                 requiresVision = false,
@@ -188,7 +202,7 @@ class PromptRepository(private val context: Context) {
             PromptEntity(
                 id = "seed_pro_tone",
                 title = "Professional Tone",
-                systemInstruction = "Rewrite the text in an articulate, polished, and professional tone.",
+                systemInstruction = "take this text and Rewrite the text in an articulate, polished, and professional tone and return only that transformed message without any extra comments on it",
                 iconEmoji = "💼",
                 category = PromptCategory.TEXT_TRANSFORM,
                 requiresVision = false,
@@ -198,7 +212,7 @@ class PromptRepository(private val context: Context) {
             PromptEntity(
                 id = "seed_casual_tone",
                 title = "Casual Tone",
-                systemInstruction = "Rewrite the text in a friendly, conversational, and natural tone.",
+                systemInstruction = "take this text and Rewrite the text in a friendly, conversational, and natural tone and return only that transformed message without any extra comments on it",
                 iconEmoji = "💬",
                 category = PromptCategory.TEXT_TRANSFORM,
                 requiresVision = false,
@@ -208,7 +222,7 @@ class PromptRepository(private val context: Context) {
             PromptEntity(
                 id = "seed_expand",
                 title = "Expand Text",
-                systemInstruction = "Elaborate and expand on the ideas with helpful detail and clarity.",
+                systemInstruction = "take this text and Elaborate and expand on the ideas with helpful detail and clarity and return only that transformed message without any extra comments on it",
                 iconEmoji = "📖",
                 category = PromptCategory.TEXT_TRANSFORM,
                 requiresVision = false,
@@ -218,7 +232,7 @@ class PromptRepository(private val context: Context) {
             PromptEntity(
                 id = "seed_clipboard_context",
                 title = "Process Clipboard",
-                systemInstruction = "Analyze or polish the clipboard content provided.",
+                systemInstruction = "take this text and Analyze or polish the clipboard content provided and return only that result without any extra comments on it",
                 iconEmoji = "📋",
                 category = PromptCategory.TEXT_TRANSFORM,
                 requiresVision = false,

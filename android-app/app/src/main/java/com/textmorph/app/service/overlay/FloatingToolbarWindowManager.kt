@@ -59,6 +59,8 @@ class FloatingToolbarWindowManager(
     private var isBusyState = false
     private var singleTapHandler: (() -> Unit)? = null
     private var collapseHandler: (() -> Unit)? = null
+    private var userTypedHandler: ((String) -> Unit)? = null
+    private var userNavigatedBackHandler: (() -> Unit)? = null
 
     // Window layout params reference
     private var windowParams: WindowManager.LayoutParams? = null
@@ -70,6 +72,18 @@ class FloatingToolbarWindowManager(
     fun isBusy(): Boolean = isBusyState || isQuickEditing
     fun isExpanded(): Boolean = isExpanded
 
+    fun onUserTyped(newText: String) {
+        service.mainHandler.post {
+            userTypedHandler?.invoke(newText)
+        }
+    }
+
+    fun onUserNavigatedBack() {
+        service.mainHandler.post {
+            userNavigatedBackHandler?.invoke()
+        }
+    }
+
     fun collapse() {
         if (isQuickEditing) {
             AppLogger.d(TAG, "Ignoring collapse request because prompt editor is active.")
@@ -77,6 +91,7 @@ class FloatingToolbarWindowManager(
         }
         service.mainHandler.post {
             try {
+                userNavigatedBackHandler?.invoke()
                 if (isExpanded) {
                     collapseHandler?.invoke() ?: onRibbonExpansionChanged(false)
                 }
@@ -271,8 +286,8 @@ class FloatingToolbarWindowManager(
                                     else -> sessionState.isVisionCapable
                                 }
                             },
-                            onInsertText = { result, isIntermediate ->
-                                service.replaceLiveInputText(result, recordHistory = !isIntermediate)
+                            onInsertText = { result, _ ->
+                                service.replaceLiveInputText(result, recordHistory = false)
                             },
                             onSnapshotOriginalText = { original ->
                                 service.pushInputHistory(original)
@@ -281,6 +296,8 @@ class FloatingToolbarWindowManager(
                                 service.revertPreviousTransformation()
                             },
                             hasUndo = { service.hasPreviousTransformation() },
+                            getRecentClipboardText = { service.getRecentClipboardText() },
+                            onQuickPaste = { service.pasteClipboardText() },
                             isPlacedOnRight = {
                                 val currentX = userX ?: initialX
                                 val curScreenWidth = service.resources.displayMetrics.widthPixels
@@ -292,6 +309,12 @@ class FloatingToolbarWindowManager(
                             },
                             onRegisterCollapseHandler = { handler ->
                                 collapseHandler = handler
+                            },
+                            onRegisterUserTypedHandler = { handler ->
+                                userTypedHandler = handler
+                            },
+                            onRegisterUserNavigatedBackHandler = { handler ->
+                                userNavigatedBackHandler = handler
                             },
                             onExpandedStateChanged = { expanded ->
                                 onRibbonExpansionChanged(expanded)
@@ -326,6 +349,7 @@ class FloatingToolbarWindowManager(
                                     settingsRepository.setCompactChipsMode(compact)
                                 }
                             },
+                            quickFixEnabled = curSettings.quickFixEnabled,
                             slashCommandRepository = slashCommandRepository,
                             onDismiss = { hide() },
                             engineProvider = {
@@ -455,6 +479,7 @@ class FloatingToolbarWindowManager(
     fun hide() {
         if (!isShowing || overlayContainer == null) return
         try {
+            userNavigatedBackHandler?.invoke()
             isDraggingState.value = false
             isExpanded = false
             singleTapHandler = null
