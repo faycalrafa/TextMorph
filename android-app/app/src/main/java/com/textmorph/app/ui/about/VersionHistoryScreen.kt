@@ -58,9 +58,19 @@ fun VersionHistoryScreen(
 
     val releaseLog = listOf(
         ReleaseItem(
+            version = "v2.1.1",
+            tag = "Latest Hotfix",
+            isLatest = true,
+            changes = listOf(
+                "Resolved fdsan SIGABRT Crash: Stripped ownership tags using ParcelFileDescriptor.detachFd() before passing file descriptors to librnllama.so, preventing native close() aborts.",
+                "Robust Detached FD Cleanup: Safely closes unused descriptors with adoptFd() without risking descriptor leaks or double-close exceptions.",
+                "Vision Projector Detached Handling: Detached temporary image projection file descriptors during multimodal inference."
+            )
+        ),
+        ReleaseItem(
             version = "v2.0.0",
             tag = "Major Release (v2)",
-            isLatest = true,
+            isLatest = false,
             changes = listOf(
                 "Native GGUF Support via llama.cpp: Full on-device inference for quantized GGUF models alongside LiteRT-LM.",
                 "Automatic Model Format Detection: Instant identification of .gguf and .litertlm models with automatic engine routing.",

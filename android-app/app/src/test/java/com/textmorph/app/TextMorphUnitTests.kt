@@ -705,6 +705,24 @@ class TextMorphUnitTests {
     }
 
     @Test
+    fun testLlamaCppContextParamsStructure() {
+        val params = mutableMapOf<String, Any>(
+            "model" to "content://test/model.gguf",
+            "model_fd" to 42,
+            "n_ctx" to 2048,
+            "n_batch" to 512,
+            "n_threads" to 4,
+            "n_gpu_layers" to 0,
+            "use_mmap" to true,
+            "use_mlock" to false
+        )
+        assertEquals("content://test/model.gguf", params["model"])
+        assertEquals(42, params["model_fd"])
+        assertTrue(params.containsKey("model_fd"))
+        assertTrue(params["model_fd"] is Int)
+    }
+
+    @Test
     fun testDefaultThemeIsCharcoalSlate() {
         val settings = AppSettings()
         assertEquals(com.textmorph.app.theme.ThemeMode.DARK_SLATE, settings.theme)

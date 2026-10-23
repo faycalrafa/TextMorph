@@ -32,8 +32,6 @@ class LlamaCppEngine(private val context: Context) : LlmEngine {
 
     private var nativeContext: LlamaContext? = null
     private var nativeHandle: Long = 0L
-    private var activeModelPfd: ParcelFileDescriptor? = null
-    private var activeMmprojPfd: ParcelFileDescriptor? = null
     private var createdSymlinkFile: File? = null
     private var createdMmprojSymlinkFile: File? = null
 
@@ -146,9 +144,23 @@ class LlamaCppEngine(private val context: Context) : LlmEngine {
                 var success = false
                 if (LlamaCppBridge.isLibraryLoaded()) {
                     addProgressLog("Native llama.cpp library available. Initializing context (threads=$nThreads, gpuLayers=$nGpuLayers)...", 0.65f)
+                    var modelFd = -1
+                    var mmprojFd = -1
                     try {
-                        val modelFd = activeModelPfd?.fd ?: -1
-                        val mmprojFd = activeMmprojPfd?.fd ?: -1
+                        modelFd = openDetachedFd(effectivePath, modelUri)
+                        if (modelFd == -1) {
+                            addProgressLog("[ERROR] Failed to obtain valid detached file descriptor for $effectiveName")
+                            _loadingProgress.update { it.copy(isLoading = false, error = "Failed to open model file descriptor") }
+                            return@withLock false
+                        }
+
+                        if (effectiveMmprojPath != null || mmprojUri != null) {
+                            mmprojFd = openDetachedFd(effectiveMmprojPath, mmprojUri)
+                            if (mmprojFd == -1) {
+                                addProgressLog("[WARN] Failed to open vision extension file descriptor, falling back to text-only mode.")
+                                isModelVisionCapable = false
+                            }
+                        }
 
                         val params = mutableMapOf<String, Any>(
                             "model" to (modelUri?.toString() ?: Uri.fromFile(File(effectivePath)).toString()),
@@ -165,6 +177,12 @@ class LlamaCppEngine(private val context: Context) : LlmEngine {
                         }
 
                         val ctx = LlamaContext(1, params)
+                        // At this point, librnllama's initContextWithFd has consumed and cleanly closed
+                        // modelFd (and mmprojFd) via POSIX close(fd). Since the descriptors were detached
+                        // from ParcelFileDescriptor, android_fdsan allows the close with zero errors.
+                        modelFd = -1
+                        mmprojFd = -1
+
                         if (ctx.context != 0L) {
                             nativeContext = ctx
                             nativeHandle = ctx.context
@@ -180,6 +198,9 @@ class LlamaCppEngine(private val context: Context) : LlmEngine {
                     } catch (nativeEx: Throwable) {
                         AppLogger.w(TAG, "Native llama.cpp initialization exception: ${nativeEx.message}", nativeEx)
                         addProgressLog("[WARN] Native init exception: ${nativeEx.message}. Entering standby fallback.", 0.85f)
+                    } finally {
+                        safelyCloseDetachedFd(modelFd)
+                        safelyCloseDetachedFd(mmprojFd)
                     }
                 }
 
@@ -214,11 +235,6 @@ class LlamaCppEngine(private val context: Context) : LlmEngine {
 
     private fun resolveModelFilePath(modelPath: String?, modelUri: Uri?, effectiveName: String): String? {
         if (modelPath != null && !modelPath.startsWith("/proc/self/fd/") && File(modelPath).exists() && File(modelPath).canRead()) {
-            try {
-                activeModelPfd = ParcelFileDescriptor.open(File(modelPath), ParcelFileDescriptor.MODE_READ_ONLY)
-            } catch (e: Exception) {
-                AppLogger.w(TAG, "Failed opening PFD for direct file path $modelPath: ${e.message}")
-            }
             return modelPath
         }
 
@@ -228,35 +244,23 @@ class LlamaCppEngine(private val context: Context) : LlmEngine {
             } catch (e: Exception) {
                 AppLogger.e(TAG, "Failed opening FileDescriptor for $modelUri: ${e.message}", e)
                 null
-            } ?: return null
-
-            activeModelPfd = pfd
-            val fd = pfd.fd
-            val procFdPath = "/proc/self/fd/$fd"
-
-            try {
-                val canonical = android.system.Os.readlink(procFdPath)
-                if (canonical != null && canonical.endsWith(".gguf", ignoreCase = true) && File(canonical).exists() && File(canonical).canRead()) {
-                    return canonical
-                }
-            } catch (_: Exception) {}
-
-            val safeName = effectiveName.replace(Regex("[^a-zA-Z0-9._-]"), "_")
-            val linkName = if (safeName.endsWith(".gguf", ignoreCase = true)) "mmap_${fd}_$safeName" else "mmap_${fd}_${safeName}.gguf"
-            val symlinkFile = File(context.cacheDir, linkName)
-            if (symlinkFile.exists()) symlinkFile.delete()
-
-            return try {
-                android.system.Os.symlink(procFdPath, symlinkFile.absolutePath)
-                if (symlinkFile.exists()) {
-                    createdSymlinkFile = symlinkFile
-                    symlinkFile.absolutePath
-                } else {
-                    procFdPath
-                }
-            } catch (e: Exception) {
-                procFdPath
             }
+
+            if (pfd != null) {
+                pfd.use { descriptor ->
+                    val fd = descriptor.fd
+                    val procFdPath = "/proc/self/fd/$fd"
+
+                    try {
+                        val canonical = android.system.Os.readlink(procFdPath)
+                        if (canonical != null && canonical.endsWith(".gguf", ignoreCase = true) && File(canonical).exists() && File(canonical).canRead()) {
+                            return canonical
+                        }
+                    } catch (_: Exception) {}
+                }
+            }
+
+            return modelUri.toString()
         }
 
         return modelPath?.takeIf { File(it).exists() }
@@ -264,36 +268,69 @@ class LlamaCppEngine(private val context: Context) : LlmEngine {
 
     private fun resolveMmprojFilePath(path: String?, uri: Uri?): String? {
         if (path != null && File(path).exists() && File(path).canRead()) {
-            try {
-                activeMmprojPfd = ParcelFileDescriptor.open(File(path), ParcelFileDescriptor.MODE_READ_ONLY)
-            } catch (e: Exception) {
-                AppLogger.w(TAG, "Failed opening PFD for direct mmproj path $path: ${e.message}")
-            }
             return path
         }
         if (uri != null) {
             val pfd = try {
                 context.contentResolver.openFileDescriptor(uri, "r")
             } catch (e: Exception) {
+                AppLogger.e(TAG, "Failed opening FileDescriptor for mmproj $uri: ${e.message}", e)
                 null
-            } ?: return null
-
-            activeMmprojPfd = pfd
-            val fd = pfd.fd
-            val procFdPath = "/proc/self/fd/$fd"
-            val symlinkFile = File(context.cacheDir, "mmap_mmproj_${fd}.gguf")
-            if (symlinkFile.exists()) symlinkFile.delete()
-            return try {
-                android.system.Os.symlink(procFdPath, symlinkFile.absolutePath)
-                if (symlinkFile.exists()) {
-                    createdMmprojSymlinkFile = symlinkFile
-                    symlinkFile.absolutePath
-                } else procFdPath
-            } catch (_: Exception) {
-                procFdPath
             }
+            if (pfd != null) {
+                pfd.use { descriptor ->
+                    val fd = descriptor.fd
+                    val procFdPath = "/proc/self/fd/$fd"
+                    try {
+                        val canonical = android.system.Os.readlink(procFdPath)
+                        if (canonical != null && File(canonical).exists() && File(canonical).canRead()) {
+                            return canonical
+                        }
+                    } catch (_: Exception) {}
+                }
+            }
+            return uri.toString()
         }
         return null
+    }
+
+    private fun openDetachedFd(path: String?, uri: Uri?): Int {
+        if (uri != null) {
+            try {
+                val pfd = context.contentResolver.openFileDescriptor(uri, "r")
+                if (pfd != null) {
+                    val fd = pfd.detachFd()
+                    AppLogger.d(TAG, "Opened detached FD $fd from URI: $uri")
+                    return fd
+                }
+            } catch (e: Exception) {
+                AppLogger.e(TAG, "Failed opening detached FD from URI $uri: ${e.message}", e)
+            }
+        }
+        if (path != null) {
+            try {
+                val file = File(path)
+                if (file.exists() && file.canRead()) {
+                    val pfd = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
+                    val fd = pfd.detachFd()
+                    AppLogger.d(TAG, "Opened detached FD $fd from file: $path")
+                    return fd
+                }
+            } catch (e: Exception) {
+                AppLogger.e(TAG, "Failed opening detached FD from path $path: ${e.message}", e)
+            }
+        }
+        return -1
+    }
+
+    private fun safelyCloseDetachedFd(fd: Int) {
+        if (fd < 0) return
+        try {
+            ParcelFileDescriptor.adoptFd(fd).close()
+            AppLogger.d(TAG, "Safely closed detached FD $fd")
+        } catch (e: Exception) {
+            AppLogger.d(TAG, "Detached FD $fd was already closed or invalid: ${e.message}")
+        }
     }
 
     private fun inspectFileHeader(filePath: String): ModelFileType {
@@ -329,7 +366,6 @@ class LlamaCppEngine(private val context: Context) : LlmEngine {
             val ctx = nativeContext
             if (ctx != null) {
                 var tempImageFile: File? = null
-                var tempImagePfd: ParcelFileDescriptor? = null
                 val imageFds = mutableListOf<Int>()
 
                 try {
@@ -346,8 +382,8 @@ class LlamaCppEngine(private val context: Context) : LlmEngine {
                             imgFile.writeBytes(imageBytes)
                             tempImageFile = imgFile
                             val pfd = ParcelFileDescriptor.open(imgFile, ParcelFileDescriptor.MODE_READ_ONLY)
-                            tempImagePfd = pfd
-                            imageFds.add(pfd.fd)
+                            val rawImgFd = pfd.detachFd()
+                            imageFds.add(rawImgFd)
                         } catch (imgErr: Exception) {
                             AppLogger.w(TAG, "Failed creating image FD for vision projection: ${imgErr.message}", imgErr)
                         }
@@ -392,7 +428,8 @@ class LlamaCppEngine(private val context: Context) : LlmEngine {
                     streamStandbyFallback(prompt, systemInstruction, imageBytes).collect { send(it) }
                 } finally {
                     try { ctx.setTokenCallback { } } catch (_: Throwable) {}
-                    try { tempImagePfd?.close() } catch (_: Throwable) {}
+                    imageFds.forEach { fd -> safelyCloseDetachedFd(fd) }
+                    imageFds.clear()
                     try { tempImageFile?.delete() } catch (_: Throwable) {}
                 }
             } else {
@@ -503,11 +540,6 @@ class LlamaCppEngine(private val context: Context) : LlmEngine {
             nativeContext = null
             nativeHandle = 0L
         }
-
-        try { activeModelPfd?.close() } catch (_: Exception) {}
-        try { activeMmprojPfd?.close() } catch (_: Exception) {}
-        activeModelPfd = null
-        activeMmprojPfd = null
 
         try { createdSymlinkFile?.delete() } catch (_: Exception) {}
         try { createdMmprojSymlinkFile?.delete() } catch (_: Exception) {}
