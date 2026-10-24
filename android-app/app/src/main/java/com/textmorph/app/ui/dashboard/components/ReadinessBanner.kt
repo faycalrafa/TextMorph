@@ -42,6 +42,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.runtime.DisposableEffect
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.textmorph.app.util.PermissionUtils
@@ -54,22 +58,43 @@ fun ReadinessBanner(
 ) {
     val context = LocalContext.current
     val activity = context as? Activity
+    val lifecycleOwner = LocalLifecycleOwner.current
 
     var isAccessibilityGranted by remember { mutableStateOf(PermissionUtils.isAccessibilityServiceEnabled(context)) }
     var isBatteryGranted by remember { mutableStateOf(PermissionUtils.isIgnoringBatteryOptimizations(context)) }
     var isStorageGranted by remember { mutableStateOf(PermissionUtils.isExternalStorageManager()) }
     var isNotificationGranted by remember { mutableStateOf(PermissionUtils.hasNotificationPermission(context)) }
 
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                isAccessibilityGranted = PermissionUtils.isAccessibilityServiceEnabled(context)
+                isBatteryGranted = PermissionUtils.isIgnoringBatteryOptimizations(context)
+                isStorageGranted = PermissionUtils.isExternalStorageManager()
+                isNotificationGranted = PermissionUtils.hasNotificationPermission(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
     val allReady = isAccessibilityGranted && isBatteryGranted && isStorageGranted && isNotificationGranted
 
-    Card(
-        modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = if (allReady) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.95f)
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    AnimatedVisibility(
+        visible = !allReady,
+        enter = expandVertically(),
+        exit = shrinkVertically()
     ) {
+        Card(
+            modifier = modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.95f)
+            ),
+            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -147,6 +172,7 @@ fun ReadinessBanner(
             }
         }
     }
+}
 }
 
 @Composable

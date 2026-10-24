@@ -451,7 +451,8 @@ fun MainAppScaffold(
                                         promptRepository.deletePrompt(prompt.id)
                                         Toast.makeText(context, "Deleted: ${prompt.title}", Toast.LENGTH_SHORT).show()
                                     }
-                                }
+                                },
+                                onOpenAccessibilityDisclosure = { showProminentDisclosure = true }
                             )
                         }
 

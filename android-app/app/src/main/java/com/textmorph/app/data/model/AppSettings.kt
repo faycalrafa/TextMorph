@@ -29,12 +29,20 @@ data class AppSettings(
     val alwaysShowFloatingToolbar: Boolean = false,
     val autoSuggestReplies: Boolean = true,
     val preferredAccelerator: String = "AUTO",
-    val probeTimeoutMs: Long = 60000L,
+    val probeTimeoutMs: Long = 30000L,
     val floatingToolbarX: Int? = null,
     val floatingToolbarY: Int? = null,
     val hasShownProminentDisclosure: Boolean = false,
     val compactChipsMode: Boolean = false,
     val alwaysOpenBarWithKeyboard: Boolean = true,
     val quickFixEnabled: Boolean = false,
-    val guessNextWordEnabled: Boolean = true
+    @Deprecated("Feature removed")
+    val guessNextWordEnabled: Boolean = false,
+    val maxTokens: Int = 1024,
+    val temperature: Float = 0.7f,
+    val topK: Int = 40,
+    val topP: Float = 0.9f,
+    val enableThinking: Boolean = false,
+    val speculativeDecoding: Boolean = false,
+    val defaultSystemPrompt: String = "You are a helpful, concise AI writing assistant. Transform or complete text according to user instructions. Return ONLY the final output without preamble or explanations."
 )

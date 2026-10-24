@@ -31,8 +31,8 @@ fun ToolbarSettingsSection(
     onSetAlwaysShowFloatingToolbar: (Boolean) -> Unit,
     onSetAlwaysOpenBarWithKeyboard: (Boolean) -> Unit,
     onSetCompactChipsMode: (Boolean) -> Unit,
-    onSetGuessNextWordEnabled: (Boolean) -> Unit,
     onSetQuickFixEnabled: (Boolean) -> Unit,
+    onSetGuessNextWordEnabled: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Card(
@@ -126,26 +126,8 @@ fun ToolbarSettingsSection(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("Guess Next Word", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                    Text("Predict and suggest the next word while typing in any text box", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                Switch(
-                    checked = settings.guessNextWordEnabled,
-                    enabled = settings.floatingToolbarEnabled,
-                    onCheckedChange = onSetGuessNextWordEnabled
-                )
-            }
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
                     Text("Auto Quick Fix", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                    Text("Automatically propose grammar & spelling fixes for short text 500ms after you stop typing", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Automatically fixes grammar & spelling errors in-place with an Undo/Accept prompt when typing stops", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Switch(
                     checked = settings.quickFixEnabled,

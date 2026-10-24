@@ -146,8 +146,24 @@ class SettingsRepository(private val context: Context) {
         it.copy(quickFixEnabled = enabled)
     }
 
-    suspend fun setGuessNextWordEnabled(enabled: Boolean) = updateSettings {
-        it.copy(guessNextWordEnabled = enabled)
+    suspend fun updateAiModelConfig(
+        maxTokens: Int,
+        temperature: Float,
+        topK: Int,
+        topP: Float,
+        enableThinking: Boolean,
+        speculativeDecoding: Boolean,
+        defaultSystemPrompt: String
+    ) = updateSettings {
+        it.copy(
+            maxTokens = maxTokens,
+            temperature = temperature,
+            topK = topK,
+            topP = topP,
+            enableThinking = enableThinking,
+            speculativeDecoding = speculativeDecoding,
+            defaultSystemPrompt = defaultSystemPrompt
+        )
     }
 
     private fun saveSettingsToDisk(settings: AppSettings) {

@@ -56,8 +56,10 @@ import com.textmorph.app.llm.LiteRtLmEngine
 import com.textmorph.app.llm.LiteRtLmEngineManager
 import com.textmorph.app.llm.LlamaCppEngine
 import com.textmorph.app.llm.LlamaCppEngineManager
+import com.textmorph.app.data.model.ModelInfo
+import com.textmorph.app.ui.modelhub.components.AiModelConfigDialog
+import com.textmorph.app.ui.modelhub.components.DeleteModelDialog
 import com.textmorph.app.ui.modelhub.components.ModelItemCard
-import com.textmorph.app.ui.modelhub.components.ModelLoadingConsoleCard
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -87,6 +89,8 @@ fun ModelHubContent(
     val consoleTitle = if (isLlamaActive || llamaLoadingProgress.isLoading) "LLAMA.CPP GGUF INFERENCE CONSOLE" else "LITERT-LM INFERENCE CONSOLE"
 
     var pendingMmprojModelId by remember { mutableStateOf<String?>(null) }
+    var modelToDelete by remember { mutableStateOf<ModelInfo?>(null) }
+    var showAiConfigDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         modelRepository.refreshModels()
@@ -252,15 +256,7 @@ fun ModelHubContent(
             }
         }
 
-        // Live Model Loading Progress & Dark Monospace Console Card
-        item {
-            ModelLoadingConsoleCard(
-                loadingProgress = activeLoadingProgress,
-                sessionState = activeSessionState,
-                consoleTitle = consoleTitle
-            )
-        }
-
+        // Available Models List
         item {
             Text(
                 text = "Available Models (${availableModels.size})",
@@ -283,6 +279,8 @@ fun ModelHubContent(
                 model = model,
                 isCurrentActive = isCurrentActive,
                 isLoadingEngine = isLoadingThis,
+                loadingProgress = activeLoadingProgress,
+                sessionState = activeSessionState,
                 onActivate = {
                     scope.launch {
                         val uri = model.uriString?.let { Uri.parse(it) }
@@ -306,6 +304,17 @@ fun ModelHubContent(
                         Toast.makeText(context, "Loading: ${model.name}...", Toast.LENGTH_SHORT).show()
                     }
                 },
+                onOffload = {
+                    scope.launch {
+                        liteRtEngine.unload()
+                        llamaCppEngine.unload()
+                        settingsRepository.setActiveModel("No Model Loaded", null, null, settings.selectedEngine)
+                        Toast.makeText(context, "Model session offloaded from memory.", Toast.LENGTH_SHORT).show()
+                    }
+                },
+                onOpenAiConfig = {
+                    showAiConfigDialog = true
+                },
                 onAttachMmproj = {
                     pendingMmprojModelId = model.id
                     mmprojSafLauncher.launch(arrayOf("*/*"))
@@ -328,12 +337,7 @@ fun ModelHubContent(
                     Toast.makeText(context, "Download cancelled", Toast.LENGTH_SHORT).show()
                 },
                 onDelete = {
-                    scope.launch {
-                        val deleted = modelRepository.deleteModel(model)
-                        if (deleted) {
-                            Toast.makeText(context, "Deleted ${model.name}", Toast.LENGTH_SHORT).show()
-                        }
-                    }
+                    modelToDelete = model
                 },
                 onImportToPrivateStorage = {
                     scope.launch {
@@ -347,5 +351,48 @@ fun ModelHubContent(
                 modelRepository = modelRepository
             )
         }
+    }
+
+    // Delete Confirmation Dialog with optional permanent file deletion
+    if (modelToDelete != null) {
+        DeleteModelDialog(
+            model = modelToDelete!!,
+            onConfirm = { permanently ->
+                val target = modelToDelete!!
+                modelToDelete = null
+                scope.launch {
+                    val deleted = modelRepository.deleteModel(target, permanentlyDeleteFile = permanently)
+                    Toast.makeText(
+                        context,
+                        if (permanently) "Permanently deleted ${target.name}" else "Removed ${target.name} from app catalog",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            },
+            onDismiss = { modelToDelete = null }
+        )
+    }
+
+    // AI Model Configuration Dialog
+    if (showAiConfigDialog) {
+        AiModelConfigDialog(
+            settings = settings,
+            onSave = { maxTokens, temp, k, p, thinking, speculative, prompt ->
+                scope.launch {
+                    settingsRepository.updateAiModelConfig(
+                        maxTokens = maxTokens,
+                        temperature = temp,
+                        topK = k,
+                        topP = p,
+                        enableThinking = thinking,
+                        speculativeDecoding = speculative,
+                        defaultSystemPrompt = prompt
+                    )
+                    showAiConfigDialog = false
+                    Toast.makeText(context, "AI configurations saved.", Toast.LENGTH_SHORT).show()
+                }
+            },
+            onDismiss = { showAiConfigDialog = false }
+        )
     }
 }

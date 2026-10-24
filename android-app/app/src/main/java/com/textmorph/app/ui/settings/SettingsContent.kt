@@ -213,7 +213,6 @@ fun SettingsContent(
             onSetAlwaysShowFloatingToolbar = { enabled -> scope.launch { settingsRepository.setAlwaysShowFloatingToolbar(enabled) } },
             onSetAlwaysOpenBarWithKeyboard = { enabled -> scope.launch { settingsRepository.setAlwaysOpenBarWithKeyboard(enabled) } },
             onSetCompactChipsMode = { enabled -> scope.launch { settingsRepository.setCompactChipsMode(enabled) } },
-            onSetGuessNextWordEnabled = { enabled -> scope.launch { settingsRepository.setGuessNextWordEnabled(enabled) } },
             onSetQuickFixEnabled = { enabled -> scope.launch { settingsRepository.setQuickFixEnabled(enabled) } }
         )
 

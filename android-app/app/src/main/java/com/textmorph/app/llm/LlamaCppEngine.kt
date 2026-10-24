@@ -405,13 +405,14 @@ class LlamaCppEngine(private val context: Context) : LlmEngine {
                         }
                     }
 
+                    val settings = runCatching { SettingsRepository.getInstance(context).settingsState.value }.getOrNull()
                     val completionParams = mutableMapOf<String, Any>(
                         "prompt" to fullPrompt,
                         "emit_partial_completion" to true,
-                        "n_predict" to 1024,
-                        "temperature" to 0.7f,
-                        "top_p" to 0.95f,
-                        "top_k" to 40,
+                        "n_predict" to (settings?.maxTokens ?: 1024),
+                        "temperature" to (settings?.temperature ?: 0.7f),
+                        "top_p" to (settings?.topP ?: 0.95f),
+                        "top_k" to (settings?.topK ?: 40),
                         "stop" to listOf("<|im_end|>", "<|endoftext|>", "</s>")
                     )
                     if (imageFds.isNotEmpty()) {

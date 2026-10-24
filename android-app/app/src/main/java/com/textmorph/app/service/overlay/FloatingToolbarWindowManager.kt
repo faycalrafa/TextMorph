@@ -345,7 +345,9 @@ class FloatingToolbarWindowManager(
                             },
                             compactChipsMode = curSettings.compactChipsMode,
                             quickFixEnabled = curSettings.quickFixEnabled,
-                            guessNextWordEnabled = curSettings.guessNextWordEnabled,
+                            onToggleQuickFix = { enabled ->
+                                windowScope.launch { settingsRepository.setQuickFixEnabled(enabled) }
+                            },
                             slashCommandRepository = slashCommandRepository,
                             onDismiss = { hide() },
                             engineProvider = {

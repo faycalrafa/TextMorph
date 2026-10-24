@@ -443,14 +443,14 @@ class TextMorphUnitTests {
     @Test
     fun testAppSettingsProbeTimeoutMsDefaultAndSerialization() {
         val defaultSettings = AppSettings()
-        assertEquals(60000L, defaultSettings.probeTimeoutMs)
+        assertEquals(30000L, defaultSettings.probeTimeoutMs)
 
-        val customSettings = AppSettings(probeTimeoutMs = 6000L)
+        val customSettings = AppSettings(probeTimeoutMs = 5000L)
         val json = Json { ignoreUnknownKeys = true }
         val encoded = json.encodeToString(customSettings)
         val decoded = json.decodeFromString<AppSettings>(encoded)
 
-        assertEquals(6000L, decoded.probeTimeoutMs)
+        assertEquals(5000L, decoded.probeTimeoutMs)
     }
 
     @Test
@@ -616,15 +616,36 @@ class TextMorphUnitTests {
     }
 
     @Test
-    fun testGuessNextWordSettingSerialization() {
+    fun testAiConfigurationsSerialization() {
         val defaultSettings = AppSettings()
-        assertTrue(defaultSettings.guessNextWordEnabled)
+        assertEquals(1024, defaultSettings.maxTokens)
+        assertEquals(0.7f, defaultSettings.temperature, 0.001f)
+        assertEquals(40, defaultSettings.topK)
+        assertEquals(0.9f, defaultSettings.topP, 0.001f)
+        assertFalse(defaultSettings.enableThinking)
+        assertFalse(defaultSettings.speculativeDecoding)
+        assertTrue(defaultSettings.defaultSystemPrompt.contains("concise AI writing assistant"))
 
-        val customSettings = defaultSettings.copy(guessNextWordEnabled = false)
+        val custom = defaultSettings.copy(
+            maxTokens = 2048,
+            temperature = 0.5f,
+            topK = 50,
+            topP = 0.85f,
+            enableThinking = true,
+            speculativeDecoding = true,
+            defaultSystemPrompt = "Custom prompt"
+        )
         val json = Json { ignoreUnknownKeys = true }
-        val encoded = json.encodeToString(customSettings)
+        val encoded = json.encodeToString(custom)
         val decoded = json.decodeFromString<AppSettings>(encoded)
-        assertFalse(decoded.guessNextWordEnabled)
+
+        assertEquals(2048, decoded.maxTokens)
+        assertEquals(0.5f, decoded.temperature, 0.001f)
+        assertEquals(50, decoded.topK)
+        assertEquals(0.85f, decoded.topP, 0.001f)
+        assertTrue(decoded.enableThinking)
+        assertTrue(decoded.speculativeDecoding)
+        assertEquals("Custom prompt", decoded.defaultSystemPrompt)
     }
 
     @Test
@@ -789,6 +810,18 @@ class TextMorphUnitTests {
         assertEquals("/fr", fr?.displayTrigger)
         assertTrue(fr!!.systemInstruction.contains("French"))
         assertEquals(com.textmorph.app.data.model.ContextAction.NONE, fr.contextAction)
+
+        val ar = seeds.firstOrNull { it.cleanTrigger == "ar" }
+        assertNotNull(ar)
+        assertEquals("/ar", ar?.displayTrigger)
+        assertEquals("Translate to Arabic", ar?.title)
+        assertTrue(ar!!.systemInstruction.contains("Arabic"))
+
+        val en = seeds.firstOrNull { it.cleanTrigger == "en" }
+        assertNotNull(en)
+        assertEquals("/en", en?.displayTrigger)
+        assertEquals("Translate to English", en?.title)
+        assertTrue(en!!.systemInstruction.contains("English"))
 
         val fix = seeds.firstOrNull { it.cleanTrigger == "fix" }
         assertNotNull(fix)
@@ -1024,6 +1057,32 @@ class TextMorphUnitTests {
         assertEquals("gemma-4-E2B-it.litertlm", decoded.modelName)
         assertEquals("GPU", decoded.backend)
         assertEquals("Vulkan memory mapping", decoded.details)
+    }
+
+    @Test
+    fun testKeywordContextResolverRegexAndTagDetection() {
+        val withClip = "Please summarize [clipboard] for me"
+        val withScreen = "Take a [screenshot] and explain"
+        val withImg = "What is in [image]?"
+        val plain = "Just normal text"
+
+        assertTrue(com.textmorph.app.util.KeywordContextResolver.hasKeywords(withClip))
+        assertTrue(com.textmorph.app.util.KeywordContextResolver.hasKeywords(withScreen))
+        assertTrue(com.textmorph.app.util.KeywordContextResolver.hasKeywords(withImg))
+        assertFalse(com.textmorph.app.util.KeywordContextResolver.hasKeywords(plain))
+    }
+
+    @Test
+    fun testEmojiTextArtHelperInstantMappings() {
+        // Instant emoji detection
+        val matchEmoji = com.textmorph.app.util.EmojiTextArtHelper.findEmojiMatch("hello :(happy): world")
+        assertNotNull(matchEmoji)
+        assertEquals("happy", matchEmoji?.groupValues?.get(1))
+
+        // Instant text art detection
+        val matchArt = com.textmorph.app.util.EmojiTextArtHelper.findTextArtMatch("well T:(shrug): then")
+        assertNotNull(matchArt)
+        assertEquals("shrug", matchArt?.groupValues?.get(1))
     }
 }
 

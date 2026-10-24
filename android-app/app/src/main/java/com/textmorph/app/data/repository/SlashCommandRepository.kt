@@ -42,9 +42,39 @@ class SlashCommandRepository(private val context: Context) {
             } else {
                 val content = commandsFile.readText()
                 val parsed = json.decodeFromString<List<SlashCommandEntity>>(content)
-                val sorted = parsed.sortedBy { it.sortOrder }
+                val migrated = parsed.map { cmd ->
+                    when (cmd.id) {
+                        "cmd_es" -> SlashCommandEntity(
+                            id = "cmd_ar",
+                            trigger = "ar",
+                            title = "Translate to Arabic",
+                            systemInstruction = "Translate the user's text into natural, fluent, and idiomatic Arabic. Output ONLY the translated Arabic text with zero conversational commentary.",
+                            description = "Translates input text to Arabic",
+                            isBuiltIn = true,
+                            sortOrder = cmd.sortOrder
+                        )
+                        "cmd_de" -> SlashCommandEntity(
+                            id = "cmd_en",
+                            trigger = "en",
+                            title = "Translate to English",
+                            systemInstruction = "Translate the user's text into natural, fluent, and idiomatic English. Output ONLY the translated English text with zero conversational commentary.",
+                            description = "Translates input text to English",
+                            isBuiltIn = true,
+                            sortOrder = cmd.sortOrder
+                        )
+                        else -> cmd
+                    }
+                }.toMutableList()
+                if (migrated.none { it.cleanTrigger == "ar" }) {
+                    migrated.add(getDefaultSeedCommands().first { it.cleanTrigger == "ar" })
+                }
+                if (migrated.none { it.cleanTrigger == "en" }) {
+                    migrated.add(getDefaultSeedCommands().first { it.cleanTrigger == "en" })
+                }
+                val sorted = migrated.sortedBy { it.sortOrder }
                 _commandsState.value = sorted
-                AppLogger.i(TAG, "Loaded ${sorted.size} slash commands from disk.")
+                saveCommandsToDisk(sorted)
+                AppLogger.i(TAG, "Loaded ${sorted.size} slash commands from disk (migrated /ar & /en).")
             }
         } catch (e: Exception) {
             AppLogger.e(TAG, "Error loading slash commands from disk, falling back to seeds: ${e.message}", e)
@@ -180,20 +210,20 @@ class SlashCommandRepository(private val context: Context) {
                 sortOrder = 0
             ),
             SlashCommandEntity(
-                id = "cmd_es",
-                trigger = "es",
-                title = "Translate to Spanish",
-                systemInstruction = "Translate the user's text into natural, fluent Spanish. Output ONLY the translated Spanish text with zero commentary.",
-                description = "Translates input text to Spanish",
+                id = "cmd_ar",
+                trigger = "ar",
+                title = "Translate to Arabic",
+                systemInstruction = "Translate the user's text into natural, fluent, and idiomatic Arabic. Output ONLY the translated Arabic text with zero commentary.",
+                description = "Translates input text to Arabic",
                 isBuiltIn = true,
                 sortOrder = 1
             ),
             SlashCommandEntity(
-                id = "cmd_de",
-                trigger = "de",
-                title = "Translate to German",
-                systemInstruction = "Translate the user's text into natural, fluent German. Output ONLY the translated German text with zero commentary.",
-                description = "Translates input text to German",
+                id = "cmd_en",
+                trigger = "en",
+                title = "Translate to English",
+                systemInstruction = "Translate the user's text into natural, fluent, and idiomatic English. Output ONLY the translated English text with zero commentary.",
+                description = "Translates input text to English",
                 isBuiltIn = true,
                 sortOrder = 2
             ),

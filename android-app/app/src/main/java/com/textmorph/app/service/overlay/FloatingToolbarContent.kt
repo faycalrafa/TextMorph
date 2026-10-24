@@ -1,5 +1,7 @@
 package com.textmorph.app.service.overlay
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.widget.Toast
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -16,7 +18,6 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ShortText
 import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.AutoFixHigh
@@ -51,9 +52,13 @@ import com.textmorph.app.service.overlay.components.FloatingInlinePromptEditor
 import com.textmorph.app.ui.camera.CameraCaptureActivity
 import com.textmorph.app.ui.prompts.getVectorIcon
 import com.textmorph.app.util.AppLogger
+import com.textmorph.app.util.EmojiTextArtHelper
+import com.textmorph.app.util.KeywordContextResolver
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
 
 /**
  * Visual operational states for the floating companion overlay.
@@ -99,7 +104,7 @@ fun FloatingToolbarContent(
     compactChipsMode: Boolean = false,
     onToggleCompactMode: (Boolean) -> Unit = {},
     quickFixEnabled: Boolean = false,
-    guessNextWordEnabled: Boolean = true,
+    onToggleQuickFix: (Boolean) -> Unit = {},
     slashCommandRepository: SlashCommandRepository = SlashCommandRepository.getInstance(LocalContext.current),
     onDismiss: () -> Unit,
     engineProvider: () -> LlmEngine
@@ -116,12 +121,10 @@ fun FloatingToolbarContent(
     var editingPromptInline by remember { mutableStateOf<PromptEntity?>(null) }
     val isCompactMode = compactChipsMode
 
-    // Guess Next Word debounced suggestion state
-    var proposedNextWord by remember { mutableStateOf<String?>(null) }
-    var nextWordJob by remember { mutableStateOf<Job?>(null) }
-
-    // Quick Fix debounced suggestion state
-    var proposedQuickFix by remember { mutableStateOf<String?>(null) }
+    // Reactive Quick Fix (Auto Fix) state
+    var localQuickFixEnabled by remember(quickFixEnabled) { mutableStateOf(quickFixEnabled) }
+    var isFixingInProgress by remember { mutableStateOf(false) }
+    var pendingFixUndo by remember { mutableStateOf<String?>(null) }
     var quickFixJob by remember { mutableStateOf<Job?>(null) }
 
     LaunchedEffect(state) {
@@ -139,10 +142,8 @@ fun FloatingToolbarContent(
             if (state == FloatingButtonState.REVERT_WINDOW) {
                 state = FloatingButtonState.IDLE
             }
-            nextWordJob?.cancel()
-            proposedNextWord = null
             quickFixJob?.cancel()
-            proposedQuickFix = null
+            isFixingInProgress = false
         }
         onExpandedStateChanged(expanded)
     }
@@ -171,7 +172,6 @@ fun FloatingToolbarContent(
 
         onRegisterCollapseHandler?.invoke {
             AppLogger.d(TAG, "collapseHandler executed in Compose. isExpanded=$isExpanded, editing=${editingPromptInline != null}")
-            // Protect inline quick editor from being dismissed by outside window shifts
             if (editingPromptInline != null) {
                 return@invoke
             }
@@ -185,62 +185,58 @@ fun FloatingToolbarContent(
                 state = FloatingButtonState.IDLE
             }
 
-            // Guess Next Word debounced predictor
-            if (guessNextWordEnabled && state == FloatingButtonState.IDLE) {
-                nextWordJob?.cancel()
-                proposedNextWord = null
-                val trimmed = newText.trim()
-                if (trimmed.isNotBlank()) {
-                    nextWordJob = scope.launch {
-                        kotlinx.coroutines.delay(350L)
-                        if (!isActive) return@launch
-                        val current = getLiveInputText().trim()
-                        if (current != trimmed || current.isBlank()) return@launch
-                        try {
-                            val engine = engineProvider()
-                            val predictInstruction = "Given this preceding text, predict and output ONLY the single most likely next word (or 2-3 words at most) that naturally continues or completes it. Do not repeat the input. Return ONLY the predicted continuation without punctuation, quotes, or explanations."
-                            val sb = StringBuilder()
-                            engine.generateStream(current, predictInstruction).collect { token ->
-                                sb.append(token)
-                                if (sb.contains(" ") || sb.contains("\n") || sb.length > 25) {
-                                    return@collect
-                                }
-                            }
-                            val rawWord = sb.toString().trim()
-                                .removeSurrounding("\"")
-                                .removeSurrounding("'")
-                                .removeSurrounding("`")
-                                .replace(Regex("[.,;:!?\n]"), "")
-                                .trim()
-                            if (rawWord.isNotBlank() && !rawWord.startsWith("Error") && !rawWord.equals(current, ignoreCase = true)) {
-                                if (getLiveInputText().trim() == current) {
-                                    proposedNextWord = rawWord
-                                    AppLogger.d(TAG, "Next word guessed: '$rawWord'")
-                                }
-                            }
-                        } catch (e: Exception) {
-                            AppLogger.w(TAG, "Guess next word background error: ${e.message}")
-                        }
-                    }
-                }
-            } else {
-                nextWordJob?.cancel()
-                proposedNextWord = null
+            // If user continues typing, any pending auto-fix undo prompt is treated as accepted
+            if (pendingFixUndo != null) {
+                pendingFixUndo = null
             }
 
-            // Quick Fix debounced grammar & spelling corrector
-            if (quickFixEnabled && state == FloatingButtonState.IDLE) {
+            // 1. Check for :(emotion): trigger
+            val emojiMatch = EmojiTextArtHelper.findEmojiMatch(newText)
+            if (emojiMatch != null) {
+                val emotion = emojiMatch.groupValues[1]
+                val fullMatch = emojiMatch.value
+                scope.launch {
+                    val emoji = EmojiTextArtHelper.resolveEmoji(emotion, engineProvider())
+                    val current = getLiveInputText()
+                    if (current.contains(fullMatch)) {
+                        val replaced = current.replace(fullMatch, "$emoji ")
+                        onSnapshotOriginalText(current)
+                        onInsertText(replaced, false)
+                        Toast.makeText(context, "Emoji: $emoji", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+
+            // 2. Check for T:(emotion): trigger
+            val textArtMatch = EmojiTextArtHelper.findTextArtMatch(newText)
+            if (textArtMatch != null) {
+                val artRequest = textArtMatch.groupValues[1]
+                val fullMatch = textArtMatch.value
+                scope.launch {
+                    val textArt = EmojiTextArtHelper.resolveTextArt(artRequest, engineProvider())
+                    val current = getLiveInputText()
+                    if (current.contains(fullMatch)) {
+                        val replaced = current.replace(fullMatch, "$textArt ")
+                        onSnapshotOriginalText(current)
+                        onInsertText(replaced, false)
+                        Toast.makeText(context, "Text Art applied", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+
+            // 3. Quick Fix debounced auto-replacement
+            if (localQuickFixEnabled && state == FloatingButtonState.IDLE) {
                 quickFixJob?.cancel()
-                proposedQuickFix = null
                 val trimmed = newText.trim()
                 val wordCount = trimmed.split(Regex("\\s+")).filter { it.isNotBlank() }.size
-                if (trimmed.length in 3..120 && wordCount <= 25) {
+                if (trimmed.length in 3..140 && wordCount <= 25) {
                     quickFixJob = scope.launch {
                         kotlinx.coroutines.delay(550L)
                         if (!isActive) return@launch
                         val current = getLiveInputText().trim()
-                        if (current != trimmed || current.length < 3 || current.length > 120) return@launch
+                        if (current != trimmed || current.length < 3 || current.length > 140) return@launch
                         try {
+                            isFixingInProgress = true
                             val engine = engineProvider()
                             val fixInstruction = "take this text and Fix all grammar, punctuation, and spelling errors while preserving the original Meaning and return only that fixed message without any extra comments on it"
                             val sb = StringBuilder()
@@ -250,18 +246,22 @@ fun FloatingToolbarContent(
                             val fixed = sb.toString().trim()
                             if (fixed.isNotBlank() && !fixed.startsWith("Error") && !fixed.equals(current, ignoreCase = false)) {
                                 if (getLiveInputText().trim() == current) {
-                                    proposedQuickFix = fixed
-                                    AppLogger.d(TAG, "Quick fix proposed: '$fixed'")
+                                    onSnapshotOriginalText(current)
+                                    onInsertText(fixed, false)
+                                    pendingFixUndo = current
+                                    AppLogger.d(TAG, "Quick fix automatically replaced text with: '$fixed'")
                                 }
                             }
                         } catch (e: Exception) {
                             AppLogger.w(TAG, "Quick fix background error: ${e.message}")
+                        } finally {
+                            isFixingInProgress = false
                         }
                     }
                 }
             } else {
                 quickFixJob?.cancel()
-                proposedQuickFix = null
+                isFixingInProgress = false
             }
         }
 
@@ -269,76 +269,15 @@ fun FloatingToolbarContent(
             if (state == FloatingButtonState.REVERT_WINDOW) {
                 state = FloatingButtonState.IDLE
             }
-            nextWordJob?.cancel()
-            proposedNextWord = null
             quickFixJob?.cancel()
-            proposedQuickFix = null
-        }
-    }
-
-    // Core Generation Pipelines with Non-Destructive Token Streaming
-    fun startGeneration(systemInstruction: String, directExecute: Boolean = false, contextInput: String? = null) {
-        val rawInput = contextInput ?: getLiveInputText()
-        if (rawInput.isBlank()) {
-            Toast.makeText(context, "Please type or place cursor in a text field first.", Toast.LENGTH_SHORT).show()
-            return
-        }
-
-        // Snapshot original text upfront before streaming begins to ensure safe revert
-        onSnapshotOriginalText(rawInput)
-
-        state = FloatingButtonState.GENERATING
-        activeJob?.cancel()
-        activeJob = scope.launch {
-            try {
-                val engine = engineProvider()
-                val effectiveInstruction = if (directExecute) {
-                    "You are an on-device writing assistant. Execute the request or instruction provided in the user's text. Return ONLY the final output with zero conversational commentary, zero intros/outros, zero quotes, and zero reasoning traces."
-                } else {
-                    "$systemInstruction. Strict rule: Output ONLY the transformed result directly. Do not include commentary, explanations, or thinking blocks."
-                }
-
-                val sb = StringBuilder()
-                var lastStreamFlushTime = 0L
-
-                engine.generateStream(rawInput, effectiveInstruction).collect { token ->
-                    sb.append(token)
-                    val now = System.currentTimeMillis()
-                    // Flush intermediate chunks with isIntermediate = true to protect undo history
-                    if (now - lastStreamFlushTime >= 80L || token.contains("\n") || token.contains(".")) {
-                        lastStreamFlushTime = now
-                        val intermediate = sb.toString()
-                        if (intermediate.isNotEmpty()) {
-                            onInsertText(intermediate, true)
-                        }
-                    }
-                }
-
-                val finalOutput = sb.toString().trim()
-                if (finalOutput.startsWith("Error:") || finalOutput.startsWith("Error (")) {
-                    AppLogger.w(TAG, "Generation returned error: $finalOutput")
-                    Toast.makeText(context, finalOutput, Toast.LENGTH_LONG).show()
-                    state = FloatingButtonState.IDLE
-                    return@launch
-                }
-
-                if (finalOutput.isNotEmpty()) {
-                    onInsertText(finalOutput, false)
-                    state = FloatingButtonState.REVERT_WINDOW
-                } else {
-                    state = FloatingButtonState.IDLE
-                }
-            } catch (e: Exception) {
-                AppLogger.e(TAG, "Inference error during generation: ${e.message}", e)
-                Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
-                state = FloatingButtonState.IDLE
-            }
+            isFixingInProgress = false
+            pendingFixUndo = null
         }
     }
 
     fun startVisionGenerationWithBytes(instruction: String, imageBytes: ByteArray, overrideInput: String? = null) {
         val rawInput = getLiveInputText()
-        val textToFeed = overrideInput ?: rawInput.ifBlank { "Screen Context" }
+        val textToFeed = overrideInput ?: rawInput.ifBlank { "Analyze this image" }
         onSnapshotOriginalText(rawInput)
 
         state = FloatingButtonState.GENERATING
@@ -364,6 +303,13 @@ fun FloatingToolbarContent(
                 val finalOutput = sb.toString().trim()
                 if (finalOutput.isNotEmpty()) {
                     onInsertText(finalOutput, false)
+                    try {
+                        val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                        cm?.setPrimaryClip(ClipData.newPlainText("TextMorph Response", finalOutput))
+                        Toast.makeText(context, "Response generated & copied to clipboard", Toast.LENGTH_SHORT).show()
+                    } catch (clipEx: Exception) {
+                        AppLogger.w(TAG, "Failed writing vision response to clipboard: ${clipEx.message}")
+                    }
                     state = FloatingButtonState.REVERT_WINDOW
                 } else {
                     state = FloatingButtonState.IDLE
@@ -374,6 +320,101 @@ fun FloatingToolbarContent(
                 state = FloatingButtonState.IDLE
             }
         }
+    }
+
+    fun executeGenerationInternal(systemInstruction: String, directExecute: Boolean, input: String) {
+        onSnapshotOriginalText(input)
+        state = FloatingButtonState.GENERATING
+        activeJob?.cancel()
+        activeJob = scope.launch {
+            try {
+                val engine = engineProvider()
+                val effectiveInstruction = if (directExecute) {
+                    "You are an on-device writing assistant. Execute the request or instruction provided in the user's text. Return ONLY the final output with zero conversational commentary, zero intros/outros, zero quotes, and zero reasoning traces."
+                } else {
+                    "$systemInstruction. Strict rule: Output ONLY the transformed result directly. Do not include commentary, explanations, or thinking blocks."
+                }
+
+                val sb = StringBuilder()
+                var lastStreamFlushTime = 0L
+
+                engine.generateStream(input, effectiveInstruction).collect { token ->
+                    sb.append(token)
+                    val now = System.currentTimeMillis()
+                    if (now - lastStreamFlushTime >= 80L || token.contains("\n") || token.contains(".")) {
+                        lastStreamFlushTime = now
+                        val intermediate = sb.toString()
+                        if (intermediate.isNotEmpty()) {
+                            onInsertText(intermediate, true)
+                        }
+                    }
+                }
+
+                val finalOutput = sb.toString().trim()
+                if (finalOutput.startsWith("Error:") || finalOutput.startsWith("Error (")) {
+                    AppLogger.w(TAG, "Generation returned error: $finalOutput")
+                    Toast.makeText(context, finalOutput, Toast.LENGTH_LONG).show()
+                    state = FloatingButtonState.IDLE
+                    return@launch
+                }
+
+                if (finalOutput.isNotEmpty()) {
+                    onInsertText(finalOutput, false)
+                    try {
+                        val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                        cm?.setPrimaryClip(ClipData.newPlainText("TextMorph Output", finalOutput))
+                    } catch (e: Exception) {
+                        AppLogger.d(TAG, "Secondary clipboard cache: ${e.message}")
+                    }
+                    state = FloatingButtonState.REVERT_WINDOW
+                } else {
+                    state = FloatingButtonState.IDLE
+                }
+            } catch (e: Exception) {
+                AppLogger.e(TAG, "Inference error during generation: ${e.message}", e)
+                Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                state = FloatingButtonState.IDLE
+            }
+        }
+    }
+
+    // Core Generation Pipelines with Dynamic Keyword Interpolation
+    fun startGeneration(systemInstruction: String, directExecute: Boolean = false, contextInput: String? = null) {
+        val rawInput = contextInput ?: getLiveInputText()
+        if (rawInput.isBlank()) {
+            Toast.makeText(context, "Please type or place cursor in a text field first.", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        if (KeywordContextResolver.hasKeywords(rawInput)) {
+            scope.launch {
+                Toast.makeText(context, "Resolving keywords...", Toast.LENGTH_SHORT).show()
+                val resolved = KeywordContextResolver.resolve(context, rawInput) {
+                    suspendCancellableCoroutine { continuation ->
+                        if (onTakeScreenshotContext != null) {
+                            onTakeScreenshotContext.invoke { bytes ->
+                                if (continuation.isActive) continuation.resume(bytes)
+                            }
+                        } else {
+                            if (continuation.isActive) continuation.resume(null)
+                        }
+                    }
+                }
+                if (resolved.imageBytes != null) {
+                    val effectiveInstruction = if (directExecute) {
+                        "You are an on-device writing assistant. Execute the request or instruction provided in the user's text and image. Return ONLY the final output with zero conversational commentary."
+                    } else {
+                        systemInstruction
+                    }
+                    startVisionGenerationWithBytes(effectiveInstruction, resolved.imageBytes, overrideInput = resolved.processedText)
+                } else {
+                    executeGenerationInternal(systemInstruction, directExecute, resolved.processedText)
+                }
+            }
+            return
+        }
+
+        executeGenerationInternal(systemInstruction, directExecute, rawInput)
     }
 
     fun startVisionGeneration(instruction: String, overrideInput: String? = null) {
@@ -396,7 +437,7 @@ fun FloatingToolbarContent(
             return
         }
         if (onTakeScreenshotContext == null) {
-            Toast.makeText(context, "Screen capture not available for OCR.", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Screenshot capture not available.", Toast.LENGTH_SHORT).show()
             return
         }
         onTakeScreenshotContext.invoke { imageBytes ->
@@ -416,6 +457,7 @@ fun FloatingToolbarContent(
                 Toast.makeText(context, "Opening camera...", Toast.LENGTH_SHORT).show()
                 CameraCaptureActivity.launch(context) { bytes ->
                     if (bytes != null) {
+                        Toast.makeText(context, "Analyzing photo...", Toast.LENGTH_SHORT).show()
                         startVisionGenerationWithBytes(prompt.systemInstruction, bytes)
                     } else {
                         AppLogger.d(TAG, "Camera capture returned null bytes.")
@@ -427,25 +469,22 @@ fun FloatingToolbarContent(
                 startGeneration(prompt.systemInstruction, directExecute = false)
             }
             ContextAction.CLIPBOARD -> {
-                val clipboardManager = context.getSystemService(Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
-                val clipData = clipboardManager?.primaryClip
-                val clipText = if (clipData != null && clipData.itemCount > 0) {
-                    clipData.getItemAt(0)?.text?.toString()
-                } else null
-
-                if (clipText.isNullOrBlank()) {
-                    Toast.makeText(context, "Clipboard is empty. Copy text first.", Toast.LENGTH_SHORT).show()
-                    return
+                scope.launch {
+                    val clipData = KeywordContextResolver.fetchClipboardData(context)
+                    if (clipData.imageBytes != null) {
+                        startVisionGenerationWithBytes(prompt.systemInstruction, clipData.imageBytes)
+                    } else if (!clipData.text.isNullOrBlank()) {
+                        val liveText = getLiveInputText()
+                        val combinedInput = if (liveText.isNotBlank()) {
+                            "Clipboard Content:\n${clipData.text}\n\nUser Input:\n$liveText"
+                        } else {
+                            "Clipboard Content:\n${clipData.text}"
+                        }
+                        startGeneration(prompt.systemInstruction, directExecute = false, contextInput = combinedInput)
+                    } else {
+                        Toast.makeText(context, "Clipboard is empty. Copy text or image first.", Toast.LENGTH_SHORT).show()
+                    }
                 }
-
-                val liveText = getLiveInputText()
-                val combinedInput = if (liveText.isNotBlank()) {
-                    "Clipboard Content:\n$clipText\n\nUser Input:\n$liveText"
-                } else {
-                    "Clipboard Content:\n$clipText"
-                }
-
-                startGeneration(prompt.systemInstruction, directExecute = false, contextInput = combinedInput)
             }
             ContextAction.NONE -> startGeneration(prompt.systemInstruction, directExecute = false)
         }
@@ -454,6 +493,29 @@ fun FloatingToolbarContent(
     fun executeSlashCommand(command: SlashCommandEntity, cleanedInput: String) {
         AppLogger.i(TAG, "Executing slash command /${command.cleanTrigger} (${command.contextAction}) for input: '$cleanedInput'")
         Toast.makeText(context, "Running /${command.cleanTrigger}: ${command.title}", Toast.LENGTH_SHORT).show()
+
+        if (KeywordContextResolver.hasKeywords(cleanedInput)) {
+            scope.launch {
+                val resolved = KeywordContextResolver.resolve(context, cleanedInput) {
+                    suspendCancellableCoroutine { continuation ->
+                        if (onTakeScreenshotContext != null) {
+                            onTakeScreenshotContext.invoke { bytes ->
+                                if (continuation.isActive) continuation.resume(bytes)
+                            }
+                        } else {
+                            if (continuation.isActive) continuation.resume(null)
+                        }
+                    }
+                }
+                if (resolved.imageBytes != null) {
+                    startVisionGenerationWithBytes(command.systemInstruction, resolved.imageBytes, overrideInput = resolved.processedText.ifBlank { "Analyze this image" })
+                } else {
+                    startGeneration(command.systemInstruction, directExecute = false, contextInput = resolved.processedText)
+                }
+            }
+            return
+        }
+
         when (command.contextAction) {
             ContextAction.SCREENSHOT -> {
                 startVisionGeneration(command.systemInstruction, overrideInput = cleanedInput.ifBlank { "Analyze this screen" })
@@ -466,6 +528,7 @@ fun FloatingToolbarContent(
                 Toast.makeText(context, "Opening camera...", Toast.LENGTH_SHORT).show()
                 CameraCaptureActivity.launch(context) { bytes ->
                     if (bytes != null) {
+                        Toast.makeText(context, "Analyzing photo...", Toast.LENGTH_SHORT).show()
                         startVisionGenerationWithBytes(command.systemInstruction, bytes, overrideInput = cleanedInput.ifBlank { "Analyze this image" })
                     } else {
                         AppLogger.d(TAG, "Camera capture returned null bytes.")
@@ -479,24 +542,21 @@ fun FloatingToolbarContent(
                 startGeneration(command.systemInstruction, directExecute = false, contextInput = cleanedInput)
             }
             ContextAction.CLIPBOARD -> {
-                val clipboardManager = context.getSystemService(Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
-                val clipData = clipboardManager?.primaryClip
-                val clipText = if (clipData != null && clipData.itemCount > 0) {
-                    clipData.getItemAt(0)?.text?.toString()
-                } else null
-
-                if (clipText.isNullOrBlank()) {
-                    Toast.makeText(context, "Clipboard is empty. Copy text first.", Toast.LENGTH_SHORT).show()
-                    return
+                scope.launch {
+                    val clipData = KeywordContextResolver.fetchClipboardData(context)
+                    if (clipData.imageBytes != null) {
+                        startVisionGenerationWithBytes(command.systemInstruction, clipData.imageBytes, overrideInput = cleanedInput.ifBlank { "Analyze clipboard image" })
+                    } else if (!clipData.text.isNullOrBlank()) {
+                        val combinedInput = if (cleanedInput.isNotBlank()) {
+                            "Clipboard Content:\n${clipData.text}\n\nUser Input:\n$cleanedInput"
+                        } else {
+                            "Clipboard Content:\n${clipData.text}"
+                        }
+                        startGeneration(command.systemInstruction, directExecute = false, contextInput = combinedInput)
+                    } else {
+                        Toast.makeText(context, "Clipboard is empty. Copy text or image first.", Toast.LENGTH_SHORT).show()
+                    }
                 }
-
-                val combinedInput = if (cleanedInput.isNotBlank()) {
-                    "Clipboard Content:\n$clipText\n\nUser Input:\n$cleanedInput"
-                } else {
-                    "Clipboard Content:\n$clipText"
-                }
-
-                startGeneration(command.systemInstruction, directExecute = false, contextInput = combinedInput)
             }
             ContextAction.NONE -> {
                 startGeneration(command.systemInstruction, directExecute = false, contextInput = cleanedInput)
@@ -632,12 +692,10 @@ fun FloatingToolbarContent(
                             }
                             FloatingButtonState.GENERATING -> {
                                 item {
-                                    CompanionSquareIconButton(
+                                    CompanionActionChip(
                                         icon = Icons.Default.Stop,
-                                        contentDescription = "Stop Generating",
-                                        tint = Color(0xFFEF4444),
-                                        backgroundColor = Color(0x331F2937),
-                                        borderColor = Color(0xFFEF4444),
+                                        label = if (isCompactMode) "Stop" else "Generating… Stop",
+                                        accent = true,
                                         onClick = {
                                             activeJob?.cancel()
                                             activeJob = null
@@ -648,43 +706,42 @@ fun FloatingToolbarContent(
                                 }
                             }
                             FloatingButtonState.IDLE -> {
-                                // 1. Debounced Guess Next Word Suggestion Chip (placed first when typing)
-                                if (proposedNextWord != null) {
+                                // 1. Quick Fix Fixing in Progress Indicator
+                                if (isFixingInProgress) {
                                     item {
-                                        val word = proposedNextWord!!
                                         CompanionActionChip(
-                                            icon = Icons.AutoMirrored.Filled.ShortText,
-                                            label = if (isCompactMode) word else "Next: \"$word\"",
+                                            icon = Icons.Default.AutoFixHigh,
+                                            label = if (isCompactMode) null else "Fixing…",
                                             accent = true,
-                                            onClick = {
-                                                val current = getLiveInputText()
-                                                onSnapshotOriginalText(current)
-                                                val toInsert = if (current.endsWith(" ")) "$current$word" else "$current $word"
-                                                onInsertText(toInsert, false)
-                                                proposedNextWord = null
-                                                state = FloatingButtonState.REVERT_WINDOW
-                                                Toast.makeText(context, "Next word inserted.", Toast.LENGTH_SHORT).show()
-                                            }
+                                            onClick = {}
                                         )
                                     }
                                 }
 
-                                // 2. Debounced Quick Fix Suggestion Chip (placed next to Guess Next Word)
-                                if (proposedQuickFix != null) {
+                                // 2. Auto-Fixed Undo / Accept Prompt
+                                if (pendingFixUndo != null) {
                                     item {
-                                        val fixText = proposedQuickFix!!
-                                        val preview = if (fixText.length > 16) fixText.take(16) + "…" else fixText
                                         CompanionActionChip(
-                                            icon = Icons.Default.AutoFixHigh,
-                                            label = if (isCompactMode) "Fix" else "Fix: \"$preview\"",
+                                            icon = Icons.AutoMirrored.Filled.Undo,
+                                            label = if (isCompactMode) "Undo" else "Undo Fix",
                                             accent = true,
                                             onClick = {
-                                                val original = getLiveInputText()
-                                                onSnapshotOriginalText(original)
-                                                onInsertText(fixText, false)
-                                                proposedQuickFix = null
-                                                state = FloatingButtonState.REVERT_WINDOW
-                                                Toast.makeText(context, "Quick fix applied.", Toast.LENGTH_SHORT).show()
+                                                val original = pendingFixUndo
+                                                if (original != null) {
+                                                    onInsertText(original, false)
+                                                    pendingFixUndo = null
+                                                    Toast.makeText(context, "Quick fix undone.", Toast.LENGTH_SHORT).show()
+                                                }
+                                            }
+                                        )
+                                    }
+                                    item {
+                                        CompanionActionChip(
+                                            icon = Icons.Default.Check,
+                                            label = if (isCompactMode) null else "Accept Fix",
+                                            accent = false,
+                                            onClick = {
+                                                pendingFixUndo = null
                                             }
                                         )
                                     }
@@ -724,19 +781,41 @@ fun FloatingToolbarContent(
                                         }
                                     )
                                 }
+
+                                // 5. Quick Fix Reactive Toggle Chip (placed as LAST item in list)
+                                item {
+                                    CompanionActionChip(
+                                        icon = Icons.Default.AutoFixHigh,
+                                        label = if (isCompactMode) {
+                                            if (localQuickFixEnabled) "Fix: ON" else "Fix: OFF"
+                                        } else {
+                                            if (localQuickFixEnabled) "Quick Fix: ON" else "Quick Fix: OFF"
+                                        },
+                                        accent = localQuickFixEnabled,
+                                        onClick = {
+                                            localQuickFixEnabled = !localQuickFixEnabled
+                                            onToggleQuickFix(localQuickFixEnabled)
+                                            Toast.makeText(
+                                                context,
+                                                if (localQuickFixEnabled) "Quick Fix: ON" else "Quick Fix: OFF",
+                                                Toast.LENGTH_SHORT
+                                            ).show()
+                                        }
+                                    )
+                                }
                             }
                         }
                     }
 
                     Spacer(modifier = Modifier.width(6.dp))
 
-                    // Right Controls: Square Icon Buttons (Neat, well-spaced, icons only)
+                    // Right End Action Controls (Undo, Quick Execute, Collapse)
                     Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // 1. Fixed Permanent Undo Button (10-step history)
-                        val canUndo = hasUndo() || state == FloatingButtonState.REVERT_WINDOW
+                        // 1. Dedicated Revert/Undo Button
+                        val canUndo = hasUndo() || state == FloatingButtonState.REVERT_WINDOW || pendingFixUndo != null
                         CompanionSquareIconButton(
                             icon = Icons.AutoMirrored.Filled.Undo,
                             contentDescription = "Undo",
@@ -745,9 +824,15 @@ fun FloatingToolbarContent(
                             backgroundColor = Color(0x331F2937),
                             borderColor = if (canUndo) Color(0x663B82F6) else Color(0x22374151),
                             onClick = {
-                                onRevertText()
-                                state = FloatingButtonState.IDLE
-                                Toast.makeText(context, "Undone to previous input.", Toast.LENGTH_SHORT).show()
+                                if (pendingFixUndo != null) {
+                                    onInsertText(pendingFixUndo!!, false)
+                                    pendingFixUndo = null
+                                    Toast.makeText(context, "Quick fix undone.", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    onRevertText()
+                                    state = FloatingButtonState.IDLE
+                                    Toast.makeText(context, "Undone to previous input.", Toast.LENGTH_SHORT).show()
+                                }
                             }
                         )
 

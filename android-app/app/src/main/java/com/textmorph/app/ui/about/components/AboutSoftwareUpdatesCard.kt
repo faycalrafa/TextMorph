@@ -29,6 +29,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import java.io.File
 
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun AboutSoftwareUpdatesCard(
     installedVersionName: String,
@@ -69,14 +73,15 @@ fun AboutSoftwareUpdatesCard(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            Row(
+            FlowRow(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 OutlinedButton(
                     onClick = onCheckForUpdates,
                     enabled = !isCheckingUpdate,
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.weight(1f, fill = false).fillMaxWidth(if (downloadedApk != null && downloadedApk.exists()) 0.48f else 1f),
                     shape = RoundedCornerShape(8.dp)
                 ) {
                     if (isCheckingUpdate) {
@@ -97,7 +102,7 @@ fun AboutSoftwareUpdatesCard(
                 if (downloadedApk != null && downloadedApk.exists()) {
                     Button(
                         onClick = onInstallDownloadedApk,
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1f, fill = false).fillMaxWidth(0.48f),
                         shape = RoundedCornerShape(8.dp)
                     ) {
                         Icon(

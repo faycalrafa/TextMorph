@@ -512,11 +512,16 @@ class LiteRtLmEngine(private val context: Context) : LlmEngine {
 
                     var usedConversation = false
                     try {
+                        val settings = runCatching { SettingsRepository.getInstance(context).settingsState.value }.getOrNull()
                         val convConfig = ConversationConfig(
                             samplerConfig = if (activeBackend.contains("GPU") || activeBackend.contains("CPU")) {
-                                SamplerConfig(topK = 40, topP = 0.95, temperature = 0.7)
+                                SamplerConfig(
+                                    topK = settings?.topK ?: 40,
+                                    topP = (settings?.topP ?: 0.95f).toDouble(),
+                                    temperature = (settings?.temperature ?: 0.7f).toDouble()
+                                )
                             } else null,
-                            thinkingConfig = ThinkingConfig(enableThinking = false)
+                            thinkingConfig = ThinkingConfig(enableThinking = settings?.enableThinking ?: false)
                         )
                         conversation = eng.createConversation(convConfig)
                         usedConversation = true
@@ -664,7 +669,7 @@ class LiteRtLmEngine(private val context: Context) : LlmEngine {
             if (firstTokenTime == null) {
                 firstTokenTime = now
             }
-            val ftTime = firstTokenTime ?: now
+            val ftTime = firstTokenTime
             val space = if (index < words.size - 1) "$word " else word
             tokenCount++
             send(space)

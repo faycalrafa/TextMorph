@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.textmorph.app.data.model.PromptEntity
 import com.textmorph.app.ui.dashboard.components.PromptItemCard
+import com.textmorph.app.ui.dashboard.components.ReadinessBanner
 
 @Composable
 fun DashboardHomeScreen(
@@ -39,6 +40,7 @@ fun DashboardHomeScreen(
     onMovePrompt: (id: String, direction: Int) -> Unit,
     onEditPrompt: (PromptEntity) -> Unit,
     onDeletePrompt: (PromptEntity) -> Unit,
+    onOpenAccessibilityDisclosure: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     LazyColumn(
@@ -47,6 +49,14 @@ fun DashboardHomeScreen(
             .padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
+        // System Readiness Checklist (only displayed if a permission is missing)
+        item {
+            ReadinessBanner(
+                onOpenAccessibilityDisclosure = onOpenAccessibilityDisclosure,
+                modifier = Modifier.padding(top = 8.dp)
+            )
+        }
+
         item {
             ScrollableTabRow(
                 selectedTabIndex = selectedCategoryIndex,
@@ -105,13 +115,13 @@ fun DashboardHomeScreen(
                         Spacer(modifier = Modifier.width(8.dp))
                         Column {
                             Text(
-                                text = "Direct Radial Quick-Actions (Top 5)",
+                                text = "Direct Companion Actions (Top 5)",
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer
                             )
                             Text(
-                                text = "Prompts #1 to #5 are directly accessible in the floating radial menu. Drag ⠿ handle to reorder.",
+                                text = "Prompts #1 to #5 are directly accessible in the floating companion bar. Drag ⠿ handle to reorder.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
                             )
@@ -136,13 +146,13 @@ fun DashboardHomeScreen(
                         Spacer(modifier = Modifier.width(8.dp))
                         Column {
                             Text(
-                                text = "Extended Prompts (Folder 📂 in Radial Menu)",
+                                text = "Extended Prompts (Companion Bar Overflow)",
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSecondaryContainer
                             )
                             Text(
-                                text = "Prompts #6+ open in the 'More Prompts' floating dialog from the radial menu.",
+                                text = "Prompts #6+ are accessible in the expanded companion bar.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f)
                             )
@@ -152,7 +162,7 @@ fun DashboardHomeScreen(
             }
 
             val isTop5 = index < 5 && selectedCategoryIndex == 0 && searchQuery.isBlank()
-            val slotLabel = if (isTop5) "⚡ Radial Slot #${index + 1}" else if (selectedCategoryIndex == 0 && searchQuery.isBlank()) "📂 Extended #${index - 4}" else null
+            val slotLabel = if (isTop5) "⚡ Companion Slot #${index + 1}" else if (selectedCategoryIndex == 0 && searchQuery.isBlank()) "📂 Extended #${index - 4}" else null
 
             PromptItemCard(
                 prompt = prompt,

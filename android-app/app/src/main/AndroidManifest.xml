@@ -81,6 +81,13 @@
             android:theme="@style/Theme.TextMorph.Dialog"
             android:excludeFromRecents="true" />
 
+        <!-- Focus Helper for Reliable Android 10+ Clipboard Reading -->
+        <activity
+            android:name=".ui.common.ClipboardCaptureActivity"
+            android:exported="false"
+            android:theme="@style/Theme.TextMorph.Dialog"
+            android:excludeFromRecents="true" />
+
         <!-- Mode 2: Accessibility Service for Floating AI Toolbar -->
         <service
             android:name=".service.overlay.TextMorphAccessibilityService"

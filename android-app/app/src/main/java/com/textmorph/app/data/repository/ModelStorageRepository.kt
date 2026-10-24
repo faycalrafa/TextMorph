@@ -88,13 +88,23 @@ class ModelStorageRepository(private val context: Context) {
         try {
             val list = mutableListOf<ModelInfo>()
 
-            // 1. Scan External Storage directories if All Files access is granted
+            // 1. Scan External Storage directories (always include Downloads folder)
+            val searchDirs = mutableListOf<File>()
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && Environment.isExternalStorageManager()) {
-                val searchDirs = listOfNotNull(
+                searchDirs.addAll(listOfNotNull(
                     Environment.getExternalStorageDirectory(),
                     Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
                     Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS)
-                ).filter { it.exists() && it.isDirectory }
+                ).filter { it.exists() && it.isDirectory })
+            } else {
+                listOfNotNull(
+                    Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
+                    File("/sdcard/Download"),
+                    File("/storage/emulated/0/Download")
+                ).filter { it.exists() && it.isDirectory && it.canRead() }.forEach {
+                    if (!searchDirs.contains(it)) searchDirs.add(it)
+                }
+            }
 
                 val seenPaths = mutableSetOf<String>()
                 for (dir in searchDirs) {
@@ -123,7 +133,6 @@ class ModelStorageRepository(private val context: Context) {
                         }
                     }
                 }
-            }
 
             // 2. Scan internal app models directory
             val internalModelsDir = File(context.filesDir, "models")
@@ -410,26 +419,42 @@ class ModelStorageRepository(private val context: Context) {
     }
 
     /**
-     * Deletes a model file from storage and refreshes available models.
+     * Removes a model from the app's cache and active catalog without deleting the file from disk.
      */
-    suspend fun deleteModel(modelInfo: ModelInfo): Boolean = withContext(Dispatchers.IO) {
+    suspend fun removeModelFromMemory(modelInfo: ModelInfo): Boolean = withContext(Dispatchers.IO) {
         try {
+            val current = _availableModels.value.toMutableList()
+            current.removeAll { it.id == modelInfo.id || it.name.equals(modelInfo.name, ignoreCase = true) }
+            _availableModels.value = current
+            AppLogger.i(TAG, "Removed model ${modelInfo.name} from app memory/cache.")
+            true
+        } catch (e: Exception) {
+            AppLogger.e(TAG, "Error removing model from memory: ${e.message}", e)
+            false
+        }
+    }
+
+    /**
+     * Deletes a model from TextMorph.
+     * If permanentlyDeleteFile is false, only removes the model from TextMorph's memory/cache.
+     * If permanentlyDeleteFile is true, permanently deletes the underlying model file from disk.
+     */
+    suspend fun deleteModel(modelInfo: ModelInfo, permanentlyDeleteFile: Boolean = false): Boolean = withContext(Dispatchers.IO) {
+        try {
+            if (!permanentlyDeleteFile) {
+                return@withContext removeModelFromMemory(modelInfo)
+            }
             val path = modelInfo.path
             if (path == null) {
-                AppLogger.w(TAG, "Cannot delete model ${modelInfo.name}: path is null")
-                return@withContext false
+                AppLogger.w(TAG, "Cannot delete file for ${modelInfo.name}: path is null")
+                return@withContext removeModelFromMemory(modelInfo)
             }
             val file = File(path)
-            if (file.exists()) {
-                val deleted = file.delete()
-                AppLogger.i(TAG, "Deleted model file at $path: success=$deleted")
-                refreshModels()
-                deleted
-            } else {
-                AppLogger.w(TAG, "File to delete does not exist: $path")
-                refreshModels()
-                false
-            }
+            val deleted = if (file.exists()) file.delete() else false
+            removeModelFromMemory(modelInfo)
+            refreshModels()
+            AppLogger.i(TAG, "Permanently deleted model file at $path: success=$deleted")
+            deleted
         } catch (e: Exception) {
             AppLogger.e(TAG, "Failed to delete model ${modelInfo.name}: ${e.message}", e)
             false

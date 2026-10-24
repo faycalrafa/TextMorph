@@ -91,9 +91,10 @@ fun EngineSettingsSection(
                     fontWeight = FontWeight.SemiBold
                 )
                 Spacer(modifier = Modifier.height(6.dp))
-                Row(
+                FlowRow(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     listOf("AUTO" to "Auto (GPU/CPU)", "GPU" to "Force GPU", "CPU" to "Force CPU").forEach { (mode, label) ->
                         val selected = settings.preferredAccelerator.equals(mode, ignoreCase = true)
@@ -113,14 +114,14 @@ fun EngineSettingsSection(
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "Timeout limit in milliseconds for hardware liveliness verification (e.g. 60000 ms for 60s). Prevents false timeouts during slow CPU/GPU tensor compilation.",
+                    text = "Timeout limit in milliseconds for hardware liveliness verification (e.g. 30000 ms for 30s). Prevents false timeouts during slow CPU/GPU tensor compilation.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Spacer(modifier = Modifier.height(8.dp))
-                Row(
+                FlowRow(
                     modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     OutlinedTextField(
@@ -131,7 +132,7 @@ fun EngineSettingsSection(
                             }
                         },
                         label = { Text("Probe Timeout (ms)") },
-                        placeholder = { Text("60000") },
+                        placeholder = { Text("30000") },
                         trailingIcon = {
                             Text(
                                 "ms",
@@ -140,13 +141,13 @@ fun EngineSettingsSection(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         },
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.weight(1f, fill = false).fillMaxWidth(0.68f),
                         singleLine = true,
                         shape = RoundedCornerShape(10.dp)
                     )
                     OutlinedButton(
                         onClick = {
-                            val ms = probeTimeoutInput.toLongOrNull() ?: 60000L
+                            val ms = probeTimeoutInput.toLongOrNull() ?: 30000L
                             onSetProbeTimeout(ms)
                             Toast.makeText(context, "Probe timeout saved: ${ms}ms", Toast.LENGTH_SHORT).show()
                         },
@@ -158,9 +159,10 @@ fun EngineSettingsSection(
                 Spacer(modifier = Modifier.height(6.dp))
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    listOf(6000L to "6s (6000ms)", 15000L to "15s", 30000L to "30s", 60000L to "60s (Default)").forEach { (presetMs, label) ->
+                    listOf(5000L to "5s", 15000L to "15s", 30000L to "30s (Default)", 60000L to "60s").forEach { (presetMs, label) ->
                         FilterChip(
                             selected = settings.probeTimeoutMs == presetMs,
                             onClick = {
