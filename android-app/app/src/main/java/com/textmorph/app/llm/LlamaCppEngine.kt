@@ -103,7 +103,7 @@ class LlamaCppEngine(private val context: Context) : LlmEngine {
 
                 unloadInternal()
 
-                var effectivePath = resolveModelFilePath(modelPath, modelUri, effectiveName)
+                var effectivePath = LlamaCppFileResolver.resolveModelFilePath(context, modelPath, modelUri, effectiveName)
                 if (effectivePath == null) {
                     addProgressLog("[ERROR] Could not resolve valid file path or descriptor for $effectiveName")
                     _loadingProgress.update { it.copy(isLoading = false, error = "Failed to resolve model path") }
@@ -117,7 +117,7 @@ class LlamaCppEngine(private val context: Context) : LlmEngine {
                 var effectiveMmprojPath: String? = null
                 if (mmprojPath != null || mmprojUri != null) {
                     addProgressLog("Resolving optional multimodal vision extension (mmproj)...", 0.35f, "Configuring vision projector...")
-                    effectiveMmprojPath = resolveMmprojFilePath(mmprojPath, mmprojUri)
+                    effectiveMmprojPath = LlamaCppFileResolver.resolveMmprojFilePath(context, mmprojPath, mmprojUri)
                     if (effectiveMmprojPath != null) {
                         currentMmprojPath = effectiveMmprojPath
                         isModelVisionCapable = true
@@ -132,7 +132,7 @@ class LlamaCppEngine(private val context: Context) : LlmEngine {
                 }
 
                 // Verify GGUF magic header
-                val detectedType = inspectFileHeader(effectivePath)
+                val detectedType = LlamaCppFileResolver.inspectFileHeader(effectivePath)
                 addProgressLog("File format detected: ${detectedType.displayName}", 0.5f)
 
                 val nThreads = Runtime.getRuntime().availableProcessors().coerceIn(2, 6)
@@ -148,7 +148,7 @@ class LlamaCppEngine(private val context: Context) : LlmEngine {
                     var modelFd = -1
                     var mmprojFd = -1
                     try {
-                        modelFd = openDetachedFd(effectivePath, modelUri)
+                        modelFd = LlamaCppFileResolver.openDetachedFd(context, effectivePath, modelUri)
                         if (modelFd == -1) {
                             addProgressLog("[ERROR] Failed to obtain valid detached file descriptor for $effectiveName")
                             _loadingProgress.update { it.copy(isLoading = false, error = "Failed to open model file descriptor") }
@@ -156,7 +156,7 @@ class LlamaCppEngine(private val context: Context) : LlmEngine {
                         }
 
                         if (effectiveMmprojPath != null || mmprojUri != null) {
-                            mmprojFd = openDetachedFd(effectiveMmprojPath, mmprojUri)
+                            mmprojFd = LlamaCppFileResolver.openDetachedFd(context, effectiveMmprojPath, mmprojUri)
                             if (mmprojFd == -1) {
                                 addProgressLog("[WARN] Failed to open vision extension file descriptor, falling back to text-only mode.")
                                 isModelVisionCapable = false
@@ -200,8 +200,8 @@ class LlamaCppEngine(private val context: Context) : LlmEngine {
                         AppLogger.w(TAG, "Native llama.cpp initialization exception: ${nativeEx.message}", nativeEx)
                         addProgressLog("[WARN] Native init exception: ${nativeEx.message}. Entering standby fallback.", 0.85f)
                     } finally {
-                        safelyCloseDetachedFd(modelFd)
-                        safelyCloseDetachedFd(mmprojFd)
+                        LlamaCppFileResolver.safelyCloseDetachedFd(modelFd)
+                        LlamaCppFileResolver.safelyCloseDetachedFd(mmprojFd)
                     }
                 }
 
@@ -234,125 +234,6 @@ class LlamaCppEngine(private val context: Context) : LlmEngine {
         }
     }
 
-    private fun resolveModelFilePath(modelPath: String?, modelUri: Uri?, effectiveName: String): String? {
-        if (modelPath != null && !modelPath.startsWith("/proc/self/fd/") && File(modelPath).exists() && File(modelPath).canRead()) {
-            return modelPath
-        }
-
-        if (modelUri != null) {
-            val pfd = try {
-                context.contentResolver.openFileDescriptor(modelUri, "r")
-            } catch (e: Exception) {
-                AppLogger.e(TAG, "Failed opening FileDescriptor for $modelUri: ${e.message}", e)
-                null
-            }
-
-            if (pfd != null) {
-                pfd.use { descriptor ->
-                    val fd = descriptor.fd
-                    val procFdPath = "/proc/self/fd/$fd"
-
-                    try {
-                        val canonical = android.system.Os.readlink(procFdPath)
-                        if (canonical != null && canonical.endsWith(".gguf", ignoreCase = true) && File(canonical).exists() && File(canonical).canRead()) {
-                            return canonical
-                        }
-                    } catch (readlinkEx: Exception) {
-                        AppLogger.d(TAG, "Could not resolve procFdPath via readlink: ${readlinkEx.message}")
-                    }
-                }
-            }
-
-            return modelUri.toString()
-        }
-
-        return modelPath?.takeIf { File(it).exists() }
-    }
-
-    private fun resolveMmprojFilePath(path: String?, uri: Uri?): String? {
-        if (path != null && File(path).exists() && File(path).canRead()) {
-            return path
-        }
-        if (uri != null) {
-            val pfd = try {
-                context.contentResolver.openFileDescriptor(uri, "r")
-            } catch (e: Exception) {
-                AppLogger.e(TAG, "Failed opening FileDescriptor for mmproj $uri: ${e.message}", e)
-                null
-            }
-            if (pfd != null) {
-                pfd.use { descriptor ->
-                    val fd = descriptor.fd
-                    val procFdPath = "/proc/self/fd/$fd"
-                    try {
-                        val canonical = android.system.Os.readlink(procFdPath)
-                        if (canonical != null && File(canonical).exists() && File(canonical).canRead()) {
-                            return canonical
-                        }
-                    } catch (readlinkEx: Exception) {
-                        AppLogger.d(TAG, "Could not resolve mmproj procFdPath via readlink: ${readlinkEx.message}")
-                    }
-                }
-            }
-            return uri.toString()
-        }
-        return null
-    }
-
-    private fun openDetachedFd(path: String?, uri: Uri?): Int {
-        if (uri != null) {
-            try {
-                val pfd = context.contentResolver.openFileDescriptor(uri, "r")
-                if (pfd != null) {
-                    val fd = pfd.detachFd()
-                    AppLogger.d(TAG, "Opened detached FD $fd from URI: $uri")
-                    return fd
-                }
-            } catch (e: Exception) {
-                AppLogger.e(TAG, "Failed opening detached FD from URI $uri: ${e.message}", e)
-            }
-        }
-        if (path != null) {
-            try {
-                val file = File(path)
-                if (file.exists() && file.canRead()) {
-                    val pfd = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
-                    val fd = pfd.detachFd()
-                    AppLogger.d(TAG, "Opened detached FD $fd from file: $path")
-                    return fd
-                }
-            } catch (e: Exception) {
-                AppLogger.e(TAG, "Failed opening detached FD from path $path: ${e.message}", e)
-            }
-        }
-        return -1
-    }
-
-    private fun safelyCloseDetachedFd(fd: Int) {
-        if (fd < 0) return
-        try {
-            ParcelFileDescriptor.adoptFd(fd).close()
-            AppLogger.d(TAG, "Safely closed detached FD $fd")
-        } catch (e: Exception) {
-            AppLogger.d(TAG, "Detached FD $fd was already closed or invalid: ${e.message}")
-        }
-    }
-
-    private fun inspectFileHeader(filePath: String): ModelFileType {
-        return try {
-            val file = File(filePath)
-            if (file.exists() && file.canRead()) {
-                val buffer = ByteArray(16)
-                file.inputStream().use { it.read(buffer) }
-                ModelFileType.detect(file.name, buffer)
-            } else {
-                ModelFileType.detect(filePath)
-            }
-        } catch (inspectEx: Exception) {
-            AppLogger.d(TAG, "Header inspection error for $filePath: ${inspectEx.message}")
-            ModelFileType.detect(filePath)
-        }
-    }
 
     override fun generateStream(
         prompt: String,
@@ -436,7 +317,7 @@ class LlamaCppEngine(private val context: Context) : LlmEngine {
                     streamStandbyFallback(prompt, systemInstruction, imageBytes).collect { send(it) }
                 } finally {
                     try { ctx.setTokenCallback { } } catch (tokenCbEx: Throwable) { AppLogger.d(TAG, "Clear token callback: ${tokenCbEx.message}") }
-                    imageFds.forEach { fd -> safelyCloseDetachedFd(fd) }
+                    imageFds.forEach { fd -> LlamaCppFileResolver.safelyCloseDetachedFd(fd) }
                     imageFds.clear()
                     try { tempImageFile?.delete() } catch (delEx: Throwable) { AppLogger.d(TAG, "Delete temp image file: ${delEx.message}") }
                     NativeFlightRecorder.recordFlightEnd(context)

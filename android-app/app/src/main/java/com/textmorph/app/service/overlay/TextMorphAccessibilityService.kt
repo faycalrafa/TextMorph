@@ -405,135 +405,15 @@ class TextMorphAccessibilityService : AccessibilityService() {
     }
 
     data class ChatMessage(val sender: String, val text: String, val isIncoming: Boolean)
-    private data class ChatBubble(val text: String, val isMe: Boolean, val top: Int)
 
-    fun getRecentChatMessages(): List<ChatMessage> {
-        val root = rootInActiveWindow ?: return emptyList()
-        val bubbles = mutableListOf<ChatBubble>()
-        val displayMetrics = resources.displayMetrics
-        val screenCenterX = displayMetrics.widthPixels / 2
+    fun extractConversationTranscript(): String =
+        ScreenContentExtractor.extractConversationTranscript({ rootInActiveWindow }, resources)
 
-        try {
-            fun traverse(node: AccessibilityNodeInfo?) {
-                if (node == null) return
-                try {
-                    val text = node.text?.toString()?.trim()
-                    if (!node.isEditable && !text.isNullOrBlank() && text.length > 1) {
-                        val rect = android.graphics.Rect()
-                        node.getBoundsInScreen(rect)
-                        if (rect.width() > 30 && rect.height() > 15 && rect.bottom > 0 && rect.top < displayMetrics.heightPixels) {
-                            val isMe = rect.centerX() > screenCenterX
-                            bubbles.add(ChatBubble(text, isMe, rect.top))
-                        }
-                    }
+    fun isConversationContext(): Boolean =
+        ScreenContentExtractor.isConversationContext({ rootInActiveWindow }, resources)
 
-                    for (i in 0 until node.childCount) {
-                        val child = node.getChild(i)
-                        traverse(child)
-                        try { child?.recycle() } catch (recycleEx: Exception) { AppLogger.d(TAG, "Child recycle: ${recycleEx.message}") }
-                    }
-                } catch (e: Exception) {
-                    AppLogger.w(TAG, "Error traversing accessibility node: ${e.message}")
-                }
-            }
-
-            traverse(root)
-        } finally {
-            try { root.recycle() } catch (recycleEx: Exception) { AppLogger.d(TAG, "Root recycle: ${recycleEx.message}") }
-        }
-
-        bubbles.sortBy { it.top }
-
-        val result = mutableListOf<ChatMessage>()
-        var lastText = ""
-        for (bubble in bubbles) {
-            if (bubble.text != lastText) {
-                val sender = if (bubble.isMe) "Me" else "Them"
-                result.add(ChatMessage(sender = sender, text = bubble.text, isIncoming = !bubble.isMe))
-                lastText = bubble.text
-            }
-        }
-        return result
-    }
-
-    /**
-     * Extracts the most recent incoming message ("Them") for instant smart reply suggestions.
-     */
-    fun getLatestIncomingMessage(): String? {
-        val messages = getRecentChatMessages()
-        return messages.lastOrNull { it.isIncoming }?.text
-    }
-
-    /**
-     * Traverses the active window UI tree to extract visible conversation chat bubbles,
-     * classifying Left vs. Right alignment into incoming ("Them") vs outgoing ("Me").
-     */
-    fun extractConversationTranscript(): String {
-        val messages = getRecentChatMessages()
-        val sb = StringBuilder()
-        for (msg in messages) {
-            sb.append("${msg.sender}: ${msg.text}\n")
-        }
-        val transcript = sb.toString().trim()
-        AppLogger.i(TAG, "Extracted conversation transcript: ${messages.size} bubbles, length=${transcript.length}")
-        return transcript
-    }
-
-    /**
-     * Detects if the current foreground window represents an active conversation / chat context.
-     */
-    fun isConversationContext(): Boolean {
-        val messages = getRecentChatMessages()
-        if (messages.size >= 2 || messages.any { it.isIncoming }) {
-            return true
-        }
-        val root = rootInActiveWindow
-        try {
-            val pkg = root?.packageName?.toString()?.lowercase() ?: ""
-            val knownChatApps = listOf(
-                "com.whatsapp", "org.telegram", "org.thoughtcrime.securesms",
-                "com.discord", "com.slack", "com.facebook.orca", "com.google.android.apps.messaging",
-                "com.samsung.android.messaging", "com.twitter.android", "com.instagram.android"
-            )
-            if (knownChatApps.any { pkg.contains(it) }) {
-                return true
-            }
-        } finally {
-            try { root?.recycle() } catch (recycleEx: Exception) { AppLogger.d(TAG, "Root recycle: ${recycleEx.message}") }
-        }
-        return false
-    }
-
-    /**
-     * Extracts readable text across the active screen to ground smart replies and prompt actions
-     * with live view context.
-     */
-    fun extractScreenVisibleText(): String {
-        val root = rootInActiveWindow ?: return ""
-        val sb = StringBuilder()
-        try {
-            fun traverse(node: AccessibilityNodeInfo?) {
-                if (node == null) return
-                try {
-                    val text = node.text?.toString()?.trim()
-                    if (!text.isNullOrBlank() && text.length > 1) {
-                        sb.append(text).append("\n")
-                    }
-                    for (i in 0 until node.childCount) {
-                        val child = node.getChild(i)
-                        traverse(child)
-                        try { child?.recycle() } catch (recycleEx: Exception) { AppLogger.d(TAG, "Child recycle: ${recycleEx.message}") }
-                    }
-                } catch (e: Exception) {
-                    AppLogger.w(TAG, "Error traversing node for screen text: ${e.message}")
-                }
-            }
-            traverse(root)
-        } finally {
-            try { root.recycle() } catch (recycleEx: Exception) { AppLogger.d(TAG, "Root recycle: ${recycleEx.message}") }
-        }
-        return sb.toString().trim()
-    }
+    fun extractScreenVisibleText(): String =
+        ScreenContentExtractor.extractScreenVisibleText { rootInActiveWindow }
 
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)

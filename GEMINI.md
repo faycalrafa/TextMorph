@@ -6,6 +6,7 @@
 > - **When done**: ALWAYS run `git push origin main` AFTER completing implementation, verifying test passes, and updating versions so that changes are never left unpushed on local branches.
 > **Primary Rule 2 (Near Logging & Robust Error Capture - No Silent Bugs)**: ALWAYS write immediate ("near") logging and robust error capture at every failure-prone site, boundary, repository method, and coroutine. NEVER swallow exceptions silently (`catch (e: Exception) {}` is strictly forbidden). Always log rich contextual metadata and stack traces using `AppLogger` (`com.textmorph.app.util.AppLogger`) or `android.util.Log` so that every failure is immediately detectable, traceable, and visible in Dev Logs.
 > **Primary Rule 3 (Architectural Contracts)**: Read and strictly adhere to these architectural contracts before proposing or implementing changes.
+> **Primary Rule 4 (Strict 500-Line Limit & Modular Architecture)**: Every source file (`.kt`) in the project must strictly stay **under 500 lines of code**. Monolithic files are strictly forbidden. Any file approaching 500 lines must be decomposed into dedicated sub-components, repository delegates, or state handlers.
 
 ---
 

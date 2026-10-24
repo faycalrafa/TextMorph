@@ -418,9 +418,7 @@ class ModelStorageRepository(private val context: Context) {
             .map { it.firstOrNull() }
     }
 
-    /**
-     * Removes a model from the app's cache and active catalog without deleting the file from disk.
-     */
+    /** Removes model from app memory/cache without deleting file from disk. */
     suspend fun removeModelFromMemory(modelInfo: ModelInfo): Boolean = withContext(Dispatchers.IO) {
         try {
             val current = _availableModels.value.toMutableList()
@@ -434,18 +432,11 @@ class ModelStorageRepository(private val context: Context) {
         }
     }
 
-    /**
-     * Deletes a model from TextMorph.
-     * If permanentlyDeleteFile is false, only removes the model from TextMorph's memory/cache.
-     * If permanentlyDeleteFile is true, permanently deletes the underlying model file from disk.
-     */
+    /** Deletes model from memory or permanently from disk. */
     suspend fun deleteModel(modelInfo: ModelInfo, permanentlyDeleteFile: Boolean = false): Boolean = withContext(Dispatchers.IO) {
         try {
-            if (!permanentlyDeleteFile) {
-                return@withContext removeModelFromMemory(modelInfo)
-            }
-            val path = modelInfo.path
-            if (path == null) {
+            if (!permanentlyDeleteFile) return@withContext removeModelFromMemory(modelInfo)
+            val path = modelInfo.path ?: run {
                 AppLogger.w(TAG, "Cannot delete file for ${modelInfo.name}: path is null")
                 return@withContext removeModelFromMemory(modelInfo)
             }

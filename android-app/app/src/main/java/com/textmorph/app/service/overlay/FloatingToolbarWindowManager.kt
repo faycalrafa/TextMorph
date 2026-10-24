@@ -2,16 +2,25 @@ package com.textmorph.app.service.overlay
 
 import android.content.Context
 import android.content.res.Configuration
-import android.graphics.PixelFormat
-import android.view.Gravity
 import android.view.HapticFeedbackConstants
 import android.view.WindowManager
+import androidx.compose.animation.Crossfade
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.setViewTreeLifecycleOwner
 import androidx.lifecycle.setViewTreeViewModelStoreOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import com.textmorph.app.data.model.EngineType
+import com.textmorph.app.data.repository.ChatSessionRepository
 import com.textmorph.app.data.repository.PromptRepository
 import com.textmorph.app.data.repository.SettingsRepository
 import com.textmorph.app.data.repository.SlashCommandRepository
@@ -19,6 +28,7 @@ import com.textmorph.app.llm.LiteRtLmEngine
 import com.textmorph.app.llm.LlamaCppEngine
 import com.textmorph.app.llm.LlamaCppEngineManager
 import com.textmorph.app.llm.OpenAiCloudEngine
+import com.textmorph.app.service.overlay.components.FloatingEdgePill
 import com.textmorph.app.theme.TextMorphTheme
 import com.textmorph.app.util.AppLogger
 import kotlinx.coroutines.CoroutineScope
@@ -29,8 +39,11 @@ import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 /**
- * Manages the window lifecycle and layout updates for the TextMorph Companion overlay.
- * Uses FloatingOverlayContainer to guarantee touch gesture interception for instant swipe dragging.
+ * Manages the unified window lifecycle, touch gestures, focus states, and transitions across:
+ * - COLLAPSED_BUBBLE: Minimal draggable Messenger bubble head.
+ * - EXPANDED_TOOLBAR: Ultra-low footprint companion ribbon.
+ * - EXPANDED_CHAT: Floating full-featured chat bubble.
+ * - AUTOMATING_ACTION: Target-seeking coordinate gliding with circular thinking animation.
  */
 class FloatingToolbarWindowManager(
     private val service: TextMorphAccessibilityService,
@@ -39,9 +52,9 @@ class FloatingToolbarWindowManager(
     private val liteRtEngine: LiteRtLmEngine,
     private val cloudEngine: OpenAiCloudEngine,
     private val llamaCppEngine: LlamaCppEngine = LlamaCppEngineManager.getInstance(service),
-    private val slashCommandRepository: SlashCommandRepository = SlashCommandRepository.getInstance(service)
+    private val slashCommandRepository: SlashCommandRepository = SlashCommandRepository.getInstance(service),
+    private val chatSessionRepository: ChatSessionRepository = ChatSessionRepository.getInstance(service)
 ) {
-
     private val TAG = "FloatingWindowManager"
     private val windowManager = service.getSystemService(Context.WINDOW_SERVICE) as WindowManager
     private var overlayContainer: FloatingOverlayContainer? = null
@@ -53,93 +66,104 @@ class FloatingToolbarWindowManager(
     private var userX: Int? = null
     private var userY: Int? = null
 
-    private var isExpanded = false
-    private var lastExpandedTimeMs = 0L
+    // Overlay state orchestration
+    var displayState by mutableStateOf(OverlayDisplayState.COLLAPSED_BUBBLE)
+        private set
     private val isDraggingState = mutableStateOf(false)
     private var isBusyState = false
+    private var isChatInputFocused = false
+
     private var singleTapHandler: (() -> Unit)? = null
     private var collapseHandler: (() -> Unit)? = null
     private var userTypedHandler: ((String) -> Unit)? = null
     private var userNavigatedBackHandler: (() -> Unit)? = null
-
-    // Window layout params reference
     private var windowParams: WindowManager.LayoutParams? = null
     private var startDragWinX = 0
     private var startDragWinY = 0
 
-    private var isQuickEditing = false
+    // Automation Controller & Coordinate Animator
+    private val coordinateAnimator = OverlayCoordinateAnimator(windowManager, { overlayContainer }, { windowParams })
+    private val automationController = ScreenAutomationController(service)
+    val actionExecutor = DeviceActionExecutor(service, automationController, liteRtEngine, llamaCppEngine, cloudEngine)
 
-    fun isBusy(): Boolean = isBusyState || isQuickEditing
-    fun isExpanded(): Boolean = isExpanded
+    fun isBusy(): Boolean = isBusyState || displayState == OverlayDisplayState.AUTOMATING_ACTION
+    fun isExpanded(): Boolean = displayState != OverlayDisplayState.COLLAPSED_BUBBLE
 
     fun onUserTyped(newText: String) {
-        service.mainHandler.post {
-            userTypedHandler?.invoke(newText)
-        }
+        service.mainHandler.post { userTypedHandler?.invoke(newText) }
     }
 
     fun onUserNavigatedBack() {
-        service.mainHandler.post {
-            userNavigatedBackHandler?.invoke()
-        }
+        service.mainHandler.post { userNavigatedBackHandler?.invoke() }
     }
 
     fun collapse() {
-        if (isQuickEditing) {
-            AppLogger.d(TAG, "Ignoring collapse request because prompt editor is active.")
-            return
-        }
         service.mainHandler.post {
             try {
                 userNavigatedBackHandler?.invoke()
-                if (isExpanded) {
-                    collapseHandler?.invoke() ?: onRibbonExpansionChanged(false)
+                if (displayState == OverlayDisplayState.EXPANDED_TOOLBAR) {
+                    collapseHandler?.invoke() ?: transitionTo(OverlayDisplayState.COLLAPSED_BUBBLE)
+                } else if (displayState == OverlayDisplayState.EXPANDED_CHAT) {
+                    transitionTo(OverlayDisplayState.COLLAPSED_BUBBLE)
                 }
             } catch (e: Exception) {
-                AppLogger.e(TAG, "Failed collapsing ribbon: ${e.message}", e)
+                AppLogger.e(TAG, "Failed collapsing overlay: ${e.message}", e)
             }
         }
     }
 
-    fun setEditorFocusMode(enabled: Boolean) {
-        isQuickEditing = enabled
+    fun setChatInputFocused(focused: Boolean) {
+        if (isChatInputFocused == focused) return
+        isChatInputFocused = focused
         val container = overlayContainer ?: return
         val params = windowParams ?: return
         try {
-            val displayMetrics = service.resources.displayMetrics
-            val screenWidth = displayMetrics.widthPixels
-            val screenHeight = displayMetrics.heightPixels
-            val density = displayMetrics.density
-            val marginPx = (8 * density).roundToInt()
-            val minY = (40 * density).roundToInt()
-            val maxY = (screenHeight - (56 * density).roundToInt() - (40 * density).roundToInt()).coerceAtLeast(minY)
-
-            if (enabled) {
+            if (focused) {
                 params.flags = params.flags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE.inv()
-                params.gravity = Gravity.TOP or Gravity.START
-                params.x = marginPx
-                params.y = (24 * density).roundToInt()
-                params.width = screenWidth - (marginPx * 2)
-                params.height = (screenHeight * 0.48f).roundToInt()
             } else {
                 params.flags = params.flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
-                params.gravity = Gravity.TOP or Gravity.START
-                if (isExpanded) {
-                    params.width = screenWidth - (marginPx * 2)
-                    params.height = WindowManager.LayoutParams.WRAP_CONTENT
-                    params.x = marginPx
-                    params.y = (userY ?: (screenHeight / 2)).coerceIn(minY, maxY)
-                } else {
-                    params.width = WindowManager.LayoutParams.WRAP_CONTENT
-                    params.height = WindowManager.LayoutParams.WRAP_CONTENT
-                    params.x = userX ?: (screenWidth - (40 * density).roundToInt())
-                    params.y = (userY ?: (screenHeight / 2)).coerceIn(minY, maxY)
-                }
             }
             windowManager.updateViewLayout(container, params)
-            AppLogger.d(TAG, "Overlay editor focus mode updated to: $enabled (bounds: ${params.width}x${params.height} at y=${params.y})")
+            AppLogger.d(TAG, "Overlay soft-keyboard focus updated to: $focused")
         } catch (e: Exception) {
-            AppLogger.e(TAG, "Failed updating editor focus mode: ${e.message}", e)
+            AppLogger.e(TAG, "Failed updating chat input focus: ${e.message}", e)
+        }
+    }
+
+    fun transitionTo(newState: OverlayDisplayState) {
+        service.mainHandler.post {
+            try {
+                if (displayState == newState) return@post
+                displayState = newState
+                val container = overlayContainer ?: return@post
+                val params = windowParams ?: return@post
+                val bounds = OverlayLayoutParamsHelper.calculateBounds(service.resources.displayMetrics)
+
+                when (newState) {
+                    OverlayDisplayState.COLLAPSED_BUBBLE -> {
+                        OverlayLayoutParamsHelper.applyCollapsedBubble(params, userX ?: bounds.maxX, userY ?: (bounds.screenHeight / 2))
+                        setChatInputFocused(false)
+                        service.onRibbonManuallyDismissed()
+                    }
+                    OverlayDisplayState.EXPANDED_TOOLBAR -> {
+                        OverlayLayoutParamsHelper.applyExpandedToolbar(params, bounds, userY)
+                        setChatInputFocused(false)
+                        service.onRibbonManuallyOpened()
+                    }
+                    OverlayDisplayState.EXPANDED_CHAT -> {
+                        OverlayLayoutParamsHelper.applyExpandedChat(params, bounds, isChatInputFocused)
+                        service.onRibbonManuallyOpened()
+                    }
+                    OverlayDisplayState.AUTOMATING_ACTION -> {
+                        OverlayLayoutParamsHelper.applyAutomatingAction(params, bounds, userX ?: bounds.maxX, userY ?: (bounds.screenHeight / 2))
+                        setChatInputFocused(false)
+                    }
+                }
+                windowManager.updateViewLayout(container, params)
+                AppLogger.d(TAG, "Transitioned overlay state to: $newState")
+            } catch (e: Exception) {
+                AppLogger.e(TAG, "Failed transitioning to state $newState: ${e.message}", e)
+            }
         }
     }
 
@@ -150,84 +174,42 @@ class FloatingToolbarWindowManager(
     ) {
         try {
             if (isShowing && overlayContainer != null) {
-                if (autoExpand && !isExpanded) {
-                    singleTapHandler?.invoke() ?: onRibbonExpansionChanged(true)
+                if (autoExpand && displayState == OverlayDisplayState.COLLAPSED_BUBBLE) {
+                    transitionTo(OverlayDisplayState.EXPANDED_TOOLBAR)
                 }
                 return
             }
 
             serviceLifecycleOwner = ServiceLifecycleOwner()
-
-            val displayMetrics = service.resources.displayMetrics
-            val screenWidth = displayMetrics.widthPixels
-            val screenHeight = displayMetrics.heightPixels
-            val pillSizePx = (36 * displayMetrics.density).roundToInt()
-            val marginPx = (6 * displayMetrics.density).roundToInt()
-
-            val minX = marginPx
-            val maxX = (screenWidth - pillSizePx - marginPx).coerceAtLeast(minX)
-            val minY = (40 * displayMetrics.density).roundToInt()
-            val maxY = (screenHeight - pillSizePx - (40 * displayMetrics.density).roundToInt()).coerceAtLeast(minY)
-
+            val bounds = OverlayLayoutParamsHelper.calculateBounds(service.resources.displayMetrics)
             val settings = settingsRepository.settingsState.value
-            val savedX = settings.floatingToolbarX
-            val savedY = settings.floatingToolbarY
-
-            val initialX = (savedX ?: userX ?: maxX).coerceIn(minX, maxX)
-            val initialY = (savedY ?: userY ?: (screenHeight / 2 - pillSizePx / 2)).coerceIn(minY, maxY)
-
+            val initialX = (settings.floatingToolbarX ?: userX ?: bounds.maxX).coerceIn(bounds.minX, bounds.maxX)
+            val initialY = (settings.floatingToolbarY ?: userY ?: (bounds.screenHeight / 2)).coerceIn(bounds.minY, bounds.maxY)
             userX = initialX
             userY = initialY
 
-            val params = WindowManager.LayoutParams(
-                WindowManager.LayoutParams.WRAP_CONTENT,
-                WindowManager.LayoutParams.WRAP_CONTENT,
-                WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                        WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
-                        WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
-                PixelFormat.TRANSLUCENT
-            ).apply {
-                gravity = Gravity.TOP or Gravity.START
-                x = initialX
-                y = initialY
-            }
+            val params = OverlayLayoutParamsHelper.createInitialParams(initialX, initialY)
             windowParams = params
 
             overlayContainer = FloatingOverlayContainer(
                 context = service,
-                isExpandedProvider = { isExpanded },
+                isExpandedProvider = { displayState != OverlayDisplayState.COLLAPSED_BUBBLE },
                 onDragStart = {
                     startDragWinX = params.x
                     startDragWinY = params.y
                     isDraggingState.value = true
                 },
                 onDragMove = { deltaX, deltaY ->
-                    val curMetrics = service.resources.displayMetrics
-                    val curWidth = curMetrics.widthPixels
-                    val curHeight = curMetrics.heightPixels
-                    val btnPx = (36 * curMetrics.density).roundToInt()
-                    val mPx = (6 * curMetrics.density).roundToInt()
-                    val boundMinX = mPx
-                    val boundMaxX = (curWidth - btnPx - mPx).coerceAtLeast(boundMinX)
-                    val boundMinY = (40 * curMetrics.density).roundToInt()
-                    val boundMaxY = (curHeight - btnPx - (40 * curMetrics.density).roundToInt()).coerceAtLeast(boundMinY)
-
-                    params.x = (startDragWinX + deltaX).roundToInt().coerceIn(boundMinX, boundMaxX)
-                    params.y = (startDragWinY + deltaY).roundToInt().coerceIn(boundMinY, boundMaxY)
+                    val curBounds = OverlayLayoutParamsHelper.calculateBounds(service.resources.displayMetrics)
+                    params.x = (startDragWinX + deltaX).roundToInt().coerceIn(curBounds.minX, curBounds.maxX)
+                    params.y = (startDragWinY + deltaY).roundToInt().coerceIn(curBounds.minY, curBounds.maxY)
                     userX = params.x
                     userY = params.y
                     overlayContainer?.let { windowManager.updateViewLayout(it, params) }
                 },
                 onDragEnd = {
-                    val curMetrics = service.resources.displayMetrics
-                    val curWidth = curMetrics.widthPixels
-                    val btnPx = (36 * curMetrics.density).roundToInt()
-                    val mPx = (6 * curMetrics.density).roundToInt()
-                    val boundMinX = mPx
-                    val boundMaxX = (curWidth - btnPx - mPx).coerceAtLeast(boundMinX)
-
-                    val snapX = if (params.x < curWidth / 2) boundMinX else boundMaxX
+                    val curBounds = OverlayLayoutParamsHelper.calculateBounds(service.resources.displayMetrics)
+                    val snapX = if (params.x < curBounds.screenWidth / 2) curBounds.minX else curBounds.maxX
                     params.x = snapX
                     userX = snapX
                     isDraggingState.value = false
@@ -235,27 +217,25 @@ class FloatingToolbarWindowManager(
                         windowManager.updateViewLayout(it, params)
                         it.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
                     }
-
                     windowScope.launch(Dispatchers.IO) {
                         try {
                             settingsRepository.setFloatingToolbarPosition(snapX, params.y)
-                            AppLogger.i(TAG, "Persisted snapped companion position: ($snapX, ${params.y})")
                         } catch (e: Exception) {
                             AppLogger.e(TAG, "Failed persisting companion position: ${e.message}", e)
                         }
                     }
                 },
                 onSingleTap = {
-                    AppLogger.d(TAG, "onSingleTap received from container. isExpanded=$isExpanded, singleTapHandlerSet=${singleTapHandler != null}")
-                    if (singleTapHandler != null) {
-                        singleTapHandler?.invoke()
-                    } else {
-                        AppLogger.w(TAG, "singleTapHandler not yet bound, toggling ribbon expansion directly")
-                        onRibbonExpansionChanged(!isExpanded)
+                    AppLogger.d(TAG, "Single tap on overlay container. Current state: $displayState")
+                    when (displayState) {
+                        OverlayDisplayState.COLLAPSED_BUBBLE -> transitionTo(OverlayDisplayState.EXPANDED_TOOLBAR)
+                        OverlayDisplayState.EXPANDED_TOOLBAR -> singleTapHandler?.invoke() ?: transitionTo(OverlayDisplayState.COLLAPSED_BUBBLE)
+                        OverlayDisplayState.EXPANDED_CHAT -> transitionTo(OverlayDisplayState.COLLAPSED_BUBBLE)
+                        OverlayDisplayState.AUTOMATING_ACTION -> actionExecutor.stopExecution()
                     }
                 },
                 onOutsideTap = {
-                    AppLogger.d(TAG, "onOutsideTap received on overlay container; keeping assistant ribbon open while typing")
+                    AppLogger.d(TAG, "Outside tap intercepted.")
                 }
             ).apply {
                 setViewTreeLifecycleOwner(serviceLifecycleOwner)
@@ -274,102 +254,99 @@ class FloatingToolbarWindowManager(
                     val sessionState = liteRtEngine.sessionState.value
 
                     TextMorphTheme(themeMode = curSettings.theme) {
-                        FloatingToolbarContent(
-                            getLiveInputText = { service.getLiveInputText() },
-                            getConversationTranscript = { service.extractConversationTranscript() },
-                            prompts = prompts,
-                            isVisionCapable = {
-                                val s = settingsRepository.settingsState.value
-                                when (s.selectedEngine) {
-                                    EngineType.CLOUD_OPENAI -> true
-                                    EngineType.ON_DEVICE_LLAMA_CPP -> llamaCppEngine.sessionState.value.isVisionCapable
-                                    else -> sessionState.isVisionCapable
-                                }
-                            },
-                            onInsertText = { result, _ ->
-                                service.replaceLiveInputText(result, recordHistory = false)
-                            },
-                            onSnapshotOriginalText = { original ->
-                                service.pushInputHistory(original)
-                            },
-                            onRevertText = {
-                                service.revertPreviousTransformation()
-                            },
-                            hasUndo = { service.hasPreviousTransformation() },
-                            getRecentClipboardText = { service.getRecentClipboardText() },
-                            onQuickPaste = { service.pasteClipboardText() },
-                            isPlacedOnRight = {
-                                val currentX = userX ?: initialX
-                                val curScreenWidth = service.resources.displayMetrics.widthPixels
-                                currentX > (curScreenWidth / 2)
-                            },
-                            isDragging = isDraggingState.value,
-                            onRegisterSingleTapHandler = { handler ->
-                                singleTapHandler = handler
-                            },
-                            onRegisterCollapseHandler = { handler ->
-                                collapseHandler = handler
-                            },
-                            onRegisterUserTypedHandler = { handler ->
-                                userTypedHandler = handler
-                            },
-                            onRegisterUserNavigatedBackHandler = { handler ->
-                                userNavigatedBackHandler = handler
-                            },
-                            onExpandedStateChanged = { expanded ->
-                                onRibbonExpansionChanged(expanded)
-                                if (expanded) {
-                                    service.onRibbonManuallyOpened()
-                                } else {
-                                    service.onRibbonManuallyDismissed()
-                                }
-                            },
-                            onBusyStateChanged = { busy ->
-                                isBusyState = busy
-                            },
-                            onTakeScreenshotContext = onTakeScreenshot,
-                            isConversationContext = { service.isConversationContext() },
-                            getScreenVisibleText = { service.extractScreenVisibleText() },
-                            onQuickEditSave = { updated ->
-                                windowScope.launch(Dispatchers.IO) {
-                                    promptRepository.updatePrompt(updated)
-                                }
-                            },
-                            onQuickEditDelete = { promptId ->
-                                windowScope.launch(Dispatchers.IO) {
-                                    promptRepository.deletePrompt(promptId)
-                                }
-                            },
-                            onEditorFocusMode = { focused ->
-                                setEditorFocusMode(focused)
-                            },
-                            compactChipsMode = curSettings.compactChipsMode,
-                            quickFixEnabled = curSettings.quickFixEnabled,
-                            onToggleQuickFix = { enabled ->
-                                windowScope.launch { settingsRepository.setQuickFixEnabled(enabled) }
-                            },
-                            slashCommandRepository = slashCommandRepository,
-                            onDismiss = { hide() },
-                            engineProvider = {
-                                val s = settingsRepository.settingsState.value
-                                val useCloud = s.selectedEngine == EngineType.CLOUD_OPENAI &&
-                                        (s.cloudApiKey.isNotBlank() ||
-                                                s.cloudBaseUrl.contains("localhost") ||
-                                                s.cloudBaseUrl.contains("127.0.0.1"))
-                                if (useCloud) {
-                                    cloudEngine.updateConfig(
-                                        s.cloudBaseUrl,
-                                        s.cloudApiKey,
-                                        s.cloudModelId
+                        Crossfade(targetState = displayState, label = "OverlayStateCrossfade") { targetState ->
+                            when (targetState) {
+                                OverlayDisplayState.COLLAPSED_BUBBLE -> {
+                                    FloatingEdgePill(
+                                        state = FloatingButtonState.IDLE,
+                                        isDragging = isDraggingState.value,
+                                        onClick = { transitionTo(OverlayDisplayState.EXPANDED_TOOLBAR) }
                                     )
-                                    cloudEngine
-                                } else if (s.selectedEngine == EngineType.ON_DEVICE_LLAMA_CPP) {
-                                    llamaCppEngine
-                                } else {
-                                    liteRtEngine
+                                }
+                                OverlayDisplayState.EXPANDED_TOOLBAR -> {
+                                    FloatingToolbarContent(
+                                        getLiveInputText = { service.getLiveInputText() },
+                                        getConversationTranscript = { service.extractConversationTranscript() },
+                                        prompts = prompts,
+                                        isVisionCapable = {
+                                            val s = settingsRepository.settingsState.value
+                                            when (s.selectedEngine) {
+                                                EngineType.CLOUD_OPENAI -> true
+                                                EngineType.ON_DEVICE_LLAMA_CPP -> llamaCppEngine.sessionState.value.isVisionCapable
+                                                else -> sessionState.isVisionCapable
+                                            }
+                                        },
+                                        onInsertText = { result, _ -> service.replaceLiveInputText(result, recordHistory = false) },
+                                        onSnapshotOriginalText = { original -> service.pushInputHistory(original) },
+                                        onRevertText = { service.revertPreviousTransformation() },
+                                        hasUndo = { service.hasPreviousTransformation() },
+                                        getRecentClipboardText = { service.getRecentClipboardText() },
+                                        onQuickPaste = { service.pasteClipboardText() },
+                                        isPlacedOnRight = { (userX ?: initialX) > (service.resources.displayMetrics.widthPixels / 2) },
+                                        isDragging = isDraggingState.value,
+                                        onRegisterSingleTapHandler = { singleTapHandler = it },
+                                        onRegisterCollapseHandler = { collapseHandler = it },
+                                        onRegisterUserTypedHandler = { userTypedHandler = it },
+                                        onRegisterUserNavigatedBackHandler = { userNavigatedBackHandler = it },
+                                        onExpandedStateChanged = { expanded -> if (!expanded) transitionTo(OverlayDisplayState.COLLAPSED_BUBBLE) },
+                                        onBusyStateChanged = { busy -> isBusyState = busy },
+                                        onTakeScreenshotContext = onTakeScreenshot,
+                                        isConversationContext = { service.isConversationContext() },
+                                        getScreenVisibleText = { service.extractScreenVisibleText() },
+                                        onQuickEditSave = { updated -> windowScope.launch(Dispatchers.IO) { promptRepository.updatePrompt(updated) } },
+                                        onQuickEditDelete = { promptId -> windowScope.launch(Dispatchers.IO) { promptRepository.deletePrompt(promptId) } },
+                                        onEditorFocusMode = { focused -> setChatInputFocused(focused) },
+                                        compactChipsMode = curSettings.compactChipsMode,
+                                        quickFixEnabled = curSettings.quickFixEnabled,
+                                        onToggleQuickFix = { enabled -> windowScope.launch { settingsRepository.setQuickFixEnabled(enabled) } },
+                                        slashCommandRepository = slashCommandRepository,
+                                        onDismiss = { hide() },
+                                        onOpenFloatingChat = { transitionTo(OverlayDisplayState.EXPANDED_CHAT) },
+                                        engineProvider = { getActiveEngine() }
+                                    )
+                                }
+                                OverlayDisplayState.EXPANDED_CHAT -> {
+                                    FloatingChatBubbleContent(
+                                        chatSessionRepository = chatSessionRepository,
+                                        liteRtEngine = liteRtEngine,
+                                        llamaCppEngine = llamaCppEngine,
+                                        cloudEngine = cloudEngine,
+                                        activeModelName = curSettings.activeModelName,
+                                        onMinimizeToBubble = { transitionTo(OverlayDisplayState.COLLAPSED_BUBBLE) },
+                                        onSwitchToToolbar = { transitionTo(OverlayDisplayState.EXPANDED_TOOLBAR) },
+                                        onAutomateAction = { goal ->
+                                            transitionTo(OverlayDisplayState.AUTOMATING_ACTION)
+                                            windowScope.launch {
+                                                actionExecutor.executeGoal(
+                                                    goal = goal,
+                                                    onProgress = { _, _ -> },
+                                                    onTargetAnimate = { x, y -> coordinateAnimator.animateTo(x, y) }
+                                                )
+                                                transitionTo(OverlayDisplayState.COLLAPSED_BUBBLE)
+                                            }
+                                        },
+                                        onFocusRequested = { isFocused -> setChatInputFocused(isFocused) }
+                                    )
+                                }
+                                OverlayDisplayState.AUTOMATING_ACTION -> {
+                                    Box(
+                                        modifier = Modifier.size(56.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        FloatingEdgePill(
+                                            state = FloatingButtonState.GENERATING,
+                                            isDragging = false,
+                                            onClick = { actionExecutor.stopExecution() }
+                                        )
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(52.dp),
+                                            color = Color(0xFFA27B5C),
+                                            strokeWidth = 3.dp
+                                        )
+                                    }
                                 }
                             }
-                        )
+                        }
                     }
                 }
             }
@@ -377,86 +354,42 @@ class FloatingToolbarWindowManager(
             overlayContainer?.addView(composeView)
             windowManager.addView(overlayContainer, params)
             isShowing = true
-            AppLogger.d(TAG, "TextMorph companion displayed successfully at ($initialX, $initialY)")
-
-            if (autoExpand) {
-                service.mainHandler.postDelayed({
-                    singleTapHandler?.invoke() ?: onRibbonExpansionChanged(true)
-                }, 100L)
-            }
+            AppLogger.d(TAG, "Unified companion overlay displayed at ($initialX, $initialY)")
         } catch (e: Exception) {
-            AppLogger.e(TAG, "Error displaying TextMorph companion: ${e.message}", e)
+            AppLogger.e(TAG, "Error displaying unified companion overlay: ${e.message}", e)
         }
     }
 
-    private fun onRibbonExpansionChanged(expanded: Boolean) {
-        try {
-            isExpanded = expanded
-            val container = overlayContainer ?: return
-            val params = windowParams ?: return
-            val displayMetrics = service.resources.displayMetrics
-            val screenWidth = displayMetrics.widthPixels
-            val screenHeight = displayMetrics.heightPixels
-            val density = displayMetrics.density
-
-            val marginPx = (8 * density).roundToInt()
-            val minY = (40 * density).roundToInt()
-            val maxY = (screenHeight - (56 * density).roundToInt() - (40 * density).roundToInt()).coerceAtLeast(minY)
-
-            if (expanded) {
-                lastExpandedTimeMs = android.os.SystemClock.uptimeMillis()
-                // Expanded companion ribbon: horizontal dock without outside touch watch to stay open while typing
-                val ribbonWidth = screenWidth - (marginPx * 2)
-                params.width = ribbonWidth
-                params.height = WindowManager.LayoutParams.WRAP_CONTENT
-                params.flags = params.flags and WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH.inv()
-                params.x = marginPx
-                params.y = (userY ?: (screenHeight / 2)).coerceIn(minY, maxY)
-            } else {
-                // Collapsed edge pill
-                params.width = WindowManager.LayoutParams.WRAP_CONTENT
-                params.height = WindowManager.LayoutParams.WRAP_CONTENT
-                params.flags = params.flags and WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH.inv()
-                params.x = userX ?: (screenWidth - (40 * density).roundToInt())
-                params.y = (userY ?: (screenHeight / 2)).coerceIn(minY, maxY)
-            }
-            windowManager.updateViewLayout(container, params)
-            AppLogger.d(TAG, "Ribbon expansion changed to $expanded: layout at (${params.x}, ${params.y}) w=${params.width}")
-        } catch (e: Exception) {
-            AppLogger.e(TAG, "Failed updating view layout for companion expansion: ${e.message}", e)
+    private fun getActiveEngine(): com.textmorph.app.llm.LlmEngine {
+        val s = settingsRepository.settingsState.value
+        val useCloud = s.selectedEngine == EngineType.CLOUD_OPENAI &&
+                (s.cloudApiKey.isNotBlank() || s.cloudBaseUrl.contains("localhost") || s.cloudBaseUrl.contains("127.0.0.1"))
+        return if (useCloud) {
+            cloudEngine.updateConfig(s.cloudBaseUrl, s.cloudApiKey, s.cloudModelId)
+            cloudEngine
+        } else if (s.selectedEngine == EngineType.ON_DEVICE_LLAMA_CPP) {
+            llamaCppEngine
+        } else {
+            liteRtEngine
         }
     }
 
     fun onConfigurationChanged(newConfig: Configuration) {
         try {
-            val displayMetrics = service.resources.displayMetrics
-            val screenWidth = displayMetrics.widthPixels
-            val screenHeight = displayMetrics.heightPixels
-            val pillSizePx = (36 * displayMetrics.density).roundToInt()
-            val marginPx = (6 * displayMetrics.density).roundToInt()
-
-            val minX = marginPx
-            val maxX = (screenWidth - pillSizePx - marginPx).coerceAtLeast(minX)
-            val minY = (40 * displayMetrics.density).roundToInt()
-            val maxY = (screenHeight - pillSizePx - (40 * displayMetrics.density).roundToInt()).coerceAtLeast(minY)
-
-            userX = (userX ?: maxX).coerceIn(minX, maxX)
-            userY = (userY ?: (screenHeight / 2)).coerceIn(minY, maxY)
-
+            val bounds = OverlayLayoutParamsHelper.calculateBounds(service.resources.displayMetrics)
+            userX = (userX ?: bounds.maxX).coerceIn(bounds.minX, bounds.maxX)
+            userY = (userY ?: (bounds.screenHeight / 2)).coerceIn(bounds.minY, bounds.maxY)
             val container = overlayContainer ?: return
             val params = windowParams ?: return
 
-            if (isExpanded) {
-                val ribbonWidth = screenWidth - (8 * displayMetrics.density).roundToInt() * 2
-                params.width = ribbonWidth
-                params.x = (8 * displayMetrics.density).roundToInt()
-                params.y = (userY ?: (screenHeight / 2)).coerceIn(minY, maxY)
-            } else {
-                params.x = userX ?: maxX
-                params.y = userY ?: (screenHeight / 2)
+            when (displayState) {
+                OverlayDisplayState.COLLAPSED_BUBBLE -> OverlayLayoutParamsHelper.applyCollapsedBubble(params, userX ?: bounds.maxX, userY ?: (bounds.screenHeight / 2))
+                OverlayDisplayState.EXPANDED_TOOLBAR -> OverlayLayoutParamsHelper.applyExpandedToolbar(params, bounds, userY)
+                OverlayDisplayState.EXPANDED_CHAT -> OverlayLayoutParamsHelper.applyExpandedChat(params, bounds, isChatInputFocused)
+                OverlayDisplayState.AUTOMATING_ACTION -> OverlayLayoutParamsHelper.applyAutomatingAction(params, bounds, userX ?: bounds.maxX, userY ?: (bounds.screenHeight / 2))
             }
             windowManager.updateViewLayout(container, params)
-            AppLogger.i(TAG, "Adapted companion layout to new orientation (${newConfig.orientation}): (${params.x}, ${params.y})")
+            AppLogger.i(TAG, "Adapted layout to new orientation (${newConfig.orientation})")
         } catch (e: Exception) {
             AppLogger.e(TAG, "Error adapting to configuration change: ${e.message}", e)
         }
@@ -479,7 +412,7 @@ class FloatingToolbarWindowManager(
         try {
             userNavigatedBackHandler?.invoke()
             isDraggingState.value = false
-            isExpanded = false
+            displayState = OverlayDisplayState.COLLAPSED_BUBBLE
             singleTapHandler = null
             collapseHandler = null
             windowParams = null
@@ -491,7 +424,7 @@ class FloatingToolbarWindowManager(
             isShowing = false
             AppLogger.d(TAG, "TextMorph companion hidden.")
         } catch (e: Exception) {
-            AppLogger.e(TAG, "Error removing TextMorph companion overlay: ${e.message}", e)
+            AppLogger.e(TAG, "Error removing companion overlay: ${e.message}", e)
         }
     }
 
