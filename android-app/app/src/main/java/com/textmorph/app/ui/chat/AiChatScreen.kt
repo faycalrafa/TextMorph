@@ -60,14 +60,18 @@ import com.textmorph.app.llm.LiteRtLmEngine
 import com.textmorph.app.llm.LlamaCppEngine
 import com.textmorph.app.llm.LlamaCppEngineManager
 import com.textmorph.app.llm.OpenAiCloudEngine
+import com.textmorph.app.llm.context.ChatCompactor
 import com.textmorph.app.ui.chat.components.ActionExecutionCard
 import com.textmorph.app.ui.chat.components.AiChatInferenceExecutor
 import com.textmorph.app.ui.chat.components.ChatInputBar
 import com.textmorph.app.ui.chat.components.ChatMessage
 import com.textmorph.app.ui.chat.components.ChatSessionsDrawerContent
+import com.textmorph.app.ui.chat.components.ContextCapacityBottomSheet
+import com.textmorph.app.ui.chat.components.ContextCapacityMeterPill
 import com.textmorph.app.ui.chat.components.HtmlSandboxPreviewCard
 import com.textmorph.app.ui.chat.components.ModelQuickSwitchBottomSheet
 import com.textmorph.app.ui.chat.components.ThinkingAccordionCard
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
@@ -100,6 +104,14 @@ fun AiChatContent(
     var isGenerating by remember { mutableStateOf(false) }
     var currentJob by remember { mutableStateOf<Job?>(null) }
     var showModelSwitchSheet by remember { mutableStateOf(false) }
+    var showCapacitySheet by remember { mutableStateOf(false) }
+
+    val contextMetrics = remember(messages, inputText, attachedImageBytes, activeSessionId, sessions) {
+        chatRepository.computeActiveContextMetrics(
+            currentInput = inputText,
+            currentImageCount = if (attachedImageBytes != null) 1 else 0
+        )
+    }
 
     val isLlamaActive = settings.selectedEngine == EngineType.ON_DEVICE_LLAMA_CPP
     val liteRtSessionState by liteRtEngine.sessionState.collectAsState()
@@ -225,6 +237,14 @@ fun AiChatContent(
                                 overflow = TextOverflow.Ellipsis
                             )
                         }
+
+                        Spacer(modifier = Modifier.width(8.dp))
+
+                        // Context Capacity Meter Pill
+                        ContextCapacityMeterPill(
+                            metrics = contextMetrics,
+                            onClick = { showCapacitySheet = true }
+                        )
                     }
 
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -275,6 +295,8 @@ fun AiChatContent(
                 inputText = inputText,
                 onInputTextChanged = { inputText = it },
                 isGenerating = isGenerating,
+                capacityFraction = contextMetrics.usageFraction,
+                onCapacityClick = { showCapacitySheet = true },
                 onSend = ::handleSend,
                 onStop = {
                     currentJob?.cancel()
@@ -317,6 +339,31 @@ fun AiChatContent(
                     settingsRepository.setPreferredAccelerator(accel)
                 }
             }
+        )
+    }
+
+    if (showCapacitySheet) {
+        ContextCapacityBottomSheet(
+            metrics = contextMetrics,
+            onCompressHistory = {
+                val activeId = activeSessionId ?: return@ContextCapacityBottomSheet
+                val activeSession = chatRepository.getActiveSession()
+                val allMessages = chatRepository.currentMessages.value
+                scope.launch(Dispatchers.IO) {
+                    val (older, _) = ChatCompactor.partitionWindow(allMessages)
+                    val targetMessages = if (older.isNotEmpty()) older else allMessages
+                    val newSummary = ChatCompactor.summarizeTurns(getActiveEngine(), activeSession?.summary, targetMessages)
+                    val updatedFacts = ChatCompactor.extractSessionFacts(getActiveEngine(), activeSession?.sessionState, allMessages)
+                    chatRepository.updateSessionCompactionState(activeId, newSummary, updatedFacts)
+                }
+            },
+            onPruneContext = {
+                val activeId = activeSessionId ?: return@ContextCapacityBottomSheet
+                scope.launch(Dispatchers.IO) {
+                    chatRepository.pruneSessionArtifacts(activeId)
+                }
+            },
+            onDismiss = { showCapacitySheet = false }
         )
     }
 }

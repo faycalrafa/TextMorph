@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -60,6 +61,8 @@ fun ChatInputBar(
     onToggleVoice: () -> Unit = {},
     onSend: () -> Unit,
     onStop: () -> Unit,
+    capacityFraction: Float = 0f,
+    onCapacityClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     Surface(
@@ -68,6 +71,30 @@ fun ChatInputBar(
         modifier = modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
+            // Discrete 2dp capacity progress bar
+            val progressColor = when {
+                capacityFraction >= 0.85f -> Color(0xFFE57373)
+                capacityFraction >= 0.60f -> Color(0xFFA27B5C)
+                else -> Color(0xFF3F4F44)
+            }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(2.dp)
+                    .background(Color(0xFF232D26))
+                    .then(if (onCapacityClick != null) Modifier.clickable { onCapacityClick() } else Modifier)
+            ) {
+                if (capacityFraction > 0f) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(capacityFraction.coerceIn(0f, 1f))
+                            .height(2.dp)
+                            .background(progressColor)
+                    )
+                }
+            }
+
             // Attachment Preview Strip
             AnimatedVisibility(
                 visible = attachments.isNotEmpty(),

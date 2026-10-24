@@ -5,6 +5,7 @@ import com.textmorph.app.data.repository.ChatSessionRepository
 import com.textmorph.app.llm.LiteRtLmEngine
 import com.textmorph.app.llm.LlamaCppEngine
 import com.textmorph.app.llm.LlmEngine
+import com.textmorph.app.llm.context.ChatCompactor
 import com.textmorph.app.util.AppLogger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -12,7 +13,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 /**
- * Handles inference streaming and persistence of chat turns for AiChatScreen.
+ * Handles inference streaming, context window assembly, and persistence of chat turns for AiChatScreen.
  */
 object AiChatInferenceExecutor {
 
@@ -32,12 +33,18 @@ object AiChatInferenceExecutor {
     ) {
         onStart()
 
-        // Prepare user prompt (including document context if present)
-        val fullUserPrompt = if (!documentText.isNullOrBlank()) {
-            "Attached Document:\n$documentText\n\nUser Request:\n$prompt"
-        } else {
-            prompt
-        }
+        val activeSession = chatRepository.getActiveSession()
+        val priorMessages = chatRepository.currentMessages.value
+
+        // Assemble sliding-window multi-turn inference prompt with compressed history & session state
+        val assembledPrompt = ChatCompactor.assembleInferencePrompt(
+            systemPrompt = ChatCompactor.DEFAULT_SYSTEM_PROMPT,
+            sessionSummary = activeSession?.summary,
+            sessionState = activeSession?.sessionState,
+            historyMessages = priorMessages,
+            currentPrompt = prompt,
+            documentText = documentText
+        )
 
         val userEntity = ChatMessageEntity(
             sessionId = sessionId,
@@ -58,9 +65,9 @@ object AiChatInferenceExecutor {
             try {
                 val sb = StringBuilder()
                 val flow = when (engine) {
-                    is LiteRtLmEngine -> engine.generateStreamWithMetrics(prompt = fullUserPrompt, imageBytes = imageBytes)
-                    is LlamaCppEngine -> engine.generateStreamWithMetrics(prompt = fullUserPrompt, imageBytes = imageBytes)
-                    else -> engine.generateStream(prompt = fullUserPrompt, imageBytes = imageBytes)
+                    is LiteRtLmEngine -> engine.generateStreamWithMetrics(prompt = assembledPrompt, imageBytes = imageBytes)
+                    is LlamaCppEngine -> engine.generateStreamWithMetrics(prompt = assembledPrompt, imageBytes = imageBytes)
+                    else -> engine.generateStream(prompt = assembledPrompt, imageBytes = imageBytes)
                 }
 
                 flow.collect { chunk ->
@@ -82,6 +89,23 @@ object AiChatInferenceExecutor {
                     thoughtContent = thought
                 )
                 AppLogger.d(TAG, "Completed chat turn for session=$sessionId: length=${finalOutput.length}")
+
+                // Trigger background rolling summarization if message history exceeds trigger count
+                val allMessages = chatRepository.currentMessages.value
+                if (allMessages.size >= ChatCompactor.SUMMARY_TRIGGER_MESSAGE_COUNT) {
+                    scope.launch(Dispatchers.IO) {
+                        try {
+                            val (older, _) = ChatCompactor.partitionWindow(allMessages)
+                            if (older.isNotEmpty()) {
+                                val newSummary = ChatCompactor.summarizeTurns(engine, activeSession?.summary, older)
+                                val updatedFacts = ChatCompactor.extractSessionFacts(engine, activeSession?.sessionState, allMessages)
+                                chatRepository.updateSessionCompactionState(sessionId, newSummary, updatedFacts)
+                            }
+                        } catch (e: Exception) {
+                            AppLogger.e(TAG, "Background compaction failed: ${e.message}", e)
+                        }
+                    }
+                }
             } catch (e: Exception) {
                 AppLogger.e(TAG, "Inference error during chat turn: ${e.message}", e)
                 chatRepository.updateLastAssistantMessage(

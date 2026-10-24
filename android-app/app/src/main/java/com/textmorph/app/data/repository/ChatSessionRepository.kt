@@ -4,7 +4,10 @@ import android.content.Context
 import androidx.core.util.AtomicFile
 import com.textmorph.app.data.model.ChatMessageEntity
 import com.textmorph.app.data.model.ChatSessionEntity
+import com.textmorph.app.data.model.ContextUsageMetrics
+import com.textmorph.app.llm.context.ContextPruner
 import com.textmorph.app.util.AppLogger
+import com.textmorph.app.util.TokenEstimator
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -232,6 +235,92 @@ class ChatSessionRepository private constructor(private val context: Context) {
             }
             AppLogger.i(TAG, "Deleted session $sessionId (remaining=${updated.size})")
         }
+    }
+
+    fun getActiveSession(): ChatSessionEntity? {
+        val activeId = _activeSessionId.value ?: return null
+        return _sessionsState.value.find { it.id == activeId }
+    }
+
+    suspend fun updateSessionCompactionState(
+        sessionId: String,
+        summary: String?,
+        sessionState: String?
+    ) = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            val sessions = _sessionsState.value.toMutableList()
+            val index = sessions.indexOfFirst { it.id == sessionId }
+            if (index != -1) {
+                val current = sessions[index]
+                val updatedSession = current.copy(
+                    summary = summary ?: current.summary,
+                    sessionState = sessionState ?: current.sessionState,
+                    updatedAt = System.currentTimeMillis()
+                )
+                sessions[index] = updatedSession
+                val sorted = sessions.sortedByDescending { it.updatedAt }
+                _sessionsState.value = sorted
+                saveIndexToDisk(sorted)
+                AppLogger.d(TAG, "Updated compaction state for session $sessionId")
+            }
+        }
+    }
+
+    suspend fun updateSessionMaxContextTokens(
+        sessionId: String,
+        maxTokens: Int
+    ) = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            val sessions = _sessionsState.value.toMutableList()
+            val index = sessions.indexOfFirst { it.id == sessionId }
+            if (index != -1) {
+                val current = sessions[index]
+                val updatedSession = current.copy(
+                    maxContextTokens = maxTokens,
+                    updatedAt = System.currentTimeMillis()
+                )
+                sessions[index] = updatedSession
+                _sessionsState.value = sessions
+                saveIndexToDisk(sessions)
+                AppLogger.d(TAG, "Updated maxContextTokens to $maxTokens for session $sessionId")
+            }
+        }
+    }
+
+    suspend fun pruneSessionArtifacts(sessionId: String) = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            val sessionFile = File(sessionsDir, "session_$sessionId.json")
+            if (!sessionFile.exists()) return@withContext
+            try {
+                val content = sessionFile.readText()
+                val messages = json.decodeFromString<List<ChatMessageEntity>>(content)
+                val pruned = messages.map { ContextPruner.pruneMessageEntity(it) }
+                saveMessagesToDisk(sessionId, pruned)
+                if (_activeSessionId.value == sessionId) {
+                    _currentMessages.value = pruned
+                }
+                AppLogger.i(TAG, "Pruned artifacts from ${pruned.size} messages for session $sessionId")
+            } catch (e: Exception) {
+                AppLogger.e(TAG, "Failed pruning artifacts for session $sessionId: ${e.message}", e)
+            }
+        }
+    }
+
+    fun computeActiveContextMetrics(
+        currentInput: String = "",
+        currentImageCount: Int = 0
+    ): ContextUsageMetrics {
+        val active = getActiveSession()
+        val messages = _currentMessages.value
+        return TokenEstimator.computeMetrics(
+            systemPrompt = "You are TextMorph, an intelligent on-device AI companion and assistant for Android.",
+            summary = active?.summary,
+            sessionState = active?.sessionState,
+            recentMessages = messages,
+            currentInput = currentInput,
+            currentImageCount = currentImageCount,
+            maxContextTokens = active?.maxContextTokens ?: 2048
+        )
     }
 
     private fun saveIndexToDisk(sessions: List<ChatSessionEntity>) {

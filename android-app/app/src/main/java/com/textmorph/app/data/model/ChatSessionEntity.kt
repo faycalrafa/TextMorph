@@ -3,7 +3,7 @@ package com.textmorph.app.data.model
 import kotlinx.serialization.Serializable
 
 /**
- * Represents a persistent chat conversation session thread.
+ * Represents a persistent chat conversation session thread with context compaction state.
  */
 @Serializable
 data class ChatSessionEntity(
@@ -14,5 +14,8 @@ data class ChatSessionEntity(
     val modelName: String = "",
     val engineType: String = "",
     val totalTokens: Int = 0,
-    val isPinned: Boolean = false
+    val isPinned: Boolean = false,
+    val summary: String? = null,
+    val sessionState: String? = null,
+    val maxContextTokens: Int = 2048
 )

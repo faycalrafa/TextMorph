@@ -53,14 +53,17 @@ import com.textmorph.app.data.repository.ChatSessionRepository
 import com.textmorph.app.llm.LiteRtLmEngine
 import com.textmorph.app.llm.LlamaCppEngine
 import com.textmorph.app.llm.OpenAiCloudEngine
+import com.textmorph.app.llm.context.ChatCompactor
 import com.textmorph.app.ui.chat.components.ActionExecutionCard
 import com.textmorph.app.ui.chat.components.AttachedMediaItem
 import com.textmorph.app.ui.chat.components.AttachmentPickerHelper
 import com.textmorph.app.ui.chat.components.ChatInputBar
+import com.textmorph.app.ui.chat.components.ContextCapacityMeterPill
 import com.textmorph.app.ui.chat.components.HtmlSandboxPreviewCard
 import com.textmorph.app.ui.chat.components.ThinkingAccordionCard
 import com.textmorph.app.ui.chat.components.VoiceInputHelper
 import com.textmorph.app.util.AppLogger
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
@@ -96,6 +99,13 @@ fun FloatingChatBubbleContent(
 
     val voiceHelper = remember { VoiceInputHelper(context) }
     val isListening by voiceHelper.isListening.collectAsState()
+
+    val contextMetrics = remember(messages, inputText, attachments.size, currentSessionId) {
+        chatSessionRepository.computeActiveContextMetrics(
+            currentInput = inputText,
+            currentImageCount = attachments.count { it.isImage }
+        )
+    }
 
     // File / Multi-Image picker launcher
     val mediaPickerLauncher = rememberLauncherForActivityResult(
@@ -165,6 +175,30 @@ fun FloatingChatBubbleContent(
                 }
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    ContextCapacityMeterPill(
+                        metrics = contextMetrics,
+                        onClick = {
+                            val activeId = currentSessionId ?: return@ContextCapacityMeterPill
+                            val activeSession = chatSessionRepository.getActiveSession()
+                            Toast.makeText(
+                                context,
+                                "Context: ${contextMetrics.totalUsedTokens}/${contextMetrics.maxContextTokens} tok (${contextMetrics.colorState.label})",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                            if (contextMetrics.usageFraction >= 0.6f) {
+                                scope.launch(Dispatchers.IO) {
+                                    val (older, _) = ChatCompactor.partitionWindow(messages)
+                                    if (older.isNotEmpty()) {
+                                        val activeEngine = if (liteRtEngine.sessionState.value.isLoaded) liteRtEngine else llamaCppEngine
+                                        val newSummary = ChatCompactor.summarizeTurns(activeEngine, activeSession?.summary, older)
+                                        val updatedFacts = ChatCompactor.extractSessionFacts(activeEngine, activeSession?.sessionState, messages)
+                                        chatSessionRepository.updateSessionCompactionState(activeId, newSummary, updatedFacts)
+                                    }
+                                }
+                            }
+                        }
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
                     IconButton(
                         onClick = onSwitchToToolbar,
                         modifier = Modifier.size(28.dp)
@@ -310,6 +344,7 @@ fun FloatingChatBubbleContent(
                         }
                     }
                 },
+                capacityFraction = contextMetrics.usageFraction,
                 onSend = {
                     val promptText = inputText.trim()
                     if (promptText.isEmpty() && attachments.isEmpty()) return@ChatInputBar
@@ -336,6 +371,15 @@ fun FloatingChatBubbleContent(
                     attachments.clear()
 
                     scope.launch {
+                        val activeSession = chatSessionRepository.getActiveSession()
+                        val assembledPrompt = ChatCompactor.assembleInferencePrompt(
+                            systemPrompt = ChatCompactor.DEFAULT_SYSTEM_PROMPT,
+                            sessionSummary = activeSession?.summary,
+                            sessionState = activeSession?.sessionState,
+                            historyMessages = messages,
+                            currentPrompt = promptText
+                        )
+
                         chatSessionRepository.appendMessage(userMsg)
                         isGenerating = true
 
@@ -349,14 +393,31 @@ fun FloatingChatBubbleContent(
                         generationJob = launch {
                             try {
                                 val flow = when {
-                                    liteRtEngine.sessionState.value.isLoaded -> liteRtEngine.generateStream(promptText)
-                                    llamaCppEngine.sessionState.value.isLoaded -> llamaCppEngine.generateStream(promptText)
-                                    else -> cloudEngine.generateStream(promptText)
+                                    liteRtEngine.sessionState.value.isLoaded -> liteRtEngine.generateStream(assembledPrompt)
+                                    llamaCppEngine.sessionState.value.isLoaded -> llamaCppEngine.generateStream(assembledPrompt)
+                                    else -> cloudEngine.generateStream(assembledPrompt)
                                 }
                                 val accumulated = StringBuilder()
                                 flow.collect { token ->
                                     accumulated.append(token)
                                     chatSessionRepository.updateLastAssistantMessage(activeId, accumulated.toString())
+                                }
+
+                                val allMessages = chatSessionRepository.currentMessages.value
+                                if (allMessages.size >= ChatCompactor.SUMMARY_TRIGGER_MESSAGE_COUNT) {
+                                    scope.launch(Dispatchers.IO) {
+                                        try {
+                                            val (older, _) = ChatCompactor.partitionWindow(allMessages)
+                                            if (older.isNotEmpty()) {
+                                                val activeEngine = if (liteRtEngine.sessionState.value.isLoaded) liteRtEngine else llamaCppEngine
+                                                val newSummary = ChatCompactor.summarizeTurns(activeEngine, activeSession?.summary, older)
+                                                val updatedFacts = ChatCompactor.extractSessionFacts(activeEngine, activeSession?.sessionState, allMessages)
+                                                chatSessionRepository.updateSessionCompactionState(activeId, newSummary, updatedFacts)
+                                            }
+                                        } catch (e: Exception) {
+                                            AppLogger.e(TAG, "Background compaction failed: ${e.message}", e)
+                                        }
+                                    }
                                 }
                             } catch (e: Exception) {
                                 AppLogger.e(TAG, "Chat generation error: ${e.message}", e)
