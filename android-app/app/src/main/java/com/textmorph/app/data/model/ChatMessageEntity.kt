@@ -3,7 +3,7 @@ package com.textmorph.app.data.model
 import kotlinx.serialization.Serializable
 
 /**
- * Represents a persistent message in a chat conversation thread.
+ * Represents a persistent message in a chat conversation thread with performance telemetry.
  */
 @Serializable
 data class ChatMessageEntity(
@@ -15,7 +15,10 @@ data class ChatMessageEntity(
     val attachmentsJson: String = "[]", // List<AttachmentItem> serialized
     val actionPayloadJson: String? = null,
     val actionStatus: String? = null, // "pending", "running", "success", "failed"
-    val timestamp: Long = System.currentTimeMillis()
+    val timestamp: Long = System.currentTimeMillis(),
+    val tokensPerSecond: Float? = null,
+    val totalTokens: Int? = null,
+    val durationMs: Long? = null
 )
 
 @Serializable

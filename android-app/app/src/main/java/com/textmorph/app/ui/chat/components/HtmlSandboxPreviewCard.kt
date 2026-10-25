@@ -8,9 +8,7 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Toast
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -34,7 +32,6 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -54,7 +51,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 
 /**
- * Sandboxed HTML runner and code viewer.
+ * Sandboxed HTML runner and code viewer styled in the Charcoal Slate design language.
  * Strictly enforces HTML Preview State Guard: never parses or renders incomplete DOM during streaming.
  */
 @SuppressLint("SetJavaScriptEnabled")
@@ -69,16 +66,16 @@ fun HtmlSandboxPreviewCard(
 
     Surface(
         modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        color = Color(0xFF1E2822), // Forest clay dark surface
-        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF3F4F44))
+        shape = RoundedCornerShape(12.dp),
+        color = Color(0xFF111827), // Charcoal Slate midnight surface
+        border = BorderStroke(1.dp, Color(0xFF374151))
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
             // Header Bar
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(Color(0xFF2C3930))
+                    .background(Color(0xFF1F2937)) // Slate header
                     .padding(horizontal = 12.dp, vertical = 8.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
@@ -87,13 +84,13 @@ fun HtmlSandboxPreviewCard(
                     Icon(
                         imageVector = Icons.Default.Html,
                         contentDescription = "HTML",
-                        tint = Color(0xFFA27B5C),
+                        tint = Color(0xFF3B82F6), // Electric blue
                         modifier = Modifier.size(20.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = if (isDone) "Interactive Preview" else "Generating HTML…",
-                        color = Color(0xFFDCD7C9),
+                        text = if (isDone) "Interactive Preview" else "Building HTML Preview…",
+                        color = Color(0xFFF9FAFB),
                         fontSize = 13.sp,
                         fontWeight = FontWeight.SemiBold
                     )
@@ -103,7 +100,7 @@ fun HtmlSandboxPreviewCard(
                     if (isDone) {
                         Surface(
                             shape = RoundedCornerShape(8.dp),
-                            color = if (!showSourceCode) Color(0xFFA27B5C) else Color(0x333F4F44),
+                            color = if (!showSourceCode) Color(0xFF2563EB) else Color(0x33374151),
                             modifier = Modifier.padding(end = 4.dp)
                         ) {
                             IconButton(
@@ -113,7 +110,7 @@ fun HtmlSandboxPreviewCard(
                                 Icon(
                                     imageVector = Icons.Default.PlayArrow,
                                     contentDescription = "Preview",
-                                    tint = if (!showSourceCode) Color.White else Color(0xFFDCD7C9),
+                                    tint = if (!showSourceCode) Color.White else Color(0xFFE5E7EB),
                                     modifier = Modifier.size(16.dp)
                                 )
                             }
@@ -121,7 +118,7 @@ fun HtmlSandboxPreviewCard(
 
                         Surface(
                             shape = RoundedCornerShape(8.dp),
-                            color = if (showSourceCode) Color(0xFFA27B5C) else Color(0x333F4F44),
+                            color = if (showSourceCode) Color(0xFF2563EB) else Color(0x33374151),
                             modifier = Modifier.padding(end = 4.dp)
                         ) {
                             IconButton(
@@ -131,7 +128,7 @@ fun HtmlSandboxPreviewCard(
                                 Icon(
                                     imageVector = Icons.Default.Code,
                                     contentDescription = "Source",
-                                    tint = if (showSourceCode) Color.White else Color(0xFFDCD7C9),
+                                    tint = if (showSourceCode) Color.White else Color(0xFFE5E7EB),
                                     modifier = Modifier.size(16.dp)
                                 )
                             }
@@ -149,7 +146,7 @@ fun HtmlSandboxPreviewCard(
                         Icon(
                             imageVector = Icons.Default.ContentCopy,
                             contentDescription = "Copy",
-                            tint = Color(0xFFDCD7C9),
+                            tint = Color(0xFF9CA3AF),
                             modifier = Modifier.size(16.dp)
                         )
                     }
@@ -163,19 +160,19 @@ fun HtmlSandboxPreviewCard(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(180.dp)
-                        .background(Color(0xFF1B241E)),
+                        .background(Color(0xFF0B1020)),
                     contentAlignment = Alignment.Center
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         CircularProgressIndicator(
-                            color = Color(0xFFA27B5C),
+                            color = Color(0xFF3B82F6),
                             strokeWidth = 2.dp,
                             modifier = Modifier.size(24.dp)
                         )
                         Spacer(modifier = Modifier.height(10.dp))
                         Text(
-                            text = "Building HTML sandbox…",
-                            color = Color(0xFF9EABA2),
+                            text = "Streaming HTML page…",
+                            color = Color(0xFF9CA3AF),
                             fontSize = 12.sp
                         )
                     }
@@ -186,7 +183,7 @@ fun HtmlSandboxPreviewCard(
                     modifier = Modifier
                         .fillMaxWidth()
                         .heightIn(max = 280.dp)
-                        .background(Color(0xFF141A16))
+                        .background(Color(0xFF0B1020))
                         .padding(12.dp)
                 ) {
                     Text(
@@ -203,7 +200,7 @@ fun HtmlSandboxPreviewCard(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(280.dp)
-                        .clip(RoundedCornerShape(bottomStart = 16.dp, bottomEnd = 16.dp))
+                        .clip(RoundedCornerShape(bottomStart = 12.dp, bottomEnd = 12.dp))
                 ) {
                     AndroidView(
                         factory = { ctx ->

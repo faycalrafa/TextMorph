@@ -1,7 +1,11 @@
 package com.textmorph.app.ui.chat
 
-import android.graphics.BitmapFactory
+import android.graphics.Bitmap
+import android.net.Uri
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -37,6 +41,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -51,7 +56,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.textmorph.app.data.model.ChatMessageEntity
 import com.textmorph.app.data.model.EngineType
 import com.textmorph.app.data.repository.ChatSessionRepository
 import com.textmorph.app.data.repository.ModelStorageRepository
@@ -61,21 +65,20 @@ import com.textmorph.app.llm.LlamaCppEngine
 import com.textmorph.app.llm.LlamaCppEngineManager
 import com.textmorph.app.llm.OpenAiCloudEngine
 import com.textmorph.app.llm.context.ChatCompactor
-import com.textmorph.app.ui.chat.components.ActionExecutionCard
 import com.textmorph.app.ui.chat.components.AiChatInferenceExecutor
+import com.textmorph.app.ui.chat.components.AttachedMediaItem
+import com.textmorph.app.ui.chat.components.AttachmentPickerHelper
 import com.textmorph.app.ui.chat.components.ChatInputBar
-import com.textmorph.app.ui.chat.components.ChatMessage
+import com.textmorph.app.ui.chat.components.ChatMessageItemView
 import com.textmorph.app.ui.chat.components.ChatSessionsDrawerContent
 import com.textmorph.app.ui.chat.components.ContextCapacityBottomSheet
 import com.textmorph.app.ui.chat.components.ContextCapacityMeterPill
-import com.textmorph.app.ui.chat.components.HtmlSandboxPreviewCard
 import com.textmorph.app.ui.chat.components.ModelQuickSwitchBottomSheet
-import com.textmorph.app.ui.chat.components.ThinkingAccordionCard
+import com.textmorph.app.ui.chat.components.VoiceInputHelper
+import java.io.ByteArrayOutputStream
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
-
-typealias ChatMessage = com.textmorph.app.ui.chat.components.ChatMessage
 
 @Composable
 fun AiChatContent(
@@ -99,17 +102,19 @@ fun AiChatContent(
     val messages by chatRepository.currentMessages.collectAsState()
 
     var inputText by remember { mutableStateOf("") }
-    var attachedImageBytes by remember { mutableStateOf<ByteArray?>(null) }
-    var attachedDocText by remember { mutableStateOf<String?>(null) }
+    val attachments = remember { mutableStateListOf<AttachedMediaItem>() }
     var isGenerating by remember { mutableStateOf(false) }
     var currentJob by remember { mutableStateOf<Job?>(null) }
     var showModelSwitchSheet by remember { mutableStateOf(false) }
     var showCapacitySheet by remember { mutableStateOf(false) }
 
-    val contextMetrics = remember(messages, inputText, attachedImageBytes, activeSessionId, sessions) {
+    val voiceHelper = remember { VoiceInputHelper(context) }
+    val isListening by voiceHelper.isListening.collectAsState()
+
+    val contextMetrics = remember(messages, inputText, attachments.size, activeSessionId, sessions) {
         chatRepository.computeActiveContextMetrics(
             currentInput = inputText,
-            currentImageCount = if (attachedImageBytes != null) 1 else 0
+            currentImageCount = attachments.count { it.isImage }
         )
     }
 
@@ -122,6 +127,18 @@ fun AiChatContent(
         "Cloud: ${settings.cloudModelId}"
     } else {
         settings.activeModelName.ifEmpty { "No Model Active" }
+    }
+
+    val mediaPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetMultipleContents()
+    ) { uris: List<Uri> ->
+        scope.launch {
+            for (uri in uris) {
+                AttachmentPickerHelper.resolveMediaItem(context, uri)?.let { item ->
+                    attachments.add(item)
+                }
+            }
+        }
     }
 
     LaunchedEffect(messages.lastOrNull()?.content, messages.size) {
@@ -143,13 +160,27 @@ fun AiChatContent(
     }
 
     fun handleSend() {
-        if (inputText.isNotBlank() && !isGenerating) {
-            val prompt = inputText
-            val img = attachedImageBytes
-            val doc = attachedDocText
+        if ((inputText.isNotBlank() || attachments.isNotEmpty()) && !isGenerating) {
+            val prompt = inputText.trim()
+
+            // Validate attachments against model vision capabilities
+            val (validatedAttachments, warning) = AttachmentPickerHelper.validateAttachments(
+                modelName = activeModelName,
+                isVisionSupported = isVisionCapable,
+                items = attachments.toList()
+            )
+            warning?.let { Toast.makeText(context, it, Toast.LENGTH_LONG).show() }
+
+            val primaryImage = validatedAttachments.firstOrNull { it.isImage }
+            val imgBytes = primaryImage?.bitmap?.let { bmp ->
+                val baos = ByteArrayOutputStream()
+                bmp.compress(Bitmap.CompressFormat.PNG, 100, baos)
+                baos.toByteArray()
+            }
+            val docText = validatedAttachments.firstOrNull { !it.isImage }?.textContent
+
             inputText = ""
-            attachedImageBytes = null
-            attachedDocText = null
+            attachments.clear()
             keyboardController?.hide()
 
             val targetSessionId = activeSessionId ?: "default_session"
@@ -157,8 +188,8 @@ fun AiChatContent(
             AiChatInferenceExecutor.executeTurn(
                 sessionId = targetSessionId,
                 prompt = prompt,
-                imageBytes = img,
-                documentText = doc,
+                imageBytes = imgBytes,
+                documentText = docText,
                 engine = getActiveEngine(),
                 chatRepository = chatRepository,
                 scope = scope,
@@ -196,12 +227,13 @@ fun AiChatContent(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color(0xFF2C3930))
+                .background(Color(0xFF0B1020)) // Charcoal Slate deep midnight
                 .imePadding()
         ) {
             // Top Bar
             Surface(
-                color = Color(0xFF3F4F44),
+                color = Color(0xFF111827), // Elevated midnight
+                border = BorderStroke(1.dp, Color(0xFF1F2937)),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Row(
@@ -213,24 +245,24 @@ fun AiChatContent(
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         IconButton(onClick = { scope.launch { drawerState.open() } }) {
-                            Icon(Icons.Default.Menu, contentDescription = "Drawer", tint = Color(0xFFDCD7C9))
+                            Icon(Icons.Default.Menu, contentDescription = "Drawer", tint = Color(0xFFE5E7EB))
                         }
 
                         // Quick Model Switcher Pill
                         Row(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(8.dp))
-                                .background(Color(0xFF2C3930))
-                                .border(1.dp, Color(0xFFA27B5C), RoundedCornerShape(8.dp))
+                                .background(Color(0xFF1F2937))
+                                .border(1.dp, Color(0xFF374151), RoundedCornerShape(8.dp))
                                 .clickable { showModelSwitchSheet = true }
                                 .padding(horizontal = 10.dp, vertical = 6.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(Icons.Default.Tune, contentDescription = null, tint = Color(0xFFA27B5C), modifier = Modifier.size(16.dp))
+                            Icon(Icons.Default.Tune, contentDescription = null, tint = Color(0xFF3B82F6), modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
                                 text = activeModelName,
-                                color = Color(0xFFDCD7C9),
+                                color = Color(0xFFF9FAFB),
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,
                                 maxLines = 1,
@@ -254,7 +286,7 @@ fun AiChatContent(
                                 isGenerating = false
                                 scope.launch { chatRepository.clearSessionMessages(activeSessionId ?: "") }
                             }) {
-                                Icon(Icons.Default.DeleteOutline, contentDescription = "Clear Chat", tint = Color(0xFFDCD7C9).copy(alpha = 0.7f))
+                                Icon(Icons.Default.DeleteOutline, contentDescription = "Clear Chat", tint = Color(0xFFE5E7EB).copy(alpha = 0.7f))
                             }
                         }
                     }
@@ -271,7 +303,7 @@ fun AiChatContent(
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Text(
                             text = "Interactive AI Playground & Chat\nStart typing below to converse with $activeModelName",
-                            color = Color(0xFFDCD7C9).copy(alpha = 0.6f),
+                            color = Color(0xFF9CA3AF),
                             fontSize = 14.sp,
                             textAlign = androidx.compose.ui.text.style.TextAlign.Center
                         )
@@ -284,7 +316,10 @@ fun AiChatContent(
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         items(messages, key = { it.id }) { msg ->
-                            RenderChatMessageItem(msg = msg)
+                            ChatMessageItemView(
+                                message = msg,
+                                isGenerating = isGenerating && msg.id == messages.lastOrNull()?.id
+                            )
                         }
                     }
                 }
@@ -295,6 +330,19 @@ fun AiChatContent(
                 inputText = inputText,
                 onInputTextChanged = { inputText = it },
                 isGenerating = isGenerating,
+                isListening = isListening,
+                attachments = attachments,
+                onRemoveAttachment = { attachments.remove(it) },
+                onPickMedia = { mediaPickerLauncher.launch("*/*") },
+                onToggleVoice = {
+                    if (isListening) {
+                        voiceHelper.stopListening()
+                    } else {
+                        voiceHelper.startListening { transcript ->
+                            inputText = if (inputText.isBlank()) transcript else "$inputText $transcript"
+                        }
+                    }
+                },
                 capacityFraction = contextMetrics.usageFraction,
                 onCapacityClick = { showCapacitySheet = true },
                 onSend = ::handleSend,
@@ -365,52 +413,5 @@ fun AiChatContent(
             },
             onDismiss = { showCapacitySheet = false }
         )
-    }
-}
-
-@Composable
-private fun RenderChatMessageItem(msg: ChatMessageEntity) {
-    val isUser = msg.role == "user"
-    val align = if (isUser) Alignment.End else Alignment.Start
-
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalAlignment = align
-    ) {
-        if (isUser) {
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(topStart = 16.dp, topEnd = 4.dp, bottomStart = 16.dp, bottomEnd = 16.dp))
-                    .background(Color(0xFFA27B5C))
-                    .padding(horizontal = 14.dp, vertical = 10.dp)
-            ) {
-                Text(text = msg.content, color = Color(0xFF2C3930), fontSize = 14.sp, fontWeight = FontWeight.Medium)
-            }
-        } else {
-            val content = msg.content
-            val isHtml = content.contains("<!DOCTYPE html>", ignoreCase = true) || content.contains("<html", ignoreCase = true)
-            val isAction = content.trim().startsWith("{\"action\":") || content.trim().startsWith("{\"target\":") || msg.role == "action"
-
-            if (isHtml) {
-                HtmlSandboxPreviewCard(htmlContent = content, isDone = content.isNotEmpty())
-            } else if (isAction) {
-                ActionExecutionCard(actionName = "Autonomous Action", reasoning = content, status = msg.actionStatus ?: "success")
-            } else {
-                if (!msg.thoughtContent.isNullOrBlank()) {
-                    ThinkingAccordionCard(thoughtContent = msg.thoughtContent, isThinking = false)
-                    Spacer(modifier = Modifier.height(6.dp))
-                }
-                if (content.isNotBlank()) {
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(topStart = 4.dp, topEnd = 16.dp, bottomStart = 16.dp, bottomEnd = 16.dp))
-                            .background(Color(0xFF3F4F44))
-                            .padding(horizontal = 14.dp, vertical = 10.dp)
-                    ) {
-                        Text(text = content, color = Color(0xFFDCD7C9), fontSize = 14.sp)
-                    }
-                }
-            }
-        }
     }
 }

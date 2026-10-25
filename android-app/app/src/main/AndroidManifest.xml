@@ -21,6 +21,7 @@
     <!-- Floating Window & Vision Inputs -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <application
@@ -86,6 +87,13 @@
             android:name=".ui.common.ClipboardCaptureActivity"
             android:exported="false"
             android:theme="@style/Theme.TextMorph.Dialog"
+            android:excludeFromRecents="true" />
+
+        <!-- Transparent Trampoline for Overlay Media & Attachment Picking -->
+        <activity
+            android:name=".service.overlay.OverlayMediaPickerActivity"
+            android:exported="false"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
             android:excludeFromRecents="true" />
 
         <!-- Mode 2: Accessibility Service for Floating AI Toolbar -->

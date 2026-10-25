@@ -153,4 +153,34 @@ class ContextManagementUnitTests {
         assertTrue(prompt.contains("Give me another one"))
         assertTrue(prompt.endsWith("<|im_start|>assistant\n"))
     }
+
+    @Test
+    fun testHtmlSnippetExtractor_streamingAndCompletedSnippets() {
+        // Case 1: Plain text without HTML
+        val plain = com.textmorph.app.ui.chat.components.HtmlSnippetExtractor.extractSegments("Just a simple answer.", isDone = true)
+        org.junit.Assert.assertNull(plain.htmlContent)
+        assertEquals("Just a simple answer.", plain.preText)
+
+        // Case 2: Incomplete streaming HTML
+        val streaming = com.textmorph.app.ui.chat.components.HtmlSnippetExtractor.extractSegments(
+            "Building page now:\n```html\n<!DOCTYPE html><html><body><h1>Streaming</h1>",
+            isDone = false
+        )
+        org.junit.Assert.assertNotNull(streaming.htmlContent)
+        assertFalse(streaming.isHtmlComplete)
+        assertEquals("Building page now:", streaming.preText)
+        assertTrue(streaming.htmlContent!!.contains("<h1>Streaming</h1>"))
+        assertEquals("", streaming.postText)
+
+        // Case 3: Fully completed HTML with preamble and postscript
+        val completed = com.textmorph.app.ui.chat.components.HtmlSnippetExtractor.extractSegments(
+            "Here is the interactive app:\n```html\n<!DOCTYPE html><html><body><h1>App</h1></body></html>\n```\nLet me know if you need tweaks!",
+            isDone = true
+        )
+        org.junit.Assert.assertNotNull(completed.htmlContent)
+        assertTrue(completed.isHtmlComplete)
+        assertEquals("Here is the interactive app:", completed.preText)
+        assertEquals("<!DOCTYPE html><html><body><h1>App</h1></body></html>", completed.htmlContent)
+        assertEquals("Let me know if you need tweaks!", completed.postText)
+    }
 }

@@ -184,7 +184,10 @@ class ChatSessionRepository private constructor(private val context: Context) {
         sessionId: String,
         content: String,
         thoughtContent: String? = null,
-        actionStatus: String? = null
+        actionStatus: String? = null,
+        tokensPerSecond: Float? = null,
+        totalTokens: Int? = null,
+        durationMs: Long? = null
     ) = withContext(Dispatchers.IO) {
         mutex.withLock {
             val existing = _currentMessages.value.toMutableList()
@@ -194,7 +197,10 @@ class ChatSessionRepository private constructor(private val context: Context) {
                 existing[lastAssistantIndex] = last.copy(
                     content = content,
                     thoughtContent = thoughtContent ?: last.thoughtContent,
-                    actionStatus = actionStatus ?: last.actionStatus
+                    actionStatus = actionStatus ?: last.actionStatus,
+                    tokensPerSecond = tokensPerSecond ?: last.tokensPerSecond,
+                    totalTokens = totalTokens ?: last.totalTokens,
+                    durationMs = durationMs ?: last.durationMs
                 )
                 _currentMessages.value = existing
                 saveMessagesToDisk(sessionId, existing)

@@ -55,15 +55,15 @@ fun ContextCapacityBottomSheet(
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     val activeStateColor = when (metrics.colorState) {
-        ContextColorState.SAGE -> Color(0xFF7D9D8B)
-        ContextColorState.AMBER -> Color(0xFFA27B5C)
-        ContextColorState.CRIMSON -> Color(0xFFE57373)
+        ContextColorState.SAGE -> Color(0xFF3B82F6)
+        ContextColorState.AMBER -> Color(0xFFF59E0B)
+        ContextColorState.CRIMSON -> Color(0xFFEF4444)
     }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        containerColor = Color(0xFF2C3930),
+        containerColor = Color(0xFF111827),
         tonalElevation = 8.dp
     ) {
         Column(
@@ -80,7 +80,7 @@ fun ContextCapacityBottomSheet(
                 Column {
                     Text(
                         text = "Context Window Capacity",
-                        color = Color(0xFFDCD7C9),
+                        color = Color(0xFFF9FAFB),
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold
                     )
@@ -93,12 +93,13 @@ fun ContextCapacityBottomSheet(
                 }
                 Surface(
                     shape = RoundedCornerShape(12.dp),
-                    color = Color(0xFF3F4F44),
+                    color = Color(0xFF1F2937),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF374151)),
                     modifier = Modifier.padding(4.dp)
                 ) {
                     Text(
                         text = "${metrics.totalUsedTokens} / ${metrics.maxContextTokens} tok",
-                        color = Color(0xFFDCD7C9),
+                        color = Color(0xFFE5E7EB),
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
@@ -118,35 +119,35 @@ fun ContextCapacityBottomSheet(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(12.dp))
-                    .background(Color(0xFF232D26))
-                    .border(1.dp, Color(0xFF3F4F44), RoundedCornerShape(12.dp))
+                    .background(Color(0xFF1F2937))
+                    .border(1.dp, Color(0xFF374151), RoundedCornerShape(12.dp))
                     .padding(14.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 BreakdownRow(
-                    dotColor = Color(0xFF8AA89B),
+                    dotColor = Color(0xFF60A5FA),
                     title = "System Prompt & Capabilities",
                     tokens = metrics.systemPromptTokens
                 )
                 BreakdownRow(
-                    dotColor = Color(0xFFA27B5C),
+                    dotColor = Color(0xFF3B82F6),
                     title = "Compressed History",
                     tokens = metrics.compressedHistoryTokens
                 )
                 BreakdownRow(
-                    dotColor = Color(0xFFC7A589),
+                    dotColor = Color(0xFF2563EB),
                     title = "Recent Messages (Window)",
                     tokens = metrics.recentMessagesTokens
                 )
                 if (metrics.currentInputTokens > 0) {
                     BreakdownRow(
-                        dotColor = Color(0xFFE5A65D),
+                        dotColor = Color(0xFFF59E0B),
                         title = "Pending Input & Media",
                         tokens = metrics.currentInputTokens
                     )
                 }
                 BreakdownRow(
-                    dotColor = Color(0xFF3F4F44),
+                    dotColor = Color(0xFF374151),
                     title = "Free Headroom for Output",
                     tokens = metrics.freeSpaceTokens
                 )
@@ -165,7 +166,7 @@ fun ContextCapacityBottomSheet(
                         onCompressHistory()
                         onDismiss()
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFA27B5C)),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
                     shape = RoundedCornerShape(10.dp),
                     modifier = Modifier.weight(1f)
                 ) {
@@ -180,11 +181,11 @@ fun ContextCapacityBottomSheet(
                         onDismiss()
                     },
                     shape = RoundedCornerShape(10.dp),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFDCD7C9)),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF3F4F44)),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFE5E7EB)),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF374151)),
                     modifier = Modifier.weight(1f)
                 ) {
-                    Icon(Icons.Default.CleaningServices, contentDescription = null, tint = Color(0xFFDCD7C9), modifier = Modifier.size(16.dp))
+                    Icon(Icons.Default.CleaningServices, contentDescription = null, tint = Color(0xFFE5E7EB), modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(6.dp))
                     Text("Prune Artifacts", fontSize = 12.5.sp)
                 }
@@ -209,22 +210,22 @@ private fun SegmentedProgressBar(metrics: ContextUsageMetrics) {
             .fillMaxWidth()
             .height(10.dp)
             .clip(RoundedCornerShape(5.dp))
-            .background(Color(0xFF1E2822))
+            .background(Color(0xFF0B1020))
     ) {
         if (sysWeight > 0f) {
-            Box(modifier = Modifier.weight(sysWeight).height(10.dp).background(Color(0xFF8AA89B)))
+            Box(modifier = Modifier.weight(sysWeight).height(10.dp).background(Color(0xFF60A5FA)))
         }
         if (compWeight > 0f) {
-            Box(modifier = Modifier.weight(compWeight).height(10.dp).background(Color(0xFFA27B5C)))
+            Box(modifier = Modifier.weight(compWeight).height(10.dp).background(Color(0xFF3B82F6)))
         }
         if (recWeight > 0f) {
-            Box(modifier = Modifier.weight(recWeight).height(10.dp).background(Color(0xFFC7A589)))
+            Box(modifier = Modifier.weight(recWeight).height(10.dp).background(Color(0xFF2563EB)))
         }
         if (inWeight > 0f) {
-            Box(modifier = Modifier.weight(inWeight).height(10.dp).background(Color(0xFFE5A65D)))
+            Box(modifier = Modifier.weight(inWeight).height(10.dp).background(Color(0xFFF59E0B)))
         }
         if (freeWeight > 0f) {
-            Box(modifier = Modifier.weight(freeWeight).height(10.dp).background(Color(0xFF3F4F44).copy(alpha = 0.5f)))
+            Box(modifier = Modifier.weight(freeWeight).height(10.dp).background(Color(0xFF374151)))
         }
     }
 }
@@ -246,13 +247,13 @@ private fun BreakdownRow(dotColor: Color, title: String, tokens: Int) {
             Spacer(modifier = Modifier.width(8.dp))
             Text(
                 text = title,
-                color = Color(0xFFDCD7C9).copy(alpha = 0.85f),
+                color = Color(0xFFE5E7EB),
                 fontSize = 12.sp
             )
         }
         Text(
             text = "~$tokens tok",
-            color = Color(0xFFDCD7C9),
+            color = Color(0xFFF9FAFB),
             fontSize = 12.sp,
             fontWeight = FontWeight.SemiBold
         )

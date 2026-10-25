@@ -79,7 +79,7 @@ fun ModelQuickSwitchBottomSheet(
             onDismiss()
         },
         sheetState = sheetState,
-        containerColor = Color(0xFF2C3930),
+        containerColor = Color(0xFF111827),
         tonalElevation = 8.dp
     ) {
         Column(
@@ -98,13 +98,13 @@ fun ModelQuickSwitchBottomSheet(
                     Icon(
                         imageVector = Icons.Default.Tune,
                         contentDescription = null,
-                        tint = Color(0xFFA27B5C),
+                        tint = Color(0xFF3B82F6),
                         modifier = Modifier.size(24.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
                         text = "Model & Playground Settings",
-                        color = Color(0xFFDCD7C9),
+                        color = Color(0xFFF9FAFB),
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold
                     )
@@ -116,7 +116,7 @@ fun ModelQuickSwitchBottomSheet(
                     Icon(
                         imageVector = Icons.Default.Close,
                         contentDescription = "Close",
-                        tint = Color(0xFFDCD7C9).copy(alpha = 0.7f)
+                        tint = Color(0xFFE5E7EB).copy(alpha = 0.7f)
                     )
                 }
             }
@@ -131,7 +131,7 @@ fun ModelQuickSwitchBottomSheet(
                 item {
                     Text(
                         text = "SWITCH ACTIVE MODEL",
-                        color = Color(0xFFA27B5C),
+                        color = Color(0xFF60A5FA),
                         fontSize = 12.sp,
                         fontWeight = FontWeight.SemiBold,
                         letterSpacing = 1.sp
@@ -144,12 +144,13 @@ fun ModelQuickSwitchBottomSheet(
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .background(Color(0xFF3F4F44), RoundedCornerShape(10.dp))
+                                .background(Color(0xFF1F2937), RoundedCornerShape(10.dp))
+                                .border(1.dp, Color(0xFF374151), RoundedCornerShape(10.dp))
                                 .padding(14.dp)
                         ) {
                             Text(
                                 text = "No local models detected in storage. Download a model in Model Hub or use Cloud inference.",
-                                color = Color(0xFFDCD7C9).copy(alpha = 0.8f),
+                                color = Color(0xFF9CA3AF),
                                 fontSize = 13.sp
                             )
                         }
@@ -161,10 +162,10 @@ fun ModelQuickSwitchBottomSheet(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(10.dp))
-                                .background(if (isSelected) Color(0xFF3F4F44) else Color(0x333F4F44))
+                                .background(if (isSelected) Color(0xFF1F2937) else Color(0x401F2937))
                                 .border(
                                     width = if (isSelected) 1.5.dp else 1.dp,
-                                    color = if (isSelected) Color(0xFFA27B5C) else Color(0x33DCD7C9),
+                                    color = if (isSelected) Color(0xFF3B82F6) else Color(0xFF374151),
                                     shape = RoundedCornerShape(10.dp)
                                 )
                                 .clickable { onSelectModel(model) }
@@ -174,20 +175,20 @@ fun ModelQuickSwitchBottomSheet(
                             Icon(
                                 imageVector = Icons.Default.Memory,
                                 contentDescription = null,
-                                tint = if (isSelected) Color(0xFFA27B5C) else Color(0xFFDCD7C9).copy(alpha = 0.6f),
+                                tint = if (isSelected) Color(0xFF3B82F6) else Color(0xFF9CA3AF),
                                 modifier = Modifier.size(20.dp)
                             )
                             Spacer(modifier = Modifier.width(10.dp))
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
                                     text = model.name,
-                                    color = Color(0xFFDCD7C9),
+                                    color = if (isSelected) Color(0xFFF9FAFB) else Color(0xFFE5E7EB),
                                     fontSize = 14.sp,
                                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
                                 )
                                 Text(
                                     text = "${model.modelFileType.name} • ${String.format("%.1f GB", model.sizeBytes / 1_073_741_824.0)}",
-                                    color = Color(0xFFDCD7C9).copy(alpha = 0.6f),
+                                    color = Color(0xFF9CA3AF),
                                     fontSize = 11.sp
                                 )
                             }
@@ -195,7 +196,7 @@ fun ModelQuickSwitchBottomSheet(
                                 Icon(
                                     imageVector = Icons.Default.Check,
                                     contentDescription = "Selected",
-                                    tint = Color(0xFFA27B5C),
+                                    tint = Color(0xFF3B82F6),
                                     modifier = Modifier.size(18.dp)
                                 )
                             }
@@ -210,10 +211,10 @@ fun ModelQuickSwitchBottomSheet(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(10.dp))
-                            .background(if (isCloudSelected) Color(0xFF3F4F44) else Color(0x333F4F44))
+                            .background(if (isCloudSelected) Color(0xFF1F2937) else Color(0x401F2937))
                             .border(
                                 width = if (isCloudSelected) 1.5.dp else 1.dp,
-                                color = if (isCloudSelected) Color(0xFFA27B5C) else Color(0x33DCD7C9),
+                                color = if (isCloudSelected) Color(0xFF3B82F6) else Color(0xFF374151),
                                 shape = RoundedCornerShape(10.dp)
                             )
                             .clickable { onSelectEngine(EngineType.CLOUD_OPENAI) }
@@ -222,7 +223,7 @@ fun ModelQuickSwitchBottomSheet(
                     ) {
                         Text(
                             text = "☁️ Cloud OpenAI Compatible (${settings.cloudModelId})",
-                            color = Color(0xFFDCD7C9),
+                            color = if (isCloudSelected) Color(0xFFF9FAFB) else Color(0xFFE5E7EB),
                             fontSize = 14.sp,
                             fontWeight = if (isCloudSelected) FontWeight.Bold else FontWeight.Medium,
                             modifier = Modifier.weight(1f)
@@ -231,7 +232,7 @@ fun ModelQuickSwitchBottomSheet(
                             Icon(
                                 imageVector = Icons.Default.Check,
                                 contentDescription = "Selected",
-                                tint = Color(0xFFA27B5C),
+                                tint = Color(0xFF3B82F6),
                                 modifier = Modifier.size(18.dp)
                             )
                         }
@@ -243,7 +244,7 @@ fun ModelQuickSwitchBottomSheet(
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
                         text = "GENERATION PARAMETERS",
-                        color = Color(0xFFA27B5C),
+                        color = Color(0xFF60A5FA),
                         fontSize = 12.sp,
                         fontWeight = FontWeight.SemiBold,
                         letterSpacing = 1.sp
@@ -257,17 +258,17 @@ fun ModelQuickSwitchBottomSheet(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Text("Temperature", color = Color(0xFFDCD7C9), fontSize = 13.sp)
-                            Text(String.format("%.2f", temperature), color = Color(0xFFA27B5C), fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            Text("Temperature", color = Color(0xFFE5E7EB), fontSize = 13.sp)
+                            Text(String.format("%.2f", temperature), color = Color(0xFF3B82F6), fontSize = 13.sp, fontWeight = FontWeight.Bold)
                         }
                         Slider(
                             value = temperature,
                             onValueChange = { temperature = it },
                             valueRange = 0.0f..1.5f,
                             colors = SliderDefaults.colors(
-                                thumbColor = Color(0xFFA27B5C),
-                                activeTrackColor = Color(0xFFA27B5C),
-                                inactiveTrackColor = Color(0xFF3F4F44)
+                                thumbColor = Color(0xFF3B82F6),
+                                activeTrackColor = Color(0xFF3B82F6),
+                                inactiveTrackColor = Color(0xFF374151)
                             )
                         )
                     }
@@ -280,8 +281,8 @@ fun ModelQuickSwitchBottomSheet(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Text("Max Tokens", color = Color(0xFFDCD7C9), fontSize = 13.sp)
-                            Text("$maxTokens", color = Color(0xFFA27B5C), fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            Text("Max Tokens", color = Color(0xFFE5E7EB), fontSize = 13.sp)
+                            Text("$maxTokens", color = Color(0xFF3B82F6), fontSize = 13.sp, fontWeight = FontWeight.Bold)
                         }
                         Slider(
                             value = maxTokens.toFloat(),
@@ -289,9 +290,9 @@ fun ModelQuickSwitchBottomSheet(
                             valueRange = 128f..4096f,
                             steps = 31,
                             colors = SliderDefaults.colors(
-                                thumbColor = Color(0xFFA27B5C),
-                                activeTrackColor = Color(0xFFA27B5C),
-                                inactiveTrackColor = Color(0xFF3F4F44)
+                                thumbColor = Color(0xFF3B82F6),
+                                activeTrackColor = Color(0xFF3B82F6),
+                                inactiveTrackColor = Color(0xFF374151)
                             )
                         )
                     }
@@ -304,17 +305,17 @@ fun ModelQuickSwitchBottomSheet(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Text("Top-P", color = Color(0xFFDCD7C9), fontSize = 13.sp)
-                            Text(String.format("%.2f", topP), color = Color(0xFFA27B5C), fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            Text("Top-P", color = Color(0xFFE5E7EB), fontSize = 13.sp)
+                            Text(String.format("%.2f", topP), color = Color(0xFF3B82F6), fontSize = 13.sp, fontWeight = FontWeight.Bold)
                         }
                         Slider(
                             value = topP,
                             onValueChange = { topP = it },
                             valueRange = 0.1f..1.0f,
                             colors = SliderDefaults.colors(
-                                thumbColor = Color(0xFFA27B5C),
-                                activeTrackColor = Color(0xFFA27B5C),
-                                inactiveTrackColor = Color(0xFF3F4F44)
+                                thumbColor = Color(0xFF3B82F6),
+                                activeTrackColor = Color(0xFF3B82F6),
+                                inactiveTrackColor = Color(0xFF374151)
                             )
                         )
                     }
@@ -326,23 +327,24 @@ fun ModelQuickSwitchBottomSheet(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(10.dp))
-                            .background(Color(0xFF3F4F44))
+                            .background(Color(0xFF1F2937))
+                            .border(1.dp, Color(0xFF374151), RoundedCornerShape(10.dp))
                             .padding(horizontal = 14.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("Thinking Traces", color = Color(0xFFDCD7C9), fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                            Text("Show collapsible reasoning process before answer", color = Color(0xFFDCD7C9).copy(alpha = 0.6f), fontSize = 11.sp)
+                            Text("Thinking Traces", color = Color(0xFFF9FAFB), fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                            Text("Show collapsible reasoning process before answer", color = Color(0xFF9CA3AF), fontSize = 11.sp)
                         }
                         Switch(
                             checked = thinkingEnabled,
                             onCheckedChange = { thinkingEnabled = it },
                             colors = SwitchDefaults.colors(
-                                checkedThumbColor = Color(0xFFDCD7C9),
-                                checkedTrackColor = Color(0xFFA27B5C),
-                                uncheckedThumbColor = Color(0xFFDCD7C9).copy(alpha = 0.6f),
-                                uncheckedTrackColor = Color(0x33DCD7C9)
+                                checkedThumbColor = Color.White,
+                                checkedTrackColor = Color(0xFF2563EB),
+                                uncheckedThumbColor = Color(0xFF9CA3AF),
+                                uncheckedTrackColor = Color(0xFF374151)
                             )
                         )
                     }

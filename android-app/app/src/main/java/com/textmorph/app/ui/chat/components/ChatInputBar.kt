@@ -3,6 +3,7 @@ package com.textmorph.app.ui.chat.components
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -32,7 +33,6 @@ import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
@@ -49,6 +49,13 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
+/**
+ * Modern floating input bar styled in the Charcoal Slate design language:
+ * - Midnight Slate surface (#111827) with subtle slate border (#374151).
+ * - Discrete 2dp context capacity progress line (Electric Blue / Amber / Crimson).
+ * - Companion toolbar-style square attachment & mic buttons.
+ * - Electric Blue action send button (#2563EB) and soft crimson stop button (#EF4444).
+ */
 @Composable
 fun ChatInputBar(
     inputText: String,
@@ -66,23 +73,23 @@ fun ChatInputBar(
     modifier: Modifier = Modifier
 ) {
     Surface(
-        color = Color(0xFF1E2822), // Forest clay dark surface
-        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF3F4F44)),
+        color = Color(0xF2111827), // Charcoal midnight surface
+        border = BorderStroke(1.dp, Color(0xFF374151)),
         modifier = modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
             // Discrete 2dp capacity progress bar
             val progressColor = when {
-                capacityFraction >= 0.85f -> Color(0xFFE57373)
-                capacityFraction >= 0.60f -> Color(0xFFA27B5C)
-                else -> Color(0xFF3F4F44)
+                capacityFraction >= 0.85f -> Color(0xFFEF4444) // Crimson
+                capacityFraction >= 0.60f -> Color(0xFFFBBF24) // Amber
+                else -> Color(0xFF3B82F6) // Electric Blue
             }
 
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(2.dp)
-                    .background(Color(0xFF232D26))
+                    .background(Color(0xFF1F2937))
                     .then(if (onCapacityClick != null) Modifier.clickable { onCapacityClick() } else Modifier)
             ) {
                 if (capacityFraction > 0f) {
@@ -110,9 +117,9 @@ fun ChatInputBar(
                 ) {
                     attachments.forEach { item ->
                         Surface(
-                            shape = RoundedCornerShape(10.dp),
-                            color = Color(0xFF2C3930),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF3F4F44)),
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color(0xFF1F2937),
+                            border = BorderStroke(1.dp, Color(0xFF374151)),
                             modifier = Modifier.padding(vertical = 2.dp)
                         ) {
                             Row(
@@ -126,21 +133,21 @@ fun ChatInputBar(
                                         contentScale = ContentScale.Crop,
                                         modifier = Modifier
                                             .size(24.dp)
-                                            .clip(RoundedCornerShape(6.dp))
+                                            .clip(RoundedCornerShape(4.dp))
                                     )
                                 } else {
                                     Icon(
                                         imageVector = Icons.Default.Description,
                                         contentDescription = "File",
-                                        tint = Color(0xFFA27B5C),
-                                        modifier = Modifier.size(18.dp)
+                                        tint = Color(0xFF60A5FA),
+                                        modifier = Modifier.size(16.dp)
                                     )
                                 }
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
                                     text = if (item.name.length > 14) item.name.take(12) + "…" else item.name,
                                     fontSize = 11.sp,
-                                    color = Color(0xFFDCD7C9),
+                                    color = Color(0xFFE5E7EB),
                                     fontWeight = FontWeight.Medium
                                 )
                                 Spacer(modifier = Modifier.width(4.dp))
@@ -172,17 +179,25 @@ fun ChatInputBar(
                     .padding(horizontal = 10.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Attach File/Photos Button
-                IconButton(
+                // Attach Media Button (Square Toolbar Style)
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = Color(0x331F2937),
+                    border = BorderStroke(1.dp, Color(0x44374151)),
                     onClick = onPickMedia,
-                    modifier = Modifier.size(38.dp)
+                    modifier = Modifier.size(34.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.AttachFile,
-                        contentDescription = "Attach media",
-                        tint = if (attachments.isNotEmpty()) Color(0xFFA27B5C) else Color(0xFF9EABA2)
-                    )
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Default.AttachFile,
+                            contentDescription = "Attach media",
+                            tint = if (attachments.isNotEmpty()) Color(0xFF3B82F6) else Color(0xFF9CA3AF),
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
                 }
+
+                Spacer(modifier = Modifier.width(6.dp))
 
                 // Text Input Box
                 OutlinedTextField(
@@ -191,22 +206,20 @@ fun ChatInputBar(
                     placeholder = {
                         Text(
                             text = if (isListening) "Listening…" else "Ask or instruct TextMorph…",
-                            fontSize = 13.sp,
-                            color = if (isListening) Color(0xFFFBBF24) else Color(0xFF75857B)
+                            fontSize = 13.5.sp,
+                            color = if (isListening) Color(0xFFFBBF24) else Color(0xFF9CA3AF)
                         )
                     },
-                    modifier = Modifier
-                        .weight(1f)
-                        .padding(horizontal = 4.dp),
+                    modifier = Modifier.weight(1f),
                     maxLines = 4,
-                    shape = RoundedCornerShape(22.dp),
+                    shape = RoundedCornerShape(12.dp),
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = Color(0xFFDCD7C9),
-                        unfocusedTextColor = Color(0xFFDCD7C9),
-                        focusedBorderColor = Color(0xFFA27B5C),
-                        unfocusedBorderColor = Color(0xFF3F4F44),
-                        focusedContainerColor = Color(0xFF2C3930),
-                        unfocusedContainerColor = Color(0xFF2C3930)
+                        focusedTextColor = Color(0xFFF9FAFB),
+                        unfocusedTextColor = Color(0xFFE5E7EB),
+                        focusedBorderColor = Color(0xFF3B82F6),
+                        unfocusedBorderColor = Color(0xFF374151),
+                        focusedContainerColor = Color(0xFF1F2937),
+                        unfocusedContainerColor = Color(0xFF1F2937)
                     ),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                     keyboardActions = KeyboardActions(
@@ -218,45 +231,63 @@ fun ChatInputBar(
                     )
                 )
 
+                Spacer(modifier = Modifier.width(6.dp))
+
                 // Voice Mic Button
-                IconButton(
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = if (isListening) Color(0x44EF4444) else Color(0x331F2937),
+                    border = BorderStroke(1.dp, if (isListening) Color(0xFFEF4444) else Color(0x44374151)),
                     onClick = onToggleVoice,
-                    modifier = Modifier
-                        .size(38.dp)
-                        .background(if (isListening) Color(0xFFE53E3E) else Color.Transparent, CircleShape)
+                    modifier = Modifier.size(34.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Mic,
-                        contentDescription = "Voice dictation",
-                        tint = if (isListening) Color.White else Color(0xFF9EABA2)
-                    )
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Default.Mic,
+                            contentDescription = "Voice dictation",
+                            tint = if (isListening) Color(0xFFEF4444) else Color(0xFF9CA3AF),
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
                 }
+
+                Spacer(modifier = Modifier.width(6.dp))
 
                 // Send or Stop Button
                 if (isGenerating) {
-                    IconButton(
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = Color(0xFFEF4444),
                         onClick = onStop,
-                        modifier = Modifier
-                            .size(38.dp)
-                            .background(Color(0xFFE53E3E), CircleShape)
+                        modifier = Modifier.size(34.dp)
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Stop,
-                            contentDescription = "Stop",
-                            tint = Color.White
-                        )
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Default.Stop,
+                                contentDescription = "Stop",
+                                tint = Color.White,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
                     }
                 } else {
-                    IconButton(
+                    val canSend = inputText.isNotBlank() || attachments.isNotEmpty()
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = if (canSend) Color(0xFF2563EB) else Color(0x22374151),
+                        border = BorderStroke(1.dp, if (canSend) Color(0xFF3B82F6) else Color(0x33374151)),
+                        enabled = canSend,
                         onClick = onSend,
-                        enabled = inputText.isNotBlank() || attachments.isNotEmpty(),
-                        modifier = Modifier.size(38.dp)
+                        modifier = Modifier.size(34.dp)
                     ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.Send,
-                            contentDescription = "Send",
-                            tint = if (inputText.isNotBlank() || attachments.isNotEmpty()) Color(0xFFA27B5C) else Color(0x33A27B5C)
-                        )
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.Send,
+                                contentDescription = "Send",
+                                tint = if (canSend) Color.White else Color(0xFF4B5563),
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
                     }
                 }
             }

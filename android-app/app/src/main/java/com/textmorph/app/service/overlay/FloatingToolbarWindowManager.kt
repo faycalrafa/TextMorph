@@ -61,10 +61,11 @@ class FloatingToolbarWindowManager(
     private var composeView: ComposeView? = null
     private var serviceLifecycleOwner: ServiceLifecycleOwner? = null
     private var isShowing = false
+    val isShowingActive: Boolean get() = isShowing && overlayContainer != null
     private val windowScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
-    private var userX: Int? = null
-    private var userY: Int? = null
+    private var bubbleAnchorX: Int? = null
+    private var bubbleAnchorY: Int? = null
 
     // Overlay state orchestration
     var displayState by mutableStateOf(OverlayDisplayState.COLLAPSED_BUBBLE)
@@ -141,12 +142,12 @@ class FloatingToolbarWindowManager(
 
                 when (newState) {
                     OverlayDisplayState.COLLAPSED_BUBBLE -> {
-                        OverlayLayoutParamsHelper.applyCollapsedBubble(params, userX ?: bounds.maxX, userY ?: (bounds.screenHeight / 2))
+                        OverlayLayoutParamsHelper.applyCollapsedBubble(params, bubbleAnchorX ?: bounds.maxX, bubbleAnchorY ?: (bounds.screenHeight / 2))
                         setChatInputFocused(false)
                         service.onRibbonManuallyDismissed()
                     }
                     OverlayDisplayState.EXPANDED_TOOLBAR -> {
-                        OverlayLayoutParamsHelper.applyExpandedToolbar(params, bounds, userY)
+                        OverlayLayoutParamsHelper.applyExpandedToolbar(params, bounds, bubbleAnchorY)
                         setChatInputFocused(false)
                         service.onRibbonManuallyOpened()
                     }
@@ -155,7 +156,7 @@ class FloatingToolbarWindowManager(
                         service.onRibbonManuallyOpened()
                     }
                     OverlayDisplayState.AUTOMATING_ACTION -> {
-                        OverlayLayoutParamsHelper.applyAutomatingAction(params, bounds, userX ?: bounds.maxX, userY ?: (bounds.screenHeight / 2))
+                        OverlayLayoutParamsHelper.applyAutomatingAction(params, bounds, bubbleAnchorX ?: bounds.maxX, bubbleAnchorY ?: (bounds.screenHeight / 2))
                         setChatInputFocused(false)
                     }
                 }
@@ -183,10 +184,10 @@ class FloatingToolbarWindowManager(
             serviceLifecycleOwner = ServiceLifecycleOwner()
             val bounds = OverlayLayoutParamsHelper.calculateBounds(service.resources.displayMetrics)
             val settings = settingsRepository.settingsState.value
-            val initialX = (settings.floatingToolbarX ?: userX ?: bounds.maxX).coerceIn(bounds.minX, bounds.maxX)
-            val initialY = (settings.floatingToolbarY ?: userY ?: (bounds.screenHeight / 2)).coerceIn(bounds.minY, bounds.maxY)
-            userX = initialX
-            userY = initialY
+            val initialX = (settings.floatingToolbarX ?: bubbleAnchorX ?: bounds.maxX).coerceIn(bounds.minX, bounds.maxX)
+            val initialY = (settings.floatingToolbarY ?: bubbleAnchorY ?: (bounds.screenHeight / 2)).coerceIn(bounds.minY, bounds.maxY)
+            bubbleAnchorX = initialX
+            bubbleAnchorY = initialY
 
             val params = OverlayLayoutParamsHelper.createInitialParams(initialX, initialY)
             windowParams = params
@@ -203,15 +204,14 @@ class FloatingToolbarWindowManager(
                     val curBounds = OverlayLayoutParamsHelper.calculateBounds(service.resources.displayMetrics)
                     params.x = (startDragWinX + deltaX).roundToInt().coerceIn(curBounds.minX, curBounds.maxX)
                     params.y = (startDragWinY + deltaY).roundToInt().coerceIn(curBounds.minY, curBounds.maxY)
-                    userX = params.x
-                    userY = params.y
                     overlayContainer?.let { windowManager.updateViewLayout(it, params) }
                 },
                 onDragEnd = {
                     val curBounds = OverlayLayoutParamsHelper.calculateBounds(service.resources.displayMetrics)
                     val snapX = if (params.x < curBounds.screenWidth / 2) curBounds.minX else curBounds.maxX
                     params.x = snapX
-                    userX = snapX
+                    bubbleAnchorX = snapX
+                    bubbleAnchorY = params.y
                     isDraggingState.value = false
                     overlayContainer?.let {
                         windowManager.updateViewLayout(it, params)
@@ -282,7 +282,7 @@ class FloatingToolbarWindowManager(
                                         hasUndo = { service.hasPreviousTransformation() },
                                         getRecentClipboardText = { service.getRecentClipboardText() },
                                         onQuickPaste = { service.pasteClipboardText() },
-                                        isPlacedOnRight = { (userX ?: initialX) > (service.resources.displayMetrics.widthPixels / 2) },
+                                        isPlacedOnRight = { (bubbleAnchorX ?: initialX) > (service.resources.displayMetrics.widthPixels / 2) },
                                         isDragging = isDraggingState.value,
                                         onRegisterSingleTapHandler = { singleTapHandler = it },
                                         onRegisterCollapseHandler = { collapseHandler = it },
@@ -377,16 +377,16 @@ class FloatingToolbarWindowManager(
     fun onConfigurationChanged(newConfig: Configuration) {
         try {
             val bounds = OverlayLayoutParamsHelper.calculateBounds(service.resources.displayMetrics)
-            userX = (userX ?: bounds.maxX).coerceIn(bounds.minX, bounds.maxX)
-            userY = (userY ?: (bounds.screenHeight / 2)).coerceIn(bounds.minY, bounds.maxY)
+            bubbleAnchorX = (bubbleAnchorX ?: bounds.maxX).coerceIn(bounds.minX, bounds.maxX)
+            bubbleAnchorY = (bubbleAnchorY ?: (bounds.screenHeight / 2)).coerceIn(bounds.minY, bounds.maxY)
             val container = overlayContainer ?: return
             val params = windowParams ?: return
 
             when (displayState) {
-                OverlayDisplayState.COLLAPSED_BUBBLE -> OverlayLayoutParamsHelper.applyCollapsedBubble(params, userX ?: bounds.maxX, userY ?: (bounds.screenHeight / 2))
-                OverlayDisplayState.EXPANDED_TOOLBAR -> OverlayLayoutParamsHelper.applyExpandedToolbar(params, bounds, userY)
+                OverlayDisplayState.COLLAPSED_BUBBLE -> OverlayLayoutParamsHelper.applyCollapsedBubble(params, bubbleAnchorX ?: bounds.maxX, bubbleAnchorY ?: (bounds.screenHeight / 2))
+                OverlayDisplayState.EXPANDED_TOOLBAR -> OverlayLayoutParamsHelper.applyExpandedToolbar(params, bounds, bubbleAnchorY)
                 OverlayDisplayState.EXPANDED_CHAT -> OverlayLayoutParamsHelper.applyExpandedChat(params, bounds, isChatInputFocused)
-                OverlayDisplayState.AUTOMATING_ACTION -> OverlayLayoutParamsHelper.applyAutomatingAction(params, bounds, userX ?: bounds.maxX, userY ?: (bounds.screenHeight / 2))
+                OverlayDisplayState.AUTOMATING_ACTION -> OverlayLayoutParamsHelper.applyAutomatingAction(params, bounds, bubbleAnchorX ?: bounds.maxX, bubbleAnchorY ?: (bounds.screenHeight / 2))
             }
             windowManager.updateViewLayout(container, params)
             AppLogger.i(TAG, "Adapted layout to new orientation (${newConfig.orientation})")

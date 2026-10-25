@@ -50,9 +50,9 @@ fun ContextCapacityMeterPill(
     )
 
     val activeColor = when (metrics.colorState) {
-        ContextColorState.SAGE -> Color(0xFF7D9D8B) // Slightly brighter sage for contrast
-        ContextColorState.AMBER -> Color(0xFFA27B5C)
-        ContextColorState.CRIMSON -> Color(0xFFE57373)
+        ContextColorState.SAGE -> Color(0xFF3B82F6) // Electric Blue
+        ContextColorState.AMBER -> Color(0xFFF59E0B) // Amber
+        ContextColorState.CRIMSON -> Color(0xFFEF4444) // Red
     }
 
     val animatedColor by animateColorAsState(
@@ -64,8 +64,8 @@ fun ContextCapacityMeterPill(
     Row(
         modifier = modifier
             .clip(RoundedCornerShape(8.dp))
-            .background(Color(0xFF2C3930))
-            .border(1.dp, animatedColor.copy(alpha = 0.6f), RoundedCornerShape(8.dp))
+            .background(Color(0xFF1F2937))
+            .border(1.dp, animatedColor.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
             .clickable(onClick = onClick)
             .padding(horizontal = 8.dp, vertical = 5.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -80,7 +80,7 @@ fun ContextCapacityMeterPill(
             CircularProgressIndicator(
                 progress = { 1f },
                 modifier = Modifier.size(16.dp),
-                color = Color(0xFF3F4F44).copy(alpha = 0.4f),
+                color = Color(0xFF374151),
                 strokeWidth = 2.5.dp
             )
             // Active usage fill
@@ -98,7 +98,7 @@ fun ContextCapacityMeterPill(
         // Formatted Token Counter (e.g. 1.2k / 2.0k)
         Text(
             text = "${formatTokens(metrics.totalUsedTokens)} / ${formatTokens(metrics.maxContextTokens)}",
-            color = Color(0xFFDCD7C9),
+            color = Color(0xFFE5E7EB),
             fontSize = 11.sp,
             fontWeight = FontWeight.Medium
         )
@@ -121,9 +121,9 @@ fun ContextCapacityRingIcon(
     )
 
     val activeColor = when (metrics.colorState) {
-        ContextColorState.SAGE -> Color(0xFF7D9D8B)
-        ContextColorState.AMBER -> Color(0xFFA27B5C)
-        ContextColorState.CRIMSON -> Color(0xFFE57373)
+        ContextColorState.SAGE -> Color(0xFF3B82F6)
+        ContextColorState.AMBER -> Color(0xFFF59E0B)
+        ContextColorState.CRIMSON -> Color(0xFFEF4444)
     }
 
     Box(
@@ -136,7 +136,7 @@ fun ContextCapacityRingIcon(
         CircularProgressIndicator(
             progress = { 1f },
             modifier = Modifier.size(20.dp),
-            color = Color(0xFF3F4F44).copy(alpha = 0.4f),
+            color = Color(0xFF374151),
             strokeWidth = 2.5.dp
         )
         CircularProgressIndicator(

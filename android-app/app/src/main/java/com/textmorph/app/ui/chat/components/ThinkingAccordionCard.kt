@@ -87,8 +87,8 @@ fun ThinkingAccordionCard(
             .fillMaxWidth()
             .padding(vertical = 4.dp),
         shape = RoundedCornerShape(12.dp),
-        color = Color(0xFF232D26), // Forest clay dark surface
-        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF3F4F44))
+        color = Color(0xFF1F2937), // Elevated Charcoal Slate
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF374151))
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
             Row(
@@ -104,7 +104,7 @@ fun ThinkingAccordionCard(
                         Icon(
                             imageVector = Icons.Default.AutoAwesome,
                             contentDescription = "Thinking",
-                            tint = Color(0xFFA27B5C),
+                            tint = Color(0xFF3B82F6),
                             modifier = Modifier
                                 .size(16.dp)
                                 .rotate(rotation)
@@ -113,7 +113,7 @@ fun ThinkingAccordionCard(
                         Icon(
                             imageVector = Icons.Default.Psychology,
                             contentDescription = "Reasoning",
-                            tint = Color(0xFF9EABA2),
+                            tint = Color(0xFF9CA3AF),
                             modifier = Modifier.size(16.dp)
                         )
                     }
@@ -128,7 +128,7 @@ fun ThinkingAccordionCard(
                         } else {
                             "Thought Process"
                         },
-                        color = if (isThinking) Color(0xFFDCD7C9) else Color(0xFF9EABA2),
+                        color = if (isThinking) Color(0xFFE5E7EB) else Color(0xFF9CA3AF),
                         fontSize = 12.5.sp,
                         fontStyle = FontStyle.Italic
                     )
@@ -137,7 +137,7 @@ fun ThinkingAccordionCard(
                 Icon(
                     imageVector = if (isExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
                     contentDescription = if (isExpanded) "Collapse" else "Expand",
-                    tint = Color(0xFF9EABA2),
+                    tint = Color(0xFF9CA3AF),
                     modifier = Modifier.size(18.dp)
                 )
             }
@@ -151,12 +151,12 @@ fun ThinkingAccordionCard(
                     modifier = Modifier
                         .fillMaxWidth()
                         .heightIn(max = 240.dp)
-                        .background(Color(0xFF1B241E))
+                        .background(Color(0xFF111827))
                         .padding(horizontal = 14.dp, vertical = 10.dp)
                 ) {
                     Text(
                         text = thoughtContent.ifEmpty { "Reasoning in progress…" },
-                        color = Color(0xFFC7D0C9),
+                        color = Color(0xFFE5E7EB),
                         fontSize = 11.5.sp,
                         fontFamily = FontFamily.Monospace,
                         lineHeight = 16.sp,

@@ -72,8 +72,8 @@ fun ActionExecutionCard(
             .fillMaxWidth()
             .padding(vertical = 4.dp),
         shape = RoundedCornerShape(14.dp),
-        color = Color(0xFF232D26), // Forest clay dark surface
-        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF3F4F44))
+        color = Color(0xFF1F2937), // Elevated Charcoal Slate
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF374151))
     ) {
         Row(
             modifier = Modifier
@@ -112,19 +112,19 @@ fun ActionExecutionCard(
                 ) {
                     Text(
                         text = if (status == "running") "Taking Action…" else "Action Complete",
-                        color = Color(0xFFDCD7C9),
+                        color = Color(0xFFF9FAFB),
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold
                     )
                     if (stepNumber != null && stepNumber > 0) {
                         Surface(
                             shape = RoundedCornerShape(6.dp),
-                            color = Color(0xFF3F4F44),
+                            color = Color(0xFF374151),
                             modifier = Modifier.padding(horizontal = 4.dp)
                         ) {
                             Text(
                                 text = "Step $stepNumber",
-                                color = Color(0xFFDCD7C9),
+                                color = Color(0xFFE5E7EB),
                                 fontSize = 10.sp,
                                 modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
                             )
@@ -136,7 +136,7 @@ fun ActionExecutionCard(
 
                 Text(
                     text = reasoning.ifEmpty { "Executing $actionName" },
-                    color = Color(0xFF9EABA2),
+                    color = Color(0xFF9CA3AF),
                     fontSize = 12.sp,
                     maxLines = 2
                 )

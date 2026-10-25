@@ -64,9 +64,19 @@ object AiChatInferenceExecutor {
 
             try {
                 val sb = StringBuilder()
+                var lastMetrics: com.textmorph.app.llm.InferenceMetrics? = null
+
                 val flow = when (engine) {
-                    is LiteRtLmEngine -> engine.generateStreamWithMetrics(prompt = assembledPrompt, imageBytes = imageBytes)
-                    is LlamaCppEngine -> engine.generateStreamWithMetrics(prompt = assembledPrompt, imageBytes = imageBytes)
+                    is LiteRtLmEngine -> engine.generateStreamWithMetrics(
+                        prompt = assembledPrompt,
+                        imageBytes = imageBytes,
+                        onMetricsUpdated = { lastMetrics = it }
+                    )
+                    is LlamaCppEngine -> engine.generateStreamWithMetrics(
+                        prompt = assembledPrompt,
+                        imageBytes = imageBytes,
+                        onMetricsUpdated = { lastMetrics = it }
+                    )
                     else -> engine.generateStream(prompt = assembledPrompt, imageBytes = imageBytes)
                 }
 
@@ -77,7 +87,10 @@ object AiChatInferenceExecutor {
                     chatRepository.updateLastAssistantMessage(
                         sessionId = sessionId,
                         content = answer.ifEmpty { currentText },
-                        thoughtContent = thought
+                        thoughtContent = thought,
+                        tokensPerSecond = lastMetrics?.tokensPerSecond,
+                        totalTokens = lastMetrics?.tokenCount,
+                        durationMs = lastMetrics?.totalDurationMs
                     )
                 }
 
@@ -86,9 +99,12 @@ object AiChatInferenceExecutor {
                 chatRepository.updateLastAssistantMessage(
                     sessionId = sessionId,
                     content = answer.ifEmpty { finalOutput },
-                    thoughtContent = thought
+                    thoughtContent = thought,
+                    tokensPerSecond = lastMetrics?.tokensPerSecond,
+                    totalTokens = lastMetrics?.tokenCount,
+                    durationMs = lastMetrics?.totalDurationMs
                 )
-                AppLogger.d(TAG, "Completed chat turn for session=$sessionId: length=${finalOutput.length}")
+                AppLogger.d(TAG, "Completed chat turn for session=$sessionId: length=${finalOutput.length}, speed=${lastMetrics?.tokensPerSecond} tok/s")
 
                 // Trigger background rolling summarization if message history exceeds trigger count
                 val allMessages = chatRepository.currentMessages.value

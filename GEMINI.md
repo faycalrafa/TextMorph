@@ -88,7 +88,7 @@ flowchart TD
 - **Scoped Storage & Downloads**: Always check `Environment.isExternalStorageManager()` before scanning `/sdcard/Download/` and handle permission denials gracefully with SAF `OpenDocument` fallbacks.
 
 ### D. UI, Themes & Compose Standards (`com.textmorph.app.ui`)
-- **Forest Clay Default Theme**: Screens, cards, and dialogs must default to the Forest Clay palette (`#2C3930`, `#3F4F44`, `#A27B5C`, `#DCD7C9`).
+- **Charcoal Slate Default Theme**: Screens, cards, overlays, and dialogs must default to the Charcoal Slate palette (`#0B1020`, `#111827`, `#1F2937`, `#374151`, `#3B82F6`, `#2563EB`, `#E5E7EB`, `#F9FAFB`), matching the floating companion toolbar design language.
 - **Full-Width Responsive Dialogs**: Every dialog must use `DialogProperties(usePlatformDefaultWidth = false)` and `Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 24.dp)`.
 - **Action Button Wrapping**: Wrap all dialog action buttons in `FlowRow` or vertical stacks to prevent squashing and text truncation on narrow screens.
 - **Morphing Search**: Searchable top bars must expand in-place into a `BasicTextField` with custom cursor brush, clear button, and `BackHandler` interception.

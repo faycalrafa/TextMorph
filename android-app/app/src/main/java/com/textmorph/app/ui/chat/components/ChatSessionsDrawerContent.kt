@@ -56,13 +56,13 @@ fun ChatSessionsDrawerContent(
         modifier = Modifier
             .fillMaxHeight()
             .width(300.dp)
-            .background(Color(0xFF2C3930))
+            .background(Color(0xFF111827))
             .padding(16.dp)
     ) {
         // Header Row
         Text(
             text = "Conversations",
-            color = Color(0xFFDCD7C9),
+            color = Color(0xFFF9FAFB),
             fontSize = 20.sp,
             fontWeight = FontWeight.Bold
         )
@@ -73,8 +73,8 @@ fun ChatSessionsDrawerContent(
             onClick = onNewChat,
             shape = RoundedCornerShape(10.dp),
             colors = ButtonDefaults.buttonColors(
-                containerColor = Color(0xFFA27B5C),
-                contentColor = Color(0xFF2C3930)
+                containerColor = Color(0xFF2563EB),
+                contentColor = Color.White
             ),
             modifier = Modifier.fillMaxWidth()
         ) {
@@ -89,7 +89,7 @@ fun ChatSessionsDrawerContent(
         if (sessions.isEmpty()) {
             Text(
                 text = "No saved conversations.",
-                color = Color(0xFFDCD7C9).copy(alpha = 0.6f),
+                color = Color(0xFF9CA3AF),
                 fontSize = 13.sp,
                 modifier = Modifier.padding(vertical = 12.dp)
             )
@@ -104,10 +104,10 @@ fun ChatSessionsDrawerContent(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(10.dp))
-                            .background(if (isActive) Color(0xFF3F4F44) else Color(0x223F4F44))
+                            .background(if (isActive) Color(0xFF1F2937) else Color(0x401F2937))
                             .border(
                                 width = if (isActive) 1.5.dp else 0.5.dp,
-                                color = if (isActive) Color(0xFFA27B5C) else Color(0x33DCD7C9),
+                                color = if (isActive) Color(0xFF3B82F6) else Color(0xFF374151),
                                 shape = RoundedCornerShape(10.dp)
                             )
                             .clickable { onSelectSession(session.id) }
@@ -117,14 +117,14 @@ fun ChatSessionsDrawerContent(
                         Icon(
                             imageVector = Icons.Default.ChatBubbleOutline,
                             contentDescription = null,
-                            tint = if (isActive) Color(0xFFA27B5C) else Color(0xFFDCD7C9).copy(alpha = 0.6f),
+                            tint = if (isActive) Color(0xFF3B82F6) else Color(0xFF9CA3AF),
                             modifier = Modifier.size(18.dp)
                         )
                         Spacer(modifier = Modifier.width(10.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 text = session.title,
-                                color = Color(0xFFDCD7C9),
+                                color = if (isActive) Color(0xFFF9FAFB) else Color(0xFFE5E7EB),
                                 fontSize = 13.sp,
                                 fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal,
                                 maxLines = 1,
@@ -132,7 +132,7 @@ fun ChatSessionsDrawerContent(
                             )
                             Text(
                                 text = dateFormat.format(Date(session.updatedAt)),
-                                color = Color(0xFFDCD7C9).copy(alpha = 0.5f),
+                                color = Color(0xFF9CA3AF),
                                 fontSize = 10.sp
                             )
                         }
@@ -143,7 +143,7 @@ fun ChatSessionsDrawerContent(
                             Icon(
                                 imageVector = Icons.Default.DeleteOutline,
                                 contentDescription = "Delete Session",
-                                tint = Color(0xFFDCD7C9).copy(alpha = 0.5f),
+                                tint = Color(0xFF9CA3AF),
                                 modifier = Modifier.size(16.dp)
                             )
                         }

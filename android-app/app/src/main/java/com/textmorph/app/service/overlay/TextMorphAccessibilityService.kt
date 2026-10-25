@@ -135,13 +135,14 @@ class TextMorphAccessibilityService : AccessibilityService() {
             if (!keyboardVisible) {
                 userDismissedRibbonForCurrentKeyboardSession = false
                 overlayManager?.onUserNavigatedBack()
-                if (overlayManager?.isBusy() != true) {
+                // Never collapse if the user has manually opened the toolbar or chat overlay
+                if (overlayManager?.isBusy() != true && overlayManager?.isExpanded() != true) {
                     overlayManager?.collapse()
                     if (!settings.alwaysShowFloatingToolbar) {
                         overlayManager?.hide()
                     }
                 }
-                if (settings.alwaysShowFloatingToolbar) {
+                if (settings.alwaysShowFloatingToolbar && overlayManager?.isShowingActive != true) {
                     overlayManager?.show(
                         autoExpand = false,
                         onTakeScreenshot = { callback -> captureScreenContext(callback) },
@@ -160,7 +161,7 @@ class TextMorphAccessibilityService : AccessibilityService() {
                     onTakeScreenshot = { callback -> captureScreenContext(callback) },
                     onExtractTranscript = { extractConversationTranscript() }
                 )
-            } else if (overlayManager?.isBusy() != true) {
+            } else if (overlayManager?.isBusy() != true && overlayManager?.isExpanded() != true) {
                 overlayManager?.collapse()
                 if (!settings.alwaysShowFloatingToolbar) {
                     overlayManager?.hide()
