@@ -210,7 +210,13 @@ class AgentEngine(
                 val finalStatus = if (result.success) com.textmorph.app.agent.model.AgentStepStatus.COMPLETED else com.textmorph.app.agent.model.AgentStepStatus.FAILED
                 onStepsUpdated?.invoke(listOf(initialStep.copy(status = finalStatus, detail = result.details)))
             }
+            if (!result.success) {
+                AppLogger.w(TAG, "Action '${action.action}' failed: ${result.details}")
+            }
             result
+        } catch (ce: kotlinx.coroutines.CancellationException) {
+            AppLogger.d(TAG, "Agent action '${action.action}' cancelled by user.")
+            throw ce
         } catch (e: Exception) {
             AppLogger.e(TAG, "Error executing action ${action.action}: ${e.message}", e)
             AgentActionResult(action.action, false, "Error: ${e.message}")

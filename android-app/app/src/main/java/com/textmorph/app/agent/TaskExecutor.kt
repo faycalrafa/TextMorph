@@ -198,6 +198,9 @@ class TaskExecutor(
                 sb.append(token)
             }
             sb.toString().trim()
+        } catch (ce: kotlinx.coroutines.CancellationException) {
+            AppLogger.d(TAG, "Llm query cancelled by user.")
+            throw ce
         } catch (e: Exception) {
             AppLogger.e(TAG, "Llm query failed: ${e.message}", e)
             ""
@@ -253,13 +256,15 @@ class TaskExecutor(
             GOAL: $goal
             CURRENT SCREEN:
             $screenDump
-            Step $step/$maxSteps. Return ONLY a single JSON object with your next action:
-            {
-              "action": "click_text | click_at | type_text | press_enter | scroll | swipe | open_app | press_back | done",
-              "params": {"text": "...", "x": 540, "y": 960, "direction": "down"},
-              "reasoning": "1 short sentence explaining next step",
-              "is_complete": false
-            }
+            Step $step/$maxSteps. Return ONLY a single action command on one line:
+            - click_text("exact text to click")
+            - click_at(x, y)
+            - type_text("search text", hint="optional field hint")
+            - press_enter()
+            - scroll("down")
+            - open_app("AppName")
+            - press_back()
+            - done("Task summary")
         """.trimIndent()
     }
 

@@ -125,6 +125,10 @@ object AiChatInferenceExecutor {
                     val parsedAction = com.textmorph.app.agent.parser.AgentActionParser.parseAction(effectiveFinalContent)
                     if (parsedAction != null) {
                         AppLogger.i(TAG, "Executing autonomous agent action: ${parsedAction.action}")
+                        // Standalone actions must not inherit stale failure state from previous multi-step tasks
+                        if (parsedAction.action != com.textmorph.app.agent.model.AgentAction.ACTION_EXECUTE_TASK) {
+                            com.textmorph.app.agent.coordinator.TaskExecutionCoordinator.reset()
+                        }
                         chatRepository.updateLastAssistantMessage(
                             sessionId = sessionId,
                             content = parsedAction.response.ifEmpty { "Executing ${parsedAction.action}…" },
@@ -158,16 +162,23 @@ object AiChatInferenceExecutor {
                                     }
                                 }
                             )
+                            val isExecuteTask = parsedAction.action == com.textmorph.app.agent.model.AgentAction.ACTION_EXECUTE_TASK
                             val taskState = com.textmorph.app.agent.coordinator.TaskExecutionCoordinator.state.value
-                            val isInterrupted = taskState.isInterrupted
-                            val isSuccess = result.success && !isInterrupted && !taskState.isFailed
+                            val isInterrupted = if (isExecuteTask) taskState.isInterrupted else false
+                            val isSuccess = if (isExecuteTask) {
+                                result.success && !taskState.isInterrupted && !taskState.isFailed
+                            } else {
+                                result.success
+                            }
                             val finalContent = when {
                                 isInterrupted -> "Task stopped by user."
                                 isSuccess -> parsedAction.response.ifEmpty { result.details }
-                                result.details.startsWith("Task Failed:") || result.details.startsWith("Error:") -> result.details
-                                else -> "Task Failed: ${result.details}"
+                                result.details.startsWith("Task Failed:") ||
+                                    result.details.startsWith("Error:") ||
+                                    result.details.startsWith("Action Failed:") -> result.details
+                                else -> "Action Failed: ${result.details}"
                             }
-                            val finalSteps = if (parsedAction.action == com.textmorph.app.agent.model.AgentAction.ACTION_EXECUTE_TASK) {
+                            val finalSteps = if (isExecuteTask) {
                                 taskState.stepsHistory
                             } else {
                                 val stepStatus = when {
@@ -191,7 +202,13 @@ object AiChatInferenceExecutor {
                                 actionStatus = if (isInterrupted) "interrupted" else if (isSuccess) "success" else "failed",
                                 actionStepsJson = com.textmorph.app.agent.model.AgentTaskStep.serializeList(finalSteps)
                             )
-                            AppLogger.i(TAG, "Completed agent action ${parsedAction.action}: success=$isSuccess, status=${if (isInterrupted) "interrupted" else if (isSuccess) "success" else "failed"}")
+                            if (!isSuccess && !isInterrupted) {
+                                AppLogger.w(TAG, "Agent action '${parsedAction.action}' failed: $finalContent (details='${result.details}')")
+                            } else if (isSuccess) {
+                                AppLogger.i(TAG, "Agent action '${parsedAction.action}' succeeded: ${result.details}")
+                            } else {
+                                AppLogger.i(TAG, "Agent action '${parsedAction.action}' interrupted by user.")
+                            }
                         } catch (ce: kotlinx.coroutines.CancellationException) {
                             AppLogger.i(TAG, "Agent action execution cancelled by user.")
                             com.textmorph.app.agent.coordinator.TaskExecutionCoordinator.interrupt()
@@ -203,7 +220,7 @@ object AiChatInferenceExecutor {
                             )
                             throw ce
                         } catch (actEx: Exception) {
-                            AppLogger.e(TAG, "Action execution failed: ${actEx.message}", actEx)
+                            AppLogger.e(TAG, "Agent action '${parsedAction.action}' threw exception: ${actEx.message}", actEx)
                             chatRepository.updateLastAssistantMessage(
                                 sessionId = sessionId,
                                 content = "Error: ${actEx.message}",

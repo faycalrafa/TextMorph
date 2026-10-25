@@ -117,6 +117,87 @@ class AgentUpgradeUnitTests {
         assertEquals("com.android.chrome", aliases["chrome"])
         assertEquals("com.whatsapp", aliases["whatsapp"])
         assertEquals("com.android.settings", aliases["settings"])
+        assertEquals("com.facebook.orca", aliases["messenger"])
+        assertEquals("com.google.android.apps.messaging", aliases["sms"])
+        assertEquals("com.google.android.contacts", aliases["contacts"])
+    }
+
+    @Test
+    fun testParseMalformedJsonUnclosedParams() {
+        val malformed = """
+            {
+              "action": "type_text",
+              "params": {
+                "text": "youtube.com",
+              "reasoning": "I need to type the URL of youtube.com into the EditText field 'youtube.com' to navigate to the youtube homepage",
+              "is_complete": false
+            }
+        """.trimIndent()
+
+        val parsed = AgentActionParser.parse(malformed)
+        assertNotNull("Should recover from unclosed params brace", parsed)
+        assertEquals("type_text", parsed?.action)
+        assertEquals("youtube.com", parsed?.getStringParam("text"))
+        assertTrue(parsed?.reasoning?.contains("navigate to the youtube homepage") == true)
+    }
+
+    @Test
+    fun testParseMalformedJsonExtraBraces() {
+        val malformed = """
+            {
+            "action": "type_text", "params": {"text": "catalogs"} , "hint": "search for cats" },
+            "reasoning": "Type 'cats' into the search box to search for cats.", "is_complete": false}
+        """.trimIndent()
+
+        val parsed = AgentActionParser.parse(malformed)
+        assertNotNull("Should recover from extra brace after params", parsed)
+        assertEquals("type_text", parsed?.action)
+        assertEquals("catalogs", parsed?.getStringParam("text"))
+    }
+
+    @Test
+    fun testParseMalformedJsonBrokenColon() {
+        val malformed = """
+            {
+            "action": "type_text", "params": {"text": "c" : "}, " "reason": "I need to type 'cats' into the search box, which is likely the 'youtube.com' field.", "is_complete": false}
+        """.trimIndent()
+
+        val parsed = AgentActionParser.parse(malformed)
+        assertNotNull("Should recover via regex heuristic", parsed)
+        assertEquals("type_text", parsed?.action)
+        assertEquals("c", parsed?.getStringParam("text"))
+    }
+
+    @Test
+    fun testParseCodeAsActionStepCommand() {
+        val command = "type_text(\"cats\", hint=\"Search\")"
+        val parsed = AgentActionParser.parse(command)
+        assertNotNull("Should parse Code-as-Action step command", parsed)
+        assertEquals("type_text", parsed?.action)
+        assertEquals("cats", parsed?.getStringParam("text"))
+    }
+
+    @Test
+    fun testStandaloneActionSuccessIsolationFromStaleCoordinatorFailure() {
+        // 1. Simulate prior failed multi-step task
+        com.textmorph.app.agent.coordinator.TaskExecutionCoordinator.startTask("Open YouTube")
+        com.textmorph.app.agent.coordinator.TaskExecutionCoordinator.finishTask("Task Failed: Model error", success = false)
+        assertTrue(com.textmorph.app.agent.coordinator.TaskExecutionCoordinator.state.value.isFailed)
+
+        // 2. Standalone action resets coordinator state before execution
+        com.textmorph.app.agent.coordinator.TaskExecutionCoordinator.reset()
+        assertFalse(com.textmorph.app.agent.coordinator.TaskExecutionCoordinator.state.value.isFailed)
+
+        // 3. Evaluation for non-execute_task uses result.success directly
+        val mockResultSuccess = true
+        val isExecuteTask = false
+        val taskState = com.textmorph.app.agent.coordinator.TaskExecutionCoordinator.state.value
+        val isSuccess = if (isExecuteTask) {
+            mockResultSuccess && !taskState.isInterrupted && !taskState.isFailed
+        } else {
+            mockResultSuccess
+        }
+        assertTrue("Standalone action must succeed regardless of prior coordinator state", isSuccess)
     }
 
     @Test

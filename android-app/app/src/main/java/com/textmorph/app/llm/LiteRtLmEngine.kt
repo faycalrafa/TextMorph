@@ -305,7 +305,11 @@ class LiteRtLmEngine(private val context: Context) : LlmEngine {
                                 }
 
                                 override fun onError(throwable: Throwable) {
-                                    AppLogger.e(TAG, "Conversation stream error: ${throwable.message}", throwable)
+                                    if (throwable is java.util.concurrent.CancellationException || throwable is kotlinx.coroutines.CancellationException) {
+                                        AppLogger.d(TAG, "Conversation stream cancelled: ${throwable.message}")
+                                    } else {
+                                        AppLogger.e(TAG, "Conversation stream error: ${throwable.message}", throwable)
+                                    }
                                     completionDeferred.completeExceptionally(throwable)
                                 }
                             }
@@ -353,7 +357,11 @@ class LiteRtLmEngine(private val context: Context) : LlmEngine {
                             }
 
                             override fun onError(throwable: Throwable) {
-                                AppLogger.e(TAG, "Native stream error: ${throwable.message}", throwable)
+                                if (throwable is java.util.concurrent.CancellationException || throwable is kotlinx.coroutines.CancellationException) {
+                                    AppLogger.d(TAG, "Native stream cancelled: ${throwable.message}")
+                                } else {
+                                    AppLogger.e(TAG, "Native stream error: ${throwable.message}", throwable)
+                                }
                                 completionDeferred.completeExceptionally(throwable)
                             }
                         })

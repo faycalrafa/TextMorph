@@ -33,6 +33,11 @@ class AppLauncherTool(private val context: Context) {
             "files" to "com.google.android.documentsui",
             "telegram" to "org.telegram.messenger",
             "messages" to "com.google.android.apps.messaging",
+            "messenger" to "com.facebook.orca",
+            "facebook messenger" to "com.facebook.orca",
+            "google messages" to "com.google.android.apps.messaging",
+            "sms" to "com.google.android.apps.messaging",
+            "contacts" to "com.google.android.contacts",
             "phone" to "com.google.android.dialer"
         )
     }
