@@ -1,6 +1,8 @@
 package com.textmorph.app.service.overlay
 
+import android.content.Context
 import android.graphics.PixelFormat
+import android.provider.Settings
 import android.util.DisplayMetrics
 import android.view.Gravity
 import android.view.WindowManager
@@ -36,14 +38,21 @@ object OverlayLayoutParamsHelper {
         return ScreenBounds(screenWidth, screenHeight, density, minX, maxX, minY, maxY)
     }
 
-    fun createInitialParams(initialX: Int, initialY: Int): WindowManager.LayoutParams {
+    fun resolveOverlayWindowType(context: Context): Int {
+        return if (Settings.canDrawOverlays(context)) {
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+        } else {
+            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
+        }
+    }
+
+    fun createInitialParams(initialX: Int, initialY: Int, windowType: Int = WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY): WindowManager.LayoutParams {
         return WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
-            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            windowType,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                    WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
-                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                    WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
@@ -55,8 +64,8 @@ object OverlayLayoutParamsHelper {
     fun applyCollapsedBubble(params: WindowManager.LayoutParams, x: Int, y: Int) {
         params.width = WindowManager.LayoutParams.WRAP_CONTENT
         params.height = WindowManager.LayoutParams.WRAP_CONTENT
-        params.flags = params.flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
-        params.flags = params.flags and WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH.inv()
+        params.flags = (params.flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE) and WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH.inv()
+        params.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_STATE_UNCHANGED
         params.x = x
         params.y = y
     }
@@ -65,8 +74,8 @@ object OverlayLayoutParamsHelper {
         val marginPx = (8 * bounds.density).roundToInt()
         params.width = bounds.screenWidth - (marginPx * 2)
         params.height = WindowManager.LayoutParams.WRAP_CONTENT
-        params.flags = params.flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
-        params.flags = params.flags and WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH.inv()
+        params.flags = (params.flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE) and WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH.inv()
+        params.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_STATE_UNCHANGED
         params.x = marginPx
         params.y = (userY ?: (bounds.screenHeight / 2)).coerceIn(bounds.minY, bounds.maxY)
     }
@@ -74,19 +83,20 @@ object OverlayLayoutParamsHelper {
     fun applyExpandedChat(
         params: WindowManager.LayoutParams,
         bounds: ScreenBounds,
-        isInputFocused: Boolean
+        isInputFocused: Boolean = true
     ) {
         val marginPx = (12 * bounds.density).roundToInt()
         params.width = bounds.screenWidth - (marginPx * 2)
         params.height = (bounds.screenHeight * 0.65f).roundToInt().coerceAtLeast((420 * bounds.density).roundToInt())
         params.x = marginPx
-        params.y = (32 * bounds.density).roundToInt()
+        params.y = (44 * bounds.density).roundToInt()
 
-        if (isInputFocused) {
-            params.flags = params.flags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE.inv()
-        } else {
-            params.flags = params.flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
-        }
+        params.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
+
+        // Clear FLAG_NOT_FOCUSABLE so soft keyboard works when chat input is focused
+        params.flags = params.flags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE.inv()
+        params.flags = params.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+        params.flags = params.flags or WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH
     }
 
     fun applyAutomatingAction(params: WindowManager.LayoutParams, bounds: ScreenBounds, targetX: Int, targetY: Int) {
@@ -94,6 +104,7 @@ object OverlayLayoutParamsHelper {
         params.width = bubbleSizePx
         params.height = bubbleSizePx
         params.flags = params.flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+        params.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_STATE_UNCHANGED
         params.x = (targetX - bubbleSizePx / 2).coerceIn(bounds.minX, bounds.maxX)
         params.y = (targetY - bubbleSizePx / 2).coerceIn(bounds.minY, bounds.maxY)
     }

@@ -50,6 +50,13 @@ class ChatSessionRepository private constructor(private val context: Context) {
     private val _currentMessages = MutableStateFlow<List<ChatMessageEntity>>(emptyList())
     val currentMessages: StateFlow<List<ChatMessageEntity>> = _currentMessages.asStateFlow()
 
+    private val _activeGenerationStatus = MutableStateFlow<String?>(null)
+    val activeGenerationStatus: StateFlow<String?> = _activeGenerationStatus.asStateFlow()
+
+    fun setGenerationStatus(status: String?) {
+        _activeGenerationStatus.value = status
+    }
+
     suspend fun switchSession(sessionId: String) = selectSession(sessionId)
 
     suspend fun clearSessionMessages(sessionId: String) = withContext(Dispatchers.IO) {
@@ -70,13 +77,25 @@ class ChatSessionRepository private constructor(private val context: Context) {
         mutex.withLock {
             try {
                 if (!indexFile.exists()) {
-                    AppLogger.d(TAG, "No chat session index found. Initializing empty list.")
-                    _sessionsState.value = emptyList()
+                    AppLogger.d(TAG, "No chat session index found. Creating initial default session.")
+                    val defaultSession = ChatSessionEntity(title = "Default Chat")
+                    _sessionsState.value = listOf(defaultSession)
+                    _activeSessionId.value = defaultSession.id
+                    saveIndexToDisk(listOf(defaultSession))
+                    saveMessagesToDisk(defaultSession.id, emptyList())
                     return@withContext
                 }
                 val content = indexFile.readText()
                 val parsed = json.decodeFromString<List<ChatSessionEntity>>(content)
                 val sorted = parsed.sortedByDescending { it.updatedAt }
+                if (sorted.isEmpty()) {
+                    val defaultSession = ChatSessionEntity(title = "Default Chat")
+                    _sessionsState.value = listOf(defaultSession)
+                    _activeSessionId.value = defaultSession.id
+                    saveIndexToDisk(listOf(defaultSession))
+                    saveMessagesToDisk(defaultSession.id, emptyList())
+                    return@withContext
+                }
                 _sessionsState.value = sorted
                 AppLogger.i(TAG, "Loaded ${sorted.size} chat sessions from storage.")
 
@@ -240,6 +259,34 @@ class ChatSessionRepository private constructor(private val context: Context) {
                 }
             }
             AppLogger.i(TAG, "Deleted session $sessionId (remaining=${updated.size})")
+        }
+    }
+
+    suspend fun setAgentMode(sessionId: String, isAgentMode: Boolean) = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            val sessions = _sessionsState.value.toMutableList()
+            val index = sessions.indexOfFirst { it.id == sessionId }
+            if (index != -1) {
+                val updated = sessions[index].copy(isAgentMode = isAgentMode, updatedAt = System.currentTimeMillis())
+                sessions[index] = updated
+                _sessionsState.value = sessions
+                saveIndexToDisk(sessions)
+                AppLogger.d(TAG, "Updated agent mode to $isAgentMode for session $sessionId")
+            }
+        }
+    }
+
+    suspend fun truncateMessages(sessionId: String, messageId: String, inclusive: Boolean) = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            val existing = _currentMessages.value.toMutableList()
+            val index = existing.indexOfFirst { it.id == messageId }
+            if (index != -1) {
+                val keepUntil = if (inclusive) index else index + 1
+                val truncated = existing.subList(0, keepUntil).toList()
+                _currentMessages.value = truncated
+                saveMessagesToDisk(sessionId, truncated)
+                AppLogger.i(TAG, "Truncated messages for session $sessionId at message $messageId (inclusive=$inclusive, remaining=${truncated.size})")
+            }
         }
     }
 

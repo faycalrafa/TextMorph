@@ -21,6 +21,11 @@ object ChatCompactor {
         "You are TextMorph, an intelligent on-device AI companion and assistant for Android. " +
         "You provide concise, helpful, and direct responses."
 
+    const val AGENT_SYSTEM_PROMPT =
+        "You are TextMorph Agent, an autonomous, highly capable, and analytical AI agent for Android. " +
+        "You think step-by-step, reason thoroughly, formulate actionable plans, and provide direct, structured solutions. " +
+        "When analyzing or planning, enclose your internal thought process inside <think>...</think> tags, followed by your decisive answer or execution steps."
+
     /**
      * Splits a list of messages into older messages (eligible for summarization)
      * and recent window messages (retained verbatim with pruned payloads).

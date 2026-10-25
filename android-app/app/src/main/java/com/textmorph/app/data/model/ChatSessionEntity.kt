@@ -15,6 +15,7 @@ data class ChatSessionEntity(
     val engineType: String = "",
     val totalTokens: Int = 0,
     val isPinned: Boolean = false,
+    val isAgentMode: Boolean = false,
     val summary: String? = null,
     val sessionState: String? = null,
     val maxContextTokens: Int = 2048

@@ -35,10 +35,12 @@ object AiChatInferenceExecutor {
 
         val activeSession = chatRepository.getActiveSession()
         val priorMessages = chatRepository.currentMessages.value
+        val isAgent = activeSession?.isAgentMode == true
+        val systemPrompt = if (isAgent) ChatCompactor.AGENT_SYSTEM_PROMPT else ChatCompactor.DEFAULT_SYSTEM_PROMPT
 
         // Assemble sliding-window multi-turn inference prompt with compressed history & session state
         val assembledPrompt = ChatCompactor.assembleInferencePrompt(
-            systemPrompt = ChatCompactor.DEFAULT_SYSTEM_PROMPT,
+            systemPrompt = systemPrompt,
             sessionSummary = activeSession?.summary,
             sessionState = activeSession?.sessionState,
             historyMessages = priorMessages,
@@ -62,6 +64,13 @@ object AiChatInferenceExecutor {
             chatRepository.appendMessage(userEntity)
             chatRepository.appendMessage(aiPlaceholder)
 
+            val isModelLoaded = when (engine) {
+                is LiteRtLmEngine -> engine.sessionState.value.isLoaded
+                is LlamaCppEngine -> engine.sessionState.value.isLoaded
+                else -> true
+            }
+            chatRepository.setGenerationStatus(if (!isModelLoaded) "Loading model into memory…" else "Thinking…")
+
             try {
                 val sb = StringBuilder()
                 var lastMetrics: com.textmorph.app.llm.InferenceMetrics? = null
@@ -81,6 +90,7 @@ object AiChatInferenceExecutor {
                 }
 
                 flow.collect { chunk ->
+                    chatRepository.setGenerationStatus(null)
                     sb.append(chunk)
                     val currentText = sb.toString()
                     val (thought, answer) = extractThought(currentText)
@@ -129,19 +139,24 @@ object AiChatInferenceExecutor {
                     content = "Error: ${e.message}"
                 )
             } finally {
+                chatRepository.setGenerationStatus(null)
                 onComplete()
             }
         }
         setJob(job)
     }
 
-    private fun extractThought(rawText: String): Pair<String?, String> {
-        if (!rawText.contains("<think>")) return null to rawText
-        val start = rawText.indexOf("<think>") + 7
-        val end = rawText.indexOf("</think>")
+    fun extractThought(rawText: String): Pair<String?, String> {
+        val thinkTag = when {
+            rawText.contains("<think>") -> "<think>" to "</think>"
+            rawText.contains("<thought>") -> "<thought>" to "</thought>"
+            else -> return null to rawText
+        }
+        val start = rawText.indexOf(thinkTag.first) + thinkTag.first.length
+        val end = rawText.indexOf(thinkTag.second)
         return if (end != -1) {
             val thought = rawText.substring(start, end).trim()
-            val answer = rawText.substring(end + 8).trim()
+            val answer = rawText.substring(end + thinkTag.second.length).trim()
             thought to answer
         } else {
             val thought = rawText.substring(start).trim()

@@ -279,11 +279,8 @@ class LlamaCppEngine(private val context: Context) : LlmEngine {
 
                     var emittedAnyToken = false
                     ctx.setTokenCallback { token ->
-                        // Strict No-Thinking Policy: strip raw thinking blocks
-                        if (!token.contains("<think>") && !token.contains("</think>")) {
-                            emittedAnyToken = true
-                            trySend(token)
-                        }
+                        emittedAnyToken = true
+                        trySend(token)
                     }
 
                     val settings = runCatching { SettingsRepository.getInstance(context).settingsState.value }.getOrNull()
@@ -303,9 +300,8 @@ class LlamaCppEngine(private val context: Context) : LlmEngine {
                     val result = ctx.completion(completionParams)
                     if (!emittedAnyToken) {
                         val textResult = (result["text"] as? String).orEmpty()
-                        val clean = textResult.replace(Regex("<think>[\\s\\S]*?</think>"), "").trim()
-                        if (clean.isNotBlank()) {
-                            send(clean)
+                        if (textResult.isNotBlank()) {
+                            send(textResult)
                         }
                     }
                 } catch (cancelEx: CancellationException) {

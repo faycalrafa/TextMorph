@@ -1,5 +1,6 @@
 package com.textmorph.app.ui.navigation.components
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -14,8 +15,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.BugReport
+import androidx.compose.material.icons.filled.ChatBubbleOutline
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Settings
@@ -38,10 +42,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.textmorph.app.data.model.AppSettings
+import com.textmorph.app.data.model.ChatSessionEntity
 import com.textmorph.app.ui.navigation.AppDestination
 
 /**
- * Clean side navigation drawer sheet for TextMorph, extracted to keep MainAppScaffold under 500 lines.
+ * Clean side navigation drawer sheet for TextMorph with multi-tab chat integration.
+ * Extracted to keep MainAppScaffold under 500 lines.
  */
 @Composable
 fun AppNavigationDrawerSheet(
@@ -49,7 +55,12 @@ fun AppNavigationDrawerSheet(
     installedVersionName: String,
     settings: AppSettings,
     isDrawerOpen: Boolean,
-    onSelectDestination: (AppDestination) -> Unit
+    onSelectDestination: (AppDestination) -> Unit,
+    sessions: List<ChatSessionEntity> = emptyList(),
+    activeSessionId: String? = null,
+    onSelectSession: (String) -> Unit = {},
+    onNewChat: () -> Unit = {},
+    onDeleteSession: (String) -> Unit = {}
 ) {
     ModalDrawerSheet(
         drawerContainerColor = MaterialTheme.colorScheme.surface,
@@ -97,13 +108,59 @@ fun AppNavigationDrawerSheet(
                     onClick = { onSelectDestination(AppDestination.MODEL_HUB) }
                 )
 
-                DrawerNavItem(
-                    icon = Icons.Default.AutoAwesome,
-                    title = "AI Playground & Chat",
-                    subtitle = "Interactive testbed & automation",
-                    isSelected = currentDestination == AppDestination.CHAT,
-                    onClick = { onSelectDestination(AppDestination.CHAT) }
-                )
+                Spacer(modifier = Modifier.height(6.dp))
+                HorizontalDivider(modifier = Modifier.padding(horizontal = 12.dp))
+                Spacer(modifier = Modifier.height(6.dp))
+
+                // Chats / Multi-Tab Section Header
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = "Conversations",
+                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    IconButton(
+                        onClick = onNewChat,
+                        modifier = Modifier.size(28.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Add,
+                            contentDescription = "New Chat",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+
+                if (sessions.isEmpty()) {
+                    DrawerNavItem(
+                        icon = Icons.Default.ChatBubbleOutline,
+                        title = "Default Chat",
+                        subtitle = "Active conversation",
+                        isSelected = currentDestination == AppDestination.CHAT,
+                        onClick = { onSelectDestination(AppDestination.CHAT) }
+                    )
+                } else {
+                    sessions.forEach { session ->
+                        val isSessionSelected = currentDestination == AppDestination.CHAT && activeSessionId == session.id
+                        DrawerChatSessionItem(
+                            session = session,
+                            isSelected = isSessionSelected,
+                            canDelete = sessions.size > 1,
+                            onClick = {
+                                onSelectSession(session.id)
+                                onSelectDestination(AppDestination.CHAT)
+                            },
+                            onDelete = { onDeleteSession(session.id) }
+                        )
+                    }
+                }
             }
 
             HorizontalDivider()
@@ -169,6 +226,67 @@ fun AppNavigationDrawerSheet(
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
                         modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DrawerChatSessionItem(
+    session: ChatSessionEntity,
+    isSelected: Boolean,
+    canDelete: Boolean,
+    onClick: () -> Unit,
+    onDelete: () -> Unit
+) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(10.dp),
+        color = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f) else Color.Transparent,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 2.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(start = 12.dp, end = 6.dp, top = 8.dp, bottom = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = if (session.isAgentMode) Icons.Default.AutoAwesome else Icons.Default.ChatBubbleOutline,
+                contentDescription = null,
+                tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(18.dp)
+            )
+            Spacer(modifier = Modifier.width(10.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = session.title,
+                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium),
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = if (session.isAgentMode) "Agent Mode" else "Chat",
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                        fontSize = 10.5.sp
+                    ),
+                    maxLines = 1
+                )
+            }
+            if (canDelete) {
+                IconButton(
+                    onClick = onDelete,
+                    modifier = Modifier.size(24.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Delete chat",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                        modifier = Modifier.size(14.dp)
                     )
                 }
             }

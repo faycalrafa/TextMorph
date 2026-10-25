@@ -98,6 +98,18 @@ class FloatingToolbarWindowManager(
         service.mainHandler.post { userNavigatedBackHandler?.invoke() }
     }
 
+    fun handleCollapsedBubbleClick() {
+        val settings = settingsRepository.settingsState.value
+        val isKeyboardOpen = service.isKeyboardVisible()
+        val hasInputText = service.getLiveInputText().isNotBlank()
+        if (settings.alwaysShowFloatingToolbar && !isKeyboardOpen && !hasInputText) {
+            AppLogger.d(TAG, "Direct to chat triggered (no keyboard, blank input)")
+            transitionTo(OverlayDisplayState.EXPANDED_CHAT)
+        } else {
+            transitionTo(OverlayDisplayState.EXPANDED_TOOLBAR)
+        }
+    }
+
     fun collapse() {
         service.mainHandler.post {
             try {
@@ -152,7 +164,8 @@ class FloatingToolbarWindowManager(
                         service.onRibbonManuallyOpened()
                     }
                     OverlayDisplayState.EXPANDED_CHAT -> {
-                        OverlayLayoutParamsHelper.applyExpandedChat(params, bounds, isChatInputFocused)
+                        OverlayLayoutParamsHelper.applyExpandedChat(params, bounds)
+                        setChatInputFocused(true)
                         service.onRibbonManuallyOpened()
                     }
                     OverlayDisplayState.AUTOMATING_ACTION -> {
@@ -189,7 +202,8 @@ class FloatingToolbarWindowManager(
             bubbleAnchorX = initialX
             bubbleAnchorY = initialY
 
-            val params = OverlayLayoutParamsHelper.createInitialParams(initialX, initialY)
+            val windowType = OverlayLayoutParamsHelper.resolveOverlayWindowType(service)
+            val params = OverlayLayoutParamsHelper.createInitialParams(initialX, initialY, windowType)
             windowParams = params
 
             overlayContainer = FloatingOverlayContainer(
@@ -228,14 +242,17 @@ class FloatingToolbarWindowManager(
                 onSingleTap = {
                     AppLogger.d(TAG, "Single tap on overlay container. Current state: $displayState")
                     when (displayState) {
-                        OverlayDisplayState.COLLAPSED_BUBBLE -> transitionTo(OverlayDisplayState.EXPANDED_TOOLBAR)
+                        OverlayDisplayState.COLLAPSED_BUBBLE -> handleCollapsedBubbleClick()
                         OverlayDisplayState.EXPANDED_TOOLBAR -> singleTapHandler?.invoke() ?: transitionTo(OverlayDisplayState.COLLAPSED_BUBBLE)
                         OverlayDisplayState.EXPANDED_CHAT -> transitionTo(OverlayDisplayState.COLLAPSED_BUBBLE)
                         OverlayDisplayState.AUTOMATING_ACTION -> actionExecutor.stopExecution()
                     }
                 },
                 onOutsideTap = {
-                    AppLogger.d(TAG, "Outside tap intercepted.")
+                    AppLogger.d(TAG, "Outside tap intercepted in state $displayState")
+                    if (displayState == OverlayDisplayState.EXPANDED_CHAT || displayState == OverlayDisplayState.EXPANDED_TOOLBAR) {
+                        collapse()
+                    }
                 }
             ).apply {
                 setViewTreeLifecycleOwner(serviceLifecycleOwner)
@@ -260,7 +277,7 @@ class FloatingToolbarWindowManager(
                                     FloatingEdgePill(
                                         state = FloatingButtonState.IDLE,
                                         isDragging = isDraggingState.value,
-                                        onClick = { transitionTo(OverlayDisplayState.EXPANDED_TOOLBAR) }
+                                        onClick = { handleCollapsedBubbleClick() }
                                     )
                                 }
                                 OverlayDisplayState.EXPANDED_TOOLBAR -> {

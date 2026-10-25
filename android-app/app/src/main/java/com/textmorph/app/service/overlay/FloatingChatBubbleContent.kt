@@ -88,6 +88,10 @@ fun FloatingChatBubbleContent(
 
     val currentSessionId by chatSessionRepository.activeSessionId.collectAsState()
     val messages by chatSessionRepository.currentMessages.collectAsState()
+    val activeGenerationStatus by chatSessionRepository.activeGenerationStatus.collectAsState()
+    val sessions by chatSessionRepository.sessionsState.collectAsState()
+    val activeSession = sessions.find { it.id == currentSessionId }
+    val isAgentMode = activeSession?.isAgentMode == true
 
     var inputText by remember { mutableStateOf("") }
     var isGenerating by remember { mutableStateOf(false) }
@@ -96,6 +100,48 @@ fun FloatingChatBubbleContent(
 
     val voiceHelper = remember { VoiceInputHelper(context) }
     val isListening by voiceHelper.isListening.collectAsState()
+
+    fun sendPrompt(promptText: String) {
+        val activeId = currentSessionId ?: return
+        val isVisionCapable = liteRtEngine.sessionState.value.isVisionCapable ||
+            llamaCppEngine.sessionState.value.isVisionCapable
+        val (validatedAttachments, warning) = AttachmentPickerHelper.validateAttachments(
+            modelName = activeModelName,
+            isVisionSupported = isVisionCapable,
+            items = attachments.toList()
+        )
+        warning?.let { Toast.makeText(context, it, Toast.LENGTH_LONG).show() }
+
+        val primaryImage = validatedAttachments.firstOrNull { it.isImage }
+        val imgBytes = primaryImage?.bitmap?.let { bmp ->
+            val baos = ByteArrayOutputStream()
+            bmp.compress(Bitmap.CompressFormat.PNG, 100, baos)
+            baos.toByteArray()
+        }
+        val docText = validatedAttachments.firstOrNull { !it.isImage }?.textContent
+
+        inputText = ""
+        attachments.clear()
+
+        val activeEngine = when {
+            liteRtEngine.sessionState.value.isLoaded -> liteRtEngine
+            llamaCppEngine.sessionState.value.isLoaded -> llamaCppEngine
+            else -> cloudEngine
+        }
+
+        AiChatInferenceExecutor.executeTurn(
+            sessionId = activeId,
+            prompt = promptText,
+            imageBytes = imgBytes,
+            documentText = docText,
+            engine = activeEngine,
+            chatRepository = chatSessionRepository,
+            scope = scope,
+            onStart = { isGenerating = true },
+            onComplete = { isGenerating = false },
+            setJob = { generationJob = it }
+        )
+    }
 
     val contextMetrics = remember(messages, inputText, attachments.size, currentSessionId) {
         chatSessionRepository.computeActiveContextMetrics(
@@ -154,12 +200,32 @@ fun FloatingChatBubbleContent(
                     }
                     Spacer(modifier = Modifier.width(8.dp))
                     Column {
-                        Text(
-                            text = "TextMorph Agent",
-                            color = Color(0xFFF9FAFB),
-                            fontSize = 12.5.sp,
-                            fontWeight = FontWeight.Bold
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "TextMorph",
+                                color = Color(0xFFF9FAFB),
+                                fontSize = 12.5.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = if (isAgentMode) Color(0x333B82F6) else Color(0x22374151),
+                                border = BorderStroke(1.dp, if (isAgentMode) Color(0xFF3B82F6) else Color(0x444B5563)),
+                                onClick = {
+                                    val currentId = currentSessionId ?: return@Surface
+                                    scope.launch { chatSessionRepository.setAgentMode(currentId, !isAgentMode) }
+                                }
+                            ) {
+                                Text(
+                                    text = if (isAgentMode) "✦ Agent" else "💬 Chat",
+                                    fontSize = 9.5.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = if (isAgentMode) Color(0xFF60A5FA) else Color(0xFF9CA3AF),
+                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
                         Text(
                             text = activeModelName,
                             color = Color(0xFF60A5FA),
@@ -257,7 +323,23 @@ fun FloatingChatBubbleContent(
                 items(messages, key = { it.id }) { msg ->
                     ChatMessageItemView(
                         message = msg,
-                        isGenerating = isGenerating && msg.id == messages.lastOrNull()?.id
+                        isGenerating = isGenerating && msg.id == messages.lastOrNull()?.id,
+                        generationStatus = activeGenerationStatus,
+                        onEditPrompt = { userMsg ->
+                            val activeId = currentSessionId ?: return@ChatMessageItemView
+                            inputText = userMsg.content
+                            scope.launch {
+                                chatSessionRepository.truncateMessages(activeId, userMsg.id, inclusive = true)
+                            }
+                            onFocusRequested(true)
+                        },
+                        onRetryPrompt = { userMsg ->
+                            val activeId = currentSessionId ?: return@ChatMessageItemView
+                            scope.launch {
+                                chatSessionRepository.truncateMessages(activeId, userMsg.id, inclusive = true)
+                                sendPrompt(userMsg.content)
+                            }
+                        }
                     )
                 }
             }
@@ -269,6 +351,7 @@ fun FloatingChatBubbleContent(
                     inputText = text
                     onFocusRequested(true)
                 },
+                onInputFocus = { onFocusRequested(true) },
                 isGenerating = isGenerating,
                 isListening = isListening,
                 attachments = attachments,
@@ -305,47 +388,7 @@ fun FloatingChatBubbleContent(
                         return@ChatInputBar
                     }
 
-                    val activeId = currentSessionId ?: return@ChatInputBar
-
-                    // Validate attachments against model capabilities
-                    val isVisionCapable = liteRtEngine.sessionState.value.isVisionCapable ||
-                        llamaCppEngine.sessionState.value.isVisionCapable
-                    val (validatedAttachments, warning) = AttachmentPickerHelper.validateAttachments(
-                        modelName = activeModelName,
-                        isVisionSupported = isVisionCapable,
-                        items = attachments.toList()
-                    )
-                    warning?.let { Toast.makeText(context, it, Toast.LENGTH_LONG).show() }
-
-                    val primaryImage = validatedAttachments.firstOrNull { it.isImage }
-                    val imgBytes = primaryImage?.bitmap?.let { bmp ->
-                        val baos = ByteArrayOutputStream()
-                        bmp.compress(Bitmap.CompressFormat.PNG, 100, baos)
-                        baos.toByteArray()
-                    }
-                    val docText = validatedAttachments.firstOrNull { !it.isImage }?.textContent
-
-                    inputText = ""
-                    attachments.clear()
-
-                    val activeEngine = when {
-                        liteRtEngine.sessionState.value.isLoaded -> liteRtEngine
-                        llamaCppEngine.sessionState.value.isLoaded -> llamaCppEngine
-                        else -> cloudEngine
-                    }
-
-                    AiChatInferenceExecutor.executeTurn(
-                        sessionId = activeId,
-                        prompt = promptText,
-                        imageBytes = imgBytes,
-                        documentText = docText,
-                        engine = activeEngine,
-                        chatRepository = chatSessionRepository,
-                        scope = scope,
-                        onStart = { isGenerating = true },
-                        onComplete = { isGenerating = false },
-                        setJob = { generationJob = it }
-                    )
+                    sendPrompt(promptText)
                 },
                 onStop = {
                     generationJob?.cancel()

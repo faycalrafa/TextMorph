@@ -7,6 +7,7 @@ import android.widget.Toast
 import com.textmorph.app.data.model.ContextAction
 import com.textmorph.app.data.model.PromptEntity
 import com.textmorph.app.data.model.SlashCommandEntity
+import com.textmorph.app.llm.LiteRtLmSessionDelegate
 import com.textmorph.app.llm.LlmEngine
 import com.textmorph.app.service.overlay.FloatingButtonState
 import com.textmorph.app.ui.camera.CameraCaptureActivity
@@ -167,14 +168,14 @@ class ToolbarActionHandler(
                     val now = System.currentTimeMillis()
                     if (now - lastStreamFlushTime >= 80L || token.contains("\n") || token.contains(".")) {
                         lastStreamFlushTime = now
-                        val intermediate = sb.toString()
+                        val intermediate = LiteRtLmSessionDelegate.sanitizeNoThinking(sb.toString())
                         if (intermediate.isNotEmpty()) {
                             onInsertText(intermediate, true)
                         }
                     }
                 }
 
-                val finalOutput = sb.toString().trim()
+                val finalOutput = LiteRtLmSessionDelegate.sanitizeNoThinking(sb.toString().trim())
                 if (finalOutput.isNotEmpty()) {
                     onInsertText(finalOutput, false)
                     try {
@@ -220,14 +221,14 @@ class ToolbarActionHandler(
                     val now = System.currentTimeMillis()
                     if (now - lastStreamFlushTime >= 80L || token.contains("\n") || token.contains(".")) {
                         lastStreamFlushTime = now
-                        val intermediate = sb.toString()
+                        val intermediate = LiteRtLmSessionDelegate.sanitizeNoThinking(sb.toString())
                         if (intermediate.isNotEmpty()) {
                             onInsertText(intermediate, true)
                         }
                     }
                 }
 
-                val finalOutput = sb.toString().trim()
+                val finalOutput = LiteRtLmSessionDelegate.sanitizeNoThinking(sb.toString().trim())
                 if (finalOutput.startsWith("Error:") || finalOutput.startsWith("Error (")) {
                     AppLogger.w(TAG, "Generation returned error: $finalOutput")
                     Toast.makeText(context, finalOutput, Toast.LENGTH_LONG).show()

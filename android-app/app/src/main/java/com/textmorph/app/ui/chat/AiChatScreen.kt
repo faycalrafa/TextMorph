@@ -87,19 +87,22 @@ fun AiChatContent(
     modelRepository: ModelStorageRepository,
     llamaCppEngine: LlamaCppEngine = LlamaCppEngineManager.getInstance(LocalContext.current),
     chatRepository: ChatSessionRepository = ChatSessionRepository.getInstance(LocalContext.current),
-    onNavigateToModelHub: () -> Unit
+    onNavigateToModelHub: () -> Unit,
+    onOpenDrawer: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val keyboardController = LocalSoftwareKeyboardController.current
     val listState = rememberLazyListState()
-    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
 
     val settings by settingsRepository.settingsState.collectAsState()
     val availableModels by modelRepository.availableModels.collectAsState()
     val sessions by chatRepository.sessions.collectAsState()
     val activeSessionId by chatRepository.activeSessionId.collectAsState()
     val messages by chatRepository.currentMessages.collectAsState()
+    val activeGenerationStatus by chatRepository.activeGenerationStatus.collectAsState()
+    val currentSession = sessions.find { it.id == activeSessionId }
+    val isAgentMode = currentSession?.isAgentMode == true
 
     var inputText by remember { mutableStateOf("") }
     val attachments = remember { mutableStateListOf<AttachedMediaItem>() }
@@ -200,84 +203,81 @@ fun AiChatContent(
         }
     }
 
-    ModalNavigationDrawer(
-        drawerState = drawerState,
-        drawerContent = {
-            ChatSessionsDrawerContent(
-                sessions = sessions,
-                activeSessionId = activeSessionId ?: "",
-                onSelectSession = { id ->
-                    scope.launch {
-                        chatRepository.switchSession(id)
-                        drawerState.close()
-                    }
-                },
-                onNewChat = {
-                    scope.launch {
-                        chatRepository.createSession()
-                        drawerState.close()
-                    }
-                },
-                onDeleteSession = { id ->
-                    scope.launch { chatRepository.deleteSession(id) }
-                }
-            )
-        }
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFF0B1020)) // Charcoal Slate deep midnight
+            .imePadding()
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color(0xFF0B1020)) // Charcoal Slate deep midnight
-                .imePadding()
+        // Top Bar
+        Surface(
+            color = Color(0xFF111827), // Elevated midnight
+            border = BorderStroke(1.dp, Color(0xFF1F2937)),
+            modifier = Modifier.fillMaxWidth()
         ) {
-            // Top Bar
-            Surface(
-                color = Color(0xFF111827), // Elevated midnight
-                border = BorderStroke(1.dp, Color(0xFF1F2937)),
-                modifier = Modifier.fillMaxWidth()
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(onClick = { scope.launch { drawerState.open() } }) {
-                            Icon(Icons.Default.Menu, contentDescription = "Drawer", tint = Color(0xFFE5E7EB))
-                        }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = onOpenDrawer) {
+                        Icon(Icons.Default.Menu, contentDescription = "Menu", tint = Color(0xFFE5E7EB))
+                    }
 
-                        // Quick Model Switcher Pill
-                        Row(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(Color(0xFF1F2937))
-                                .border(1.dp, Color(0xFF374151), RoundedCornerShape(8.dp))
-                                .clickable { showModelSwitchSheet = true }
-                                .padding(horizontal = 10.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(Icons.Default.Tune, contentDescription = null, tint = Color(0xFF3B82F6), modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = activeModelName,
-                                color = Color(0xFFF9FAFB),
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.width(8.dp))
-
-                        // Context Capacity Meter Pill
-                        ContextCapacityMeterPill(
-                            metrics = contextMetrics,
-                            onClick = { showCapacitySheet = true }
+                    // Quick Model Switcher Pill
+                    Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color(0xFF1F2937))
+                            .border(1.dp, Color(0xFF374151), RoundedCornerShape(8.dp))
+                            .clickable { showModelSwitchSheet = true }
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.Tune, contentDescription = null, tint = Color(0xFF3B82F6), modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = activeModelName,
+                            color = Color(0xFFF9FAFB),
+                            fontSize = 12.5.sp,
+                            fontWeight = FontWeight.Medium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
+
+                    Spacer(modifier = Modifier.width(6.dp))
+
+                    // Agent Mode Toggle Chip
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = if (isAgentMode) Color(0x333B82F6) else Color(0x22374151),
+                        border = BorderStroke(1.dp, if (isAgentMode) Color(0xFF3B82F6) else Color(0x444B5563)),
+                        onClick = {
+                            val targetId = activeSessionId ?: return@Surface
+                            scope.launch { chatRepository.setAgentMode(targetId, !isAgentMode) }
+                        }
+                    ) {
+                        Text(
+                            text = if (isAgentMode) "✦ Agent" else "💬 Chat",
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = if (isAgentMode) Color(0xFF60A5FA) else Color(0xFF9CA3AF),
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(8.dp))
+
+                    // Context Capacity Meter Pill
+                    ContextCapacityMeterPill(
+                        metrics = contextMetrics,
+                        onClick = { showCapacitySheet = true }
+                    )
+                }
 
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         if (messages.isNotEmpty()) {
@@ -318,7 +318,23 @@ fun AiChatContent(
                         items(messages, key = { it.id }) { msg ->
                             ChatMessageItemView(
                                 message = msg,
-                                isGenerating = isGenerating && msg.id == messages.lastOrNull()?.id
+                                isGenerating = isGenerating && msg.id == messages.lastOrNull()?.id,
+                                generationStatus = activeGenerationStatus,
+                                onEditPrompt = { userMsg ->
+                                    val targetId = activeSessionId ?: return@ChatMessageItemView
+                                    inputText = userMsg.content
+                                    scope.launch {
+                                        chatRepository.truncateMessages(targetId, userMsg.id, inclusive = true)
+                                    }
+                                },
+                                onRetryPrompt = { userMsg ->
+                                    val targetId = activeSessionId ?: return@ChatMessageItemView
+                                    scope.launch {
+                                        chatRepository.truncateMessages(targetId, userMsg.id, inclusive = true)
+                                        inputText = userMsg.content
+                                        handleSend()
+                                    }
+                                }
                             )
                         }
                     }
@@ -352,7 +368,6 @@ fun AiChatContent(
                 }
             )
         }
-    }
 
     if (showModelSwitchSheet) {
         ModelQuickSwitchBottomSheet(

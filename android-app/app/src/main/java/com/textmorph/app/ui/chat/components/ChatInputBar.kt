@@ -41,6 +41,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
@@ -70,6 +71,7 @@ fun ChatInputBar(
     onStop: () -> Unit,
     capacityFraction: Float = 0f,
     onCapacityClick: (() -> Unit)? = null,
+    onInputFocus: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     Surface(
@@ -210,7 +212,9 @@ fun ChatInputBar(
                             color = if (isListening) Color(0xFFFBBF24) else Color(0xFF9CA3AF)
                         )
                     },
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier
+                        .weight(1f)
+                        .onFocusChanged { if (it.isFocused) onInputFocus?.invoke() },
                     maxLines = 4,
                     shape = RoundedCornerShape(12.dp),
                     colors = OutlinedTextFieldDefaults.colors(

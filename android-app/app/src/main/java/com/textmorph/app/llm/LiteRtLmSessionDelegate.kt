@@ -412,14 +412,20 @@ object LiteRtLmSessionDelegate {
         )
     }
 
-    fun sanitizeNoThinking(text: String): String {
+    fun sanitizeControlTokens(text: String): String {
         var clean = text
-        clean = clean.replace(Regex("(?s)<think>.*?</think>"), "")
-        clean = clean.replace("<think>", "").replace("</think>", "")
         clean = clean.replace("<end_of_turn>", "")
         clean = clean.replace("<start_of_turn>", "")
         clean = clean.replace("<eos>", "")
         clean = clean.replace("<bos>", "")
+        return clean
+    }
+
+    fun sanitizeNoThinking(text: String): String {
+        var clean = text
+        clean = clean.replace(Regex("(?s)<think>.*?</think>"), "")
+        clean = clean.replace("<think>", "").replace("</think>", "")
+        clean = sanitizeControlTokens(clean)
         return clean
     }
 

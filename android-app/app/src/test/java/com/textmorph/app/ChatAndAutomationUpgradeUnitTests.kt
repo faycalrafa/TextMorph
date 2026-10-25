@@ -143,4 +143,76 @@ class ChatAndAutomationUpgradeUnitTests {
         assertEquals("com.android.chrome", detectShortcut(goal2))
         assertNull(detectShortcut(goal3))
     }
+
+    @Test
+    fun testDirectToChatConditionEvaluation() {
+        fun shouldOpenChatDirectly(alwaysShow: Boolean, isKeyboardOpen: Boolean, hasInputText: Boolean): Boolean {
+            return alwaysShow && !isKeyboardOpen && !hasInputText
+        }
+
+        // Always show active, no keyboard, no input -> DIRECT TO CHAT
+        assertTrue(shouldOpenChatDirectly(alwaysShow = true, isKeyboardOpen = false, hasInputText = false))
+
+        // Keyboard open -> opens toolbar
+        assertFalse(shouldOpenChatDirectly(alwaysShow = true, isKeyboardOpen = true, hasInputText = false))
+
+        // Input text present -> opens toolbar
+        assertFalse(shouldOpenChatDirectly(alwaysShow = true, isKeyboardOpen = false, hasInputText = true))
+
+        // Always show disabled -> opens toolbar
+        assertFalse(shouldOpenChatDirectly(alwaysShow = false, isKeyboardOpen = false, hasInputText = false))
+    }
+
+    @Test
+    fun testAgentModePromptAssembly() {
+        val defaultPrompt = com.textmorph.app.llm.context.ChatCompactor.assembleInferencePrompt(
+            systemPrompt = com.textmorph.app.llm.context.ChatCompactor.DEFAULT_SYSTEM_PROMPT,
+            historyMessages = emptyList(),
+            currentPrompt = "Hello"
+        )
+        assertTrue(defaultPrompt.contains("TextMorph, an intelligent on-device AI companion"))
+
+        val agentPrompt = com.textmorph.app.llm.context.ChatCompactor.assembleInferencePrompt(
+            systemPrompt = com.textmorph.app.llm.context.ChatCompactor.AGENT_SYSTEM_PROMPT,
+            historyMessages = emptyList(),
+            currentPrompt = "Plan automation"
+        )
+        assertTrue(agentPrompt.contains("TextMorph Agent, an autonomous, highly capable, and analytical AI agent"))
+        assertTrue(agentPrompt.contains("<think>...</think>"))
+    }
+
+    @Test
+    fun testChatMessageTruncationLogic() {
+        val messages = listOf(
+            ChatMessageEntity(id = "m1", sessionId = "s1", role = "user", content = "First prompt"),
+            ChatMessageEntity(id = "m2", sessionId = "s1", role = "assistant", content = "First answer"),
+            ChatMessageEntity(id = "m3", sessionId = "s1", role = "user", content = "Second prompt"),
+            ChatMessageEntity(id = "m4", sessionId = "s1", role = "assistant", content = "Second answer")
+        )
+
+        // Truncate inclusive at m3 (Edit Prompt: removes m3 and subsequent)
+        val indexM3 = messages.indexOfFirst { it.id == "m3" }
+        val editTruncated = messages.subList(0, indexM3)
+        assertEquals(2, editTruncated.size)
+        assertEquals("m1", editTruncated[0].id)
+        assertEquals("m2", editTruncated[1].id)
+
+        // Truncate after m3 (Retry Prompt: keeps m3, removes subsequent)
+        val retryTruncated = messages.subList(0, indexM3 + 1)
+        assertEquals(3, retryTruncated.size)
+        assertEquals("m3", retryTruncated.last().id)
+    }
+
+    @Test
+    fun testChatSessionEntityAgentModeSerialization() {
+        val defaultSession = ChatSessionEntity(title = "Default")
+        assertFalse(defaultSession.isAgentMode)
+
+        val agentSession = defaultSession.copy(isAgentMode = true)
+        val jsonStr = json.encodeToString(agentSession)
+        assertTrue(jsonStr.contains("\"isAgentMode\": true"))
+
+        val decoded = json.decodeFromString<ChatSessionEntity>(jsonStr)
+        assertTrue(decoded.isAgentMode)
+    }
 }

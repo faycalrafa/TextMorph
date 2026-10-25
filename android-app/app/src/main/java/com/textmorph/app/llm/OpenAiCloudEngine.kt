@@ -128,7 +128,7 @@ class OpenAiCloudEngine(
                 if (!systemInstruction.isNullOrBlank()) {
                     add(buildJsonObject {
                         put("role", "system")
-                        put("content", "$systemInstruction. Strict rule: Do not output thinking or reasoning tags. Answer directly.")
+                        put("content", if (systemInstruction.contains("think", ignoreCase = true)) systemInstruction else "$systemInstruction. Answer directly.")
                     })
                 }
                 add(buildJsonObject {
@@ -183,11 +183,7 @@ class OpenAiCloudEngine(
                             val delta = choices?.firstOrNull()?.jsonObject?.get("delta")?.jsonObject
                             val content = delta?.get("content")?.jsonPrimitive?.content
                             if (!content.isNullOrEmpty()) {
-                                // Filter any think tags
-                                val sanitized = content.replace("<think>", "").replace("</think>", "")
-                                if (sanitized.isNotEmpty()) {
-                                    emit(sanitized)
-                                }
+                                emit(content)
                             }
                         } catch (e: Exception) {
                             // Non-fatal parse issue on chunk boundary

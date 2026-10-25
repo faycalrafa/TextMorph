@@ -100,7 +100,6 @@ fun FloatingToolbarContent(
     val scope = rememberCoroutineScope()
     val TAG = "FloatingCompanion"
 
-    var isExpanded by remember { mutableStateOf(false) }
     var state by remember { mutableStateOf(FloatingButtonState.IDLE) }
     var activeJob by remember { mutableStateOf<Job?>(null) }
 
@@ -134,29 +133,26 @@ fun FloatingToolbarContent(
         onBusyStateChanged(isBusy)
     }
 
-    fun setExpanded(expanded: Boolean) {
-        isExpanded = expanded
-        if (!expanded) {
-            if (editingPromptInline != null) {
-                editingPromptInline = null
-                onEditorFocusMode(false)
-            }
-            if (state == FloatingButtonState.REVERT_WINDOW) {
-                state = FloatingButtonState.IDLE
-            }
-            actionHandler.cancelQuickFix()
-            isFixingInProgress = false
+    fun collapseToolbar() {
+        if (editingPromptInline != null) {
+            editingPromptInline = null
+            onEditorFocusMode(false)
         }
-        onExpandedStateChanged(expanded)
+        if (state == FloatingButtonState.REVERT_WINDOW) {
+            state = FloatingButtonState.IDLE
+        }
+        actionHandler.cancelQuickFix()
+        isFixingInProgress = false
+        onExpandedStateChanged(false)
     }
 
     // Connect handlers from WindowManager synchronously on every recomposition commit
     SideEffect {
         onRegisterSingleTapHandler?.invoke {
-            AppLogger.d(TAG, "singleTapHandler executed in Compose. state=$state, isExpanded=$isExpanded")
+            AppLogger.d(TAG, "singleTapHandler executed in Compose. state=$state")
             when (state) {
                 FloatingButtonState.IDLE -> {
-                    setExpanded(!isExpanded)
+                    collapseToolbar()
                 }
                 FloatingButtonState.GENERATING -> {
                     actionHandler.cancelActiveJob()
@@ -171,13 +167,11 @@ fun FloatingToolbarContent(
         }
 
         onRegisterCollapseHandler?.invoke {
-            AppLogger.d(TAG, "collapseHandler executed in Compose. isExpanded=$isExpanded, editing=${editingPromptInline != null}")
+            AppLogger.d(TAG, "collapseHandler executed in Compose. editing=${editingPromptInline != null}")
             if (editingPromptInline != null) {
                 return@invoke
             }
-            if (isExpanded) {
-                setExpanded(false)
-            }
+            collapseToolbar()
         }
 
         onRegisterUserTypedHandler?.invoke { newText ->
@@ -201,93 +195,72 @@ fun FloatingToolbarContent(
     }
 
     // ─────────────────────────────────────────────────────────────────────────────
-    // UI RENDERING: COLLAPSED EDGE PILL vs EXPANDED COMPANION RIBBON
+    // UI RENDERING: EXPANDED COMPANION RIBBON OR INLINE PROMPT EDITOR
     // ─────────────────────────────────────────────────────────────────────────────
 
-    if (!isExpanded) {
-        FloatingEdgePill(
-            state = state,
-            isDragging = isDragging,
-            onClick = {
-                AppLogger.d(TAG, "Collapsed companion pill clicked directly in Compose: state=$state")
-                when (state) {
-                    FloatingButtonState.IDLE -> setExpanded(!isExpanded)
-                    FloatingButtonState.GENERATING -> {
-                        actionHandler.cancelActiveJob()
-                        Toast.makeText(context, "Generation stopped.", Toast.LENGTH_SHORT).show()
-                    }
-                    FloatingButtonState.REVERT_WINDOW -> {
-                        onRevertText()
-                        state = FloatingButtonState.IDLE
-                        Toast.makeText(context, "Text reverted.", Toast.LENGTH_SHORT).show()
-                    }
-                }
+    if (editingPromptInline != null) {
+        FloatingInlinePromptEditor(
+            prompt = editingPromptInline!!,
+            onSave = { updated ->
+                onQuickEditSave(updated)
+                editingPromptInline = null
+                onEditorFocusMode(false)
+            },
+            onDelete = { id ->
+                onQuickEditDelete(id)
+                editingPromptInline = null
+                onEditorFocusMode(false)
+            },
+            onClose = {
+                editingPromptInline = null
+                onEditorFocusMode(false)
             }
         )
     } else {
-        if (editingPromptInline != null) {
-            FloatingInlinePromptEditor(
-                prompt = editingPromptInline!!,
-                onSave = { updated ->
-                    onQuickEditSave(updated)
-                    editingPromptInline = null
-                    onEditorFocusMode(false)
-                },
-                onDelete = { id ->
-                    onQuickEditDelete(id)
-                    editingPromptInline = null
-                    onEditorFocusMode(false)
-                },
-                onClose = {
-                    editingPromptInline = null
-                    onEditorFocusMode(false)
-                }
-            )
-        } else {
-            // EXPANDED COMPANION RIBBON (44dp single-row dock, Charcoal Slate styled)
-            Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = Color(0xF2111827),
-                shadowElevation = 10.dp,
+        // EXPANDED COMPANION RIBBON (44dp single-row dock, Charcoal Slate styled)
+        Surface(
+            shape = RoundedCornerShape(12.dp),
+            color = Color(0xF2111827),
+            shadowElevation = 10.dp,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(44.dp)
+                .border(1.5.dp, Color(0x663B82F6), RoundedCornerShape(12.dp))
+        ) {
+            Row(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .height(44.dp)
-                    .border(1.5.dp, Color(0x663B82F6), RoundedCornerShape(12.dp))
+                    .fillMaxSize()
+                    .padding(horizontal = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // Left Status / Leading Action Square Icon Button
-                    CompanionSquareIconButton(
-                        icon = when (state) {
-                            FloatingButtonState.GENERATING -> Icons.Default.Stop
-                            FloatingButtonState.REVERT_WINDOW -> Icons.AutoMirrored.Filled.Undo
-                            FloatingButtonState.IDLE -> Icons.Default.AutoAwesome
-                        },
-                        contentDescription = "Companion Action",
-                        tint = when (state) {
-                            FloatingButtonState.GENERATING -> Color(0xFFEF4444)
-                            FloatingButtonState.REVERT_WINDOW -> Color(0xFFFBBF24)
-                            FloatingButtonState.IDLE -> Color(0xFF60A5FA)
-                        },
-                        backgroundColor = Color(0x331F2937),
-                        borderColor = Color(0x55374151),
-                        onClick = {
-                            if (state == FloatingButtonState.GENERATING) {
-                                actionHandler.cancelActiveJob()
-                                Toast.makeText(context, "Generation stopped.", Toast.LENGTH_SHORT).show()
-                            } else if (state == FloatingButtonState.REVERT_WINDOW) {
-                                onRevertText()
-                                state = FloatingButtonState.IDLE
-                                Toast.makeText(context, "Text reverted.", Toast.LENGTH_SHORT).show()
-                            } else {
-                                setExpanded(false)
-                            }
+                // Left Status / Leading Action Square Icon Button
+                CompanionSquareIconButton(
+                    icon = when (state) {
+                        FloatingButtonState.GENERATING -> Icons.Default.Stop
+                        FloatingButtonState.REVERT_WINDOW -> Icons.AutoMirrored.Filled.Undo
+                        FloatingButtonState.IDLE -> Icons.Default.AutoAwesome
+                    },
+                    contentDescription = "Companion Action",
+                    tint = when (state) {
+                        FloatingButtonState.GENERATING -> Color(0xFFEF4444)
+                        FloatingButtonState.REVERT_WINDOW -> Color(0xFFFBBF24)
+                        FloatingButtonState.IDLE -> Color(0xFF60A5FA)
+                    },
+                    backgroundColor = Color(0x331F2937),
+                    borderColor = Color(0x55374151),
+                    onClick = {
+                        if (state == FloatingButtonState.GENERATING) {
+                            actionHandler.cancelActiveJob()
+                            Toast.makeText(context, "Generation stopped.", Toast.LENGTH_SHORT).show()
+                        } else if (state == FloatingButtonState.REVERT_WINDOW) {
+                            onRevertText()
+                            state = FloatingButtonState.IDLE
+                            Toast.makeText(context, "Text reverted.", Toast.LENGTH_SHORT).show()
+                        } else {
+                            collapseToolbar()
                         }
-                    )
+                    }
+                )
 
                     Spacer(modifier = Modifier.width(6.dp))
 
@@ -332,13 +305,13 @@ fun FloatingToolbarContent(
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // 1. Dedicated Open Chat Button (replaces static undo; auto-fix undo preserved in ribbon)
+                        // 1. Dedicated Open Chat Button (matches Charcoal Slate toolbar theme)
                         CompanionSquareIconButton(
                             icon = Icons.Default.ChatBubbleOutline,
                             contentDescription = "Open Chat",
-                            tint = Color(0xFFDCD7C9),
-                            backgroundColor = Color(0xFF2C3930),
-                            borderColor = Color(0xFFA27B5C),
+                            tint = Color(0xFF60A5FA),
+                            backgroundColor = Color(0x331F2937),
+                            borderColor = Color(0x44374151),
                             onClick = {
                                 onOpenFloatingChat()
                             }
@@ -374,11 +347,7 @@ fun FloatingToolbarContent(
                             backgroundColor = Color(0x331F2937),
                             borderColor = Color(0x33374151),
                             onClick = {
-                                if (editingPromptInline != null) {
-                                    editingPromptInline = null
-                                    onEditorFocusMode(false)
-                                }
-                                setExpanded(false)
+                                collapseToolbar()
                             }
                         )
                     }
@@ -386,4 +355,3 @@ fun FloatingToolbarContent(
             }
         }
     }
-}

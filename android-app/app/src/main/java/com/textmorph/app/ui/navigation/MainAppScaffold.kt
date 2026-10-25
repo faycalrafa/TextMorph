@@ -110,6 +110,9 @@ fun MainAppScaffold(
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val liteRtEngine = remember { LiteRtLmEngineManager.getInstance(context) }
     val llamaCppEngine = remember { LlamaCppEngineManager.getInstance(context) }
+    val chatRepository = remember { com.textmorph.app.data.repository.ChatSessionRepository.getInstance(context) }
+    val chatSessions by chatRepository.sessions.collectAsState()
+    val activeChatSessionId by chatRepository.activeSessionId.collectAsState()
 
     var currentDestination by remember { mutableStateOf(AppDestination.PROMPTS) }
 
@@ -125,6 +128,24 @@ fun MainAppScaffold(
     var isCheckingUpdate by remember { mutableStateOf(false) }
     var activeReleaseInfo by remember { mutableStateOf<AppReleaseInfo?>(null) }
     var downloadState by remember { mutableStateOf<DownloadState?>(null) }
+
+    fun triggerUpdateCheck() {
+        scope.launch {
+            isCheckingUpdate = true
+            val result = updateRepository.checkForUpdates()
+            isCheckingUpdate = false
+            result.onSuccess { info ->
+                if (info != null) {
+                    activeReleaseInfo = info
+                    showUpdateDialog = true
+                } else {
+                    Toast.makeText(context, "App is up to date!", Toast.LENGTH_SHORT).show()
+                }
+            }.onFailure { err ->
+                Toast.makeText(context, "Update check failed: ${err.message}", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
 
     // Prompts & Category filtering
     val allPrompts by promptRepository.promptsState.collectAsState()
@@ -173,6 +194,25 @@ fun MainAppScaffold(
                 onSelectDestination = { dest ->
                     currentDestination = dest
                     scope.launch { drawerState.close() }
+                },
+                sessions = chatSessions,
+                activeSessionId = activeChatSessionId,
+                onSelectSession = { sessionId ->
+                    scope.launch {
+                        chatRepository.switchSession(sessionId)
+                        currentDestination = AppDestination.CHAT
+                        drawerState.close()
+                    }
+                },
+                onNewChat = {
+                    scope.launch {
+                        chatRepository.createSession()
+                        currentDestination = AppDestination.CHAT
+                        drawerState.close()
+                    }
+                },
+                onDeleteSession = { sessionId ->
+                    scope.launch { chatRepository.deleteSession(sessionId) }
                 }
             )
         }
@@ -191,65 +231,67 @@ fun MainAppScaffold(
         } else {
             Scaffold(
                 topBar = {
-                    TopAppBar(
-                        title = {
-                            if (isSearchActive) {
-                                BasicTextField(
-                                    value = searchQuery,
-                                    onValueChange = { searchQuery = it },
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(vertical = 8.dp),
-                                    textStyle = TextStyle(
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                        fontSize = 18.sp,
-                                        fontWeight = FontWeight.Medium
-                                    ),
-                                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                                    singleLine = true,
-                                    decorationBox = { innerTextField ->
-                                        if (searchQuery.isEmpty()) {
-                                            Text(
-                                                text = "Search prompts...",
-                                                style = MaterialTheme.typography.bodyLarge,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                                            )
-                                        }
-                                        innerTextField()
-                                    }
-                                )
-                            } else {
-                                Text(
-                                    text = currentDestination.title,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                        },
-                        navigationIcon = {
-                            IconButton(onClick = { scope.launch { drawerState.open() } }) {
-                                Icon(Icons.Default.Menu, contentDescription = "Open Drawer")
-                            }
-                        },
-                        actions = {
-                            if (currentDestination == AppDestination.PROMPTS) {
+                    if (currentDestination != AppDestination.CHAT) {
+                        TopAppBar(
+                            title = {
                                 if (isSearchActive) {
-                                    IconButton(onClick = {
-                                        isSearchActive = false
-                                        searchQuery = ""
-                                    }) {
-                                        Icon(Icons.Default.Close, contentDescription = "Close Search")
-                                    }
+                                    BasicTextField(
+                                        value = searchQuery,
+                                        onValueChange = { searchQuery = it },
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 8.dp),
+                                        textStyle = TextStyle(
+                                            color = MaterialTheme.colorScheme.onSurface,
+                                            fontSize = 18.sp,
+                                            fontWeight = FontWeight.Medium
+                                        ),
+                                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                                        singleLine = true,
+                                        decorationBox = { innerTextField ->
+                                            if (searchQuery.isEmpty()) {
+                                                Text(
+                                                    text = "Search prompts...",
+                                                    style = MaterialTheme.typography.bodyLarge,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                                )
+                                            }
+                                            innerTextField()
+                                        }
+                                    )
                                 } else {
-                                    IconButton(onClick = { isSearchActive = true }) {
-                                        Icon(Icons.Default.Search, contentDescription = "Search Prompts")
+                                    Text(
+                                        text = currentDestination.title,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            },
+                            navigationIcon = {
+                                IconButton(onClick = { scope.launch { drawerState.open() } }) {
+                                    Icon(Icons.Default.Menu, contentDescription = "Open Drawer")
+                                }
+                            },
+                            actions = {
+                                if (currentDestination == AppDestination.PROMPTS) {
+                                    if (isSearchActive) {
+                                        IconButton(onClick = {
+                                            isSearchActive = false
+                                            searchQuery = ""
+                                        }) {
+                                            Icon(Icons.Default.Close, contentDescription = "Close Search")
+                                        }
+                                    } else {
+                                        IconButton(onClick = { isSearchActive = true }) {
+                                            Icon(Icons.Default.Search, contentDescription = "Search Prompts")
+                                        }
                                     }
                                 }
-                            }
-                        },
-                        colors = TopAppBarDefaults.topAppBarColors(
-                            containerColor = MaterialTheme.colorScheme.surface
+                            },
+                            colors = TopAppBarDefaults.topAppBarColors(
+                                containerColor = MaterialTheme.colorScheme.surface
+                            )
                         )
-                    )
+                    }
                 },
                 floatingActionButton = {
                     if (currentDestination == AppDestination.PROMPTS) {
@@ -321,7 +363,9 @@ fun MainAppScaffold(
                                 settingsRepository = settingsRepository,
                                 modelRepository = modelRepository,
                                 llamaCppEngine = llamaCppEngine,
-                                onNavigateToModelHub = { currentDestination = AppDestination.MODEL_HUB }
+                                chatRepository = chatRepository,
+                                onNavigateToModelHub = { currentDestination = AppDestination.MODEL_HUB },
+                                onOpenDrawer = { scope.launch { drawerState.open() } }
                             )
                         }
 
@@ -330,23 +374,7 @@ fun MainAppScaffold(
                                 settingsRepository = settingsRepository,
                                 updateRepository = updateRepository,
                                 onOpenDevLogs = { currentDestination = AppDestination.DEV_LOGS },
-                                onCheckUpdate = {
-                                    scope.launch {
-                                        isCheckingUpdate = true
-                                        val result = updateRepository.checkForUpdates()
-                                        isCheckingUpdate = false
-                                        result.onSuccess { info ->
-                                            if (info != null && info.isUpdateAvailable) {
-                                                activeReleaseInfo = info
-                                                showUpdateDialog = true
-                                            } else {
-                                                Toast.makeText(context, "App is up to date!", Toast.LENGTH_SHORT).show()
-                                            }
-                                        }.onFailure { err ->
-                                            Toast.makeText(context, "Update check failed: ${err.message}", Toast.LENGTH_SHORT).show()
-                                        }
-                                    }
-                                },
+                                onCheckUpdate = ::triggerUpdateCheck,
                                 onOpenAccessibilityDisclosure = { showProminentDisclosure = true }
                             )
                         }
@@ -356,43 +384,17 @@ fun MainAppScaffold(
                                 installedVersionName = updateRepository.getCurrentVersionName(),
                                 isCheckingUpdate = isCheckingUpdate,
                                 downloadedApk = updateRepository.getDownloadedApkFile(),
-                                onCheckForUpdates = {
-                                    scope.launch {
-                                        isCheckingUpdate = true
-                                        val result = updateRepository.checkForUpdates()
-                                        isCheckingUpdate = false
-                                        result.onSuccess { info ->
-                                            if (info != null && info.isUpdateAvailable) {
-                                                activeReleaseInfo = info
-                                                showUpdateDialog = true
-                                            } else {
-                                                Toast.makeText(context, "App is up to date!", Toast.LENGTH_SHORT).show()
-                                            }
-                                        }.onFailure { err ->
-                                            Toast.makeText(context, "Update check failed: ${err.message}", Toast.LENGTH_SHORT).show()
-                                        }
-                                    }
-                                },
+                                onCheckForUpdates = ::triggerUpdateCheck,
                                 onInstallDownloadedApk = {
                                     updateRepository.getDownloadedApkFile()?.let { file ->
                                         updateRepository.installApk(file)
                                     }
                                 },
                                 onSaveApkToPath = {
-                                    activeReleaseInfo?.let {
+                                    if (activeReleaseInfo != null) {
                                         showUpdateDialog = true
-                                    } ?: run {
-                                        scope.launch {
-                                            isCheckingUpdate = true
-                                            val result = updateRepository.checkForUpdates()
-                                            isCheckingUpdate = false
-                                            result.onSuccess { info ->
-                                                if (info != null) {
-                                                    activeReleaseInfo = info
-                                                    showUpdateDialog = true
-                                                }
-                                            }
-                                        }
+                                    } else {
+                                        triggerUpdateCheck()
                                     }
                                 },
                                 onReplayOnboarding = {

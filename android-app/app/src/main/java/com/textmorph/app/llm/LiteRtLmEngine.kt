@@ -222,8 +222,10 @@ class LiteRtLmEngine(private val context: Context) : LlmEngine {
 
             AppLogger.i(TAG, "Starting stream inference. Image attached: ${imageBytes != null}, prompt length: ${prompt.length}")
             val cleanInstruction = systemInstruction ?: "You are a helpful AI assistant. Enforce concise, direct output."
-            val effectivePrompt = buildString {
-                append("<start_of_turn>user\n$cleanInstruction\nStrict rule: Do not output thinking or reasoning traces. Respond directly.\n\n$prompt<end_of_turn>\n<start_of_turn>model\n")
+            val effectivePrompt = if (prompt.contains("<start_of_turn>") || prompt.contains("<|im_start|>")) {
+                prompt
+            } else {
+                "<start_of_turn>user\n$cleanInstruction\n\n$prompt<end_of_turn>\n<start_of_turn>model\n"
             }
 
             val eng = nativeEngine
@@ -277,7 +279,7 @@ class LiteRtLmEngine(private val context: Context) : LlmEngine {
                                         firstTokenTime = now
                                     }
                                     tokenCount++
-                                    val sanitized = LiteRtLmSessionDelegate.sanitizeNoThinking(message.toString())
+                                    val sanitized = LiteRtLmSessionDelegate.sanitizeControlTokens(message.toString())
                                     if (sanitized.isNotEmpty()) {
                                         trySend(sanitized)
                                     }
@@ -325,7 +327,7 @@ class LiteRtLmEngine(private val context: Context) : LlmEngine {
                                     firstTokenTime = now
                                 }
                                 tokenCount++
-                                val sanitized = LiteRtLmSessionDelegate.sanitizeNoThinking(response)
+                                val sanitized = LiteRtLmSessionDelegate.sanitizeControlTokens(response)
                                 if (sanitized.isNotEmpty()) {
                                     trySend(sanitized)
                                 }
