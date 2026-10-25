@@ -270,18 +270,21 @@ private fun AssistantStatusBubble(statusText: String) {
 
 @Composable
 private fun AssistantTextBubble(text: String) {
+    val sanitized = remember(text) {
+        text.replace(Regex("<think>[\\s\\S]*?(?:</think>|$)", RegexOption.IGNORE_CASE), "")
+            .replace(Regex("<thought>[\\s\\S]*?(?:</thought>|$)", RegexOption.IGNORE_CASE), "")
+            .trim()
+    }
+    if (sanitized.isBlank()) return
+
     Surface(
         shape = RoundedCornerShape(4.dp, 16.dp, 16.dp, 16.dp),
         color = Color(0xFF1F2937), // Dark Slate
         border = BorderStroke(1.dp, Color(0xFF374151)),
         shadowElevation = 1.dp
     ) {
-        Text(
-            text = text,
-            color = Color(0xFFE5E7EB),
-            fontSize = 14.sp,
-            lineHeight = 20.sp,
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
-        )
+        Box(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+            MarkdownText(markdown = sanitized)
+        }
     }
 }

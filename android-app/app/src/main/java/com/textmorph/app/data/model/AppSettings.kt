@@ -44,5 +44,6 @@ data class AppSettings(
     val topP: Float = 0.9f,
     val enableThinking: Boolean = false,
     val speculativeDecoding: Boolean = false,
-    val defaultSystemPrompt: String = "You are a helpful, concise AI writing assistant. Transform or complete text according to user instructions. Return ONLY the final output without preamble or explanations."
+    val defaultSystemPrompt: String = "You are a helpful, concise AI writing assistant. Transform or complete text according to user instructions. Return ONLY the final output without preamble or explanations.",
+    val agentSystemPrompt: String = com.textmorph.app.agent.prompts.AgentPrompts.AGENT_SYSTEM_PROMPT
 )

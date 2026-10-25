@@ -170,15 +170,15 @@ class ChatAndAutomationUpgradeUnitTests {
             historyMessages = emptyList(),
             currentPrompt = "Hello"
         )
-        assertTrue(defaultPrompt.contains("TextMorph, an intelligent on-device AI companion"))
+        assertTrue(defaultPrompt.contains("TextMorph, an intelligent, helpful on-device AI assistant"))
 
         val agentPrompt = com.textmorph.app.llm.context.ChatCompactor.assembleInferencePrompt(
             systemPrompt = com.textmorph.app.llm.context.ChatCompactor.AGENT_SYSTEM_PROMPT,
             historyMessages = emptyList(),
             currentPrompt = "Plan automation"
         )
-        assertTrue(agentPrompt.contains("TextMorph Agent, an autonomous, highly capable, and analytical AI agent"))
-        assertTrue(agentPrompt.contains("<think>...</think>"))
+        assertTrue(agentPrompt.contains("TextMorph Agent, a helpful, highly capable AI assistant that can control an Android device"))
+        assertTrue(agentPrompt.contains("AVAILABLE ACTIONS"))
     }
 
     @Test

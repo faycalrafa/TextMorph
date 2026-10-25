@@ -6,7 +6,6 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -22,19 +21,17 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.filled.AttachFile
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -43,19 +40,22 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 /**
- * Modern floating input bar styled in the Charcoal Slate design language:
- * - Midnight Slate surface (#111827) with subtle slate border (#374151).
- * - Discrete 2dp context capacity progress line (Electric Blue / Amber / Crimson).
- * - Companion toolbar-style square attachment & mic buttons.
- * - Electric Blue action send button (#2563EB) and soft crimson stop button (#EF4444).
+ * Detached rounded floating capsule input bar styled after the Gemini mobile app:
+ * - Floating capsule container with RoundedCornerShape(28.dp).
+ * - Charcoal Slate surface (#1F2937) with subtle slate border (#374151).
+ * - Circular + attachment button on the left.
+ * - Seamless multiline text field.
+ * - Circular voice mic and send / stop button on the right.
  */
 @Composable
 fun ChatInputBar(
@@ -74,222 +74,231 @@ fun ChatInputBar(
     onInputFocus: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
-    Surface(
-        color = Color(0xF2111827), // Charcoal midnight surface
-        border = BorderStroke(1.dp, Color(0xFF374151)),
-        modifier = modifier.fillMaxWidth()
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 14.dp, vertical = 6.dp)
     ) {
-        Column(modifier = Modifier.fillMaxWidth()) {
-            // Discrete 2dp capacity progress bar
-            val progressColor = when {
-                capacityFraction >= 0.85f -> Color(0xFFEF4444) // Crimson
-                capacityFraction >= 0.60f -> Color(0xFFFBBF24) // Amber
-                else -> Color(0xFF3B82F6) // Electric Blue
-            }
-
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(2.dp)
-                    .background(Color(0xFF1F2937))
-                    .then(if (onCapacityClick != null) Modifier.clickable { onCapacityClick() } else Modifier)
-            ) {
-                if (capacityFraction > 0f) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth(capacityFraction.coerceIn(0f, 1f))
-                            .height(2.dp)
-                            .background(progressColor)
-                    )
-                }
-            }
-
-            // Attachment Preview Strip
-            AnimatedVisibility(
-                visible = attachments.isNotEmpty(),
-                enter = fadeIn(),
-                exit = fadeOut()
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 6.dp)
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    attachments.forEach { item ->
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = Color(0xFF1F2937),
-                            border = BorderStroke(1.dp, Color(0xFF374151)),
-                            modifier = Modifier.padding(vertical = 2.dp)
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp)
-                            ) {
-                                if (item.isImage && item.bitmap != null) {
-                                    Image(
-                                        bitmap = item.bitmap.asImageBitmap(),
-                                        contentDescription = item.name,
-                                        contentScale = ContentScale.Crop,
-                                        modifier = Modifier
-                                            .size(24.dp)
-                                            .clip(RoundedCornerShape(4.dp))
-                                    )
-                                } else {
-                                    Icon(
-                                        imageVector = Icons.Default.Description,
-                                        contentDescription = "File",
-                                        tint = Color(0xFF60A5FA),
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                }
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = if (item.name.length > 14) item.name.take(12) + "…" else item.name,
-                                    fontSize = 11.sp,
-                                    color = Color(0xFFE5E7EB),
-                                    fontWeight = FontWeight.Medium
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Box(
-                                    modifier = Modifier
-                                        .size(16.dp)
-                                        .clip(CircleShape)
-                                        .background(Color(0x33FFFFFF))
-                                        .clickable { onRemoveAttachment(item) },
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Close,
-                                        contentDescription = "Remove",
-                                        tint = Color.White,
-                                        modifier = Modifier.size(10.dp)
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Input Row
+        // Attachment Preview Strip (floats above capsule when media attached)
+        AnimatedVisibility(
+            visible = attachments.isNotEmpty(),
+            enter = fadeIn(),
+            exit = fadeOut()
+        ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 10.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically
+                    .padding(horizontal = 4.dp, vertical = 4.dp)
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                // Attach Media Button (Square Toolbar Style)
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = Color(0x331F2937),
-                    border = BorderStroke(1.dp, Color(0x44374151)),
-                    onClick = onPickMedia,
-                    modifier = Modifier.size(34.dp)
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = Icons.Default.AttachFile,
-                            contentDescription = "Attach media",
-                            tint = if (attachments.isNotEmpty()) Color(0xFF3B82F6) else Color(0xFF9CA3AF),
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.width(6.dp))
-
-                // Text Input Box
-                OutlinedTextField(
-                    value = inputText,
-                    onValueChange = onInputTextChanged,
-                    placeholder = {
-                        Text(
-                            text = if (isListening) "Listening…" else "Ask or instruct TextMorph…",
-                            fontSize = 13.5.sp,
-                            color = if (isListening) Color(0xFFFBBF24) else Color(0xFF9CA3AF)
-                        )
-                    },
-                    modifier = Modifier
-                        .weight(1f)
-                        .onFocusChanged { if (it.isFocused) onInputFocus?.invoke() },
-                    maxLines = 4,
-                    shape = RoundedCornerShape(12.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = Color(0xFFF9FAFB),
-                        unfocusedTextColor = Color(0xFFE5E7EB),
-                        focusedBorderColor = Color(0xFF3B82F6),
-                        unfocusedBorderColor = Color(0xFF374151),
-                        focusedContainerColor = Color(0xFF1F2937),
-                        unfocusedContainerColor = Color(0xFF1F2937)
-                    ),
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                    keyboardActions = KeyboardActions(
-                        onSend = {
-                            if ((inputText.isNotBlank() || attachments.isNotEmpty()) && !isGenerating) {
-                                onSend()
+                attachments.forEach { item ->
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = Color(0xFF1F2937),
+                        border = BorderStroke(1.dp, Color(0xFF374151)),
+                        modifier = Modifier.padding(vertical = 2.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
+                        ) {
+                            if (item.isImage && item.bitmap != null) {
+                                Image(
+                                    bitmap = item.bitmap.asImageBitmap(),
+                                    contentDescription = item.name,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier
+                                        .size(24.dp)
+                                        .clip(RoundedCornerShape(4.dp))
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Default.Description,
+                                    contentDescription = "File",
+                                    tint = Color(0xFF60A5FA),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = if (item.name.length > 14) item.name.take(12) + "…" else item.name,
+                                fontSize = 11.5.sp,
+                                color = Color(0xFFE5E7EB),
+                                fontWeight = FontWeight.Medium
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Box(
+                                modifier = Modifier
+                                    .size(16.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0x33FFFFFF))
+                                    .clickable { onRemoveAttachment(item) },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Remove",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(10.dp)
+                                )
                             }
                         }
-                    )
-                )
+                    }
+                }
+            }
+        }
 
-                Spacer(modifier = Modifier.width(6.dp))
-
-                // Voice Mic Button
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = if (isListening) Color(0x44EF4444) else Color(0x331F2937),
-                    border = BorderStroke(1.dp, if (isListening) Color(0xFFEF4444) else Color(0x44374151)),
-                    onClick = onToggleVoice,
-                    modifier = Modifier.size(34.dp)
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = Icons.Default.Mic,
-                            contentDescription = "Voice dictation",
-                            tint = if (isListening) Color(0xFFEF4444) else Color(0xFF9CA3AF),
-                            modifier = Modifier.size(18.dp)
+        // Detached Rounded Capsule Surface
+        Surface(
+            shape = RoundedCornerShape(28.dp),
+            color = Color(0xF21F2937), // Elevated Charcoal Slate
+            border = BorderStroke(1.dp, Color(0xFF374151)),
+            shadowElevation = 4.dp,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                // Discrete capacity progress bar along top curve of card
+                if (capacityFraction > 0f) {
+                    val progressColor = when {
+                        capacityFraction >= 0.85f -> Color(0xFFEF4444)
+                        capacityFraction >= 0.60f -> Color(0xFFFBBF24)
+                        else -> Color(0xFF3B82F6)
+                    }
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(2.dp)
+                            .background(Color(0xFF111827))
+                            .then(if (onCapacityClick != null) Modifier.clickable { onCapacityClick() } else Modifier)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(capacityFraction.coerceIn(0f, 1f))
+                                .height(2.dp)
+                                .background(progressColor)
                         )
                     }
                 }
 
-                Spacer(modifier = Modifier.width(6.dp))
-
-                // Send or Stop Button
-                if (isGenerating) {
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = Color(0xFFEF4444),
-                        onClick = onStop,
-                        modifier = Modifier.size(34.dp)
+                // Inner Capsule Controls Row
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Gemini-Style '+' Attachment Button
+                    Box(
+                        modifier = Modifier
+                            .size(38.dp)
+                            .clip(CircleShape)
+                            .background(Color(0x22FFFFFF))
+                            .clickable(onClick = onPickMedia),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Default.Add,
+                            contentDescription = "Add attachments",
+                            tint = if (attachments.isNotEmpty()) Color(0xFF60A5FA) else Color(0xFFE5E7EB),
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(8.dp))
+
+                    // Seamless Text Input
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(vertical = 4.dp),
+                        contentAlignment = Alignment.CenterStart
+                    ) {
+                        if (inputText.isEmpty()) {
+                            Text(
+                                text = if (isListening) "Listening…" else "Ask TextMorph…",
+                                fontSize = 15.sp,
+                                color = if (isListening) Color(0xFFFBBF24) else Color(0xFF9CA3AF)
+                            )
+                        }
+
+                        BasicTextField(
+                            value = inputText,
+                            onValueChange = onInputTextChanged,
+                            textStyle = TextStyle(
+                                color = Color(0xFFF9FAFB),
+                                fontSize = 15.sp,
+                                lineHeight = 20.sp
+                            ),
+                            cursorBrush = SolidColor(Color(0xFF3B82F6)),
+                            maxLines = 4,
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                            keyboardActions = KeyboardActions(
+                                onSend = {
+                                    if ((inputText.isNotBlank() || attachments.isNotEmpty()) && !isGenerating) {
+                                        onSend()
+                                    }
+                                }
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .onFocusChanged { if (it.isFocused) onInputFocus?.invoke() }
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(8.dp))
+
+                    // Voice Mic Button
+                    Box(
+                        modifier = Modifier
+                            .size(38.dp)
+                            .clip(CircleShape)
+                            .background(if (isListening) Color(0x33EF4444) else Color.Transparent)
+                            .clickable(onClick = onToggleVoice),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Mic,
+                            contentDescription = "Voice input",
+                            tint = if (isListening) Color(0xFFEF4444) else Color(0xFF9CA3AF),
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(4.dp))
+
+                    // Send or Stop Action Pill
+                    if (isGenerating) {
+                        Box(
+                            modifier = Modifier
+                                .size(38.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFFEF4444))
+                                .clickable(onClick = onStop),
+                            contentAlignment = Alignment.Center
+                        ) {
                             Icon(
                                 imageVector = Icons.Default.Stop,
-                                contentDescription = "Stop",
+                                contentDescription = "Stop generation",
                                 tint = Color.White,
                                 modifier = Modifier.size(18.dp)
                             )
                         }
-                    }
-                } else {
-                    val canSend = inputText.isNotBlank() || attachments.isNotEmpty()
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = if (canSend) Color(0xFF2563EB) else Color(0x22374151),
-                        border = BorderStroke(1.dp, if (canSend) Color(0xFF3B82F6) else Color(0x33374151)),
-                        enabled = canSend,
-                        onClick = onSend,
-                        modifier = Modifier.size(34.dp)
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
+                    } else {
+                        val canSend = inputText.isNotBlank() || attachments.isNotEmpty()
+                        Box(
+                            modifier = Modifier
+                                .size(38.dp)
+                                .clip(CircleShape)
+                                .background(if (canSend) Color(0xFF2563EB) else Color(0x22374151))
+                                .clickable(enabled = canSend, onClick = onSend),
+                            contentAlignment = Alignment.Center
+                        ) {
                             Icon(
                                 imageVector = Icons.AutoMirrored.Filled.Send,
                                 contentDescription = "Send",
-                                tint = if (canSend) Color.White else Color(0xFF4B5563),
-                                modifier = Modifier.size(16.dp)
+                                tint = if (canSend) Color.White else Color(0xFF6B7280),
+                                modifier = Modifier.size(17.dp)
                             )
                         }
                     }

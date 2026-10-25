@@ -203,6 +203,7 @@ class ChatSessionRepository private constructor(private val context: Context) {
         sessionId: String,
         content: String,
         thoughtContent: String? = null,
+        actionPayloadJson: String? = null,
         actionStatus: String? = null,
         tokensPerSecond: Float? = null,
         totalTokens: Int? = null,
@@ -216,6 +217,7 @@ class ChatSessionRepository private constructor(private val context: Context) {
                 existing[lastAssistantIndex] = last.copy(
                     content = content,
                     thoughtContent = thoughtContent ?: last.thoughtContent,
+                    actionPayloadJson = actionPayloadJson ?: last.actionPayloadJson,
                     actionStatus = actionStatus ?: last.actionStatus,
                     tokensPerSecond = tokensPerSecond ?: last.tokensPerSecond,
                     totalTokens = totalTokens ?: last.totalTokens,

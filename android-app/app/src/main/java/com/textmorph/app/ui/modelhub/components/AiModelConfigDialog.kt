@@ -53,7 +53,8 @@ fun AiModelConfigDialog(
         topP: Float,
         enableThinking: Boolean,
         speculativeDecoding: Boolean,
-        defaultSystemPrompt: String
+        defaultSystemPrompt: String,
+        agentSystemPrompt: String
     ) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -64,6 +65,7 @@ fun AiModelConfigDialog(
     var enableThinking by remember { mutableStateOf(settings.enableThinking) }
     var speculativeDecoding by remember { mutableStateOf(settings.speculativeDecoding) }
     var defaultSystemPrompt by remember { mutableStateOf(settings.defaultSystemPrompt) }
+    var agentSystemPrompt by remember { mutableStateOf(settings.agentSystemPrompt) }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -217,9 +219,9 @@ fun AiModelConfigDialog(
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                // Default System Prompt
+                // Chat Mode System Prompt
                 Text(
-                    text = "Default System Prompt",
+                    text = "Chat Mode System Prompt",
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.SemiBold
                 )
@@ -228,7 +230,25 @@ fun AiModelConfigDialog(
                     value = defaultSystemPrompt,
                     onValueChange = { defaultSystemPrompt = it },
                     minLines = 3,
-                    maxLines = 6,
+                    maxLines = 5,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp)
+                )
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // Agent Mode System Prompt
+                Text(
+                    text = "Agent Mode System Prompt (Tools & Automation)",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                OutlinedTextField(
+                    value = agentSystemPrompt,
+                    onValueChange = { agentSystemPrompt = it },
+                    minLines = 4,
+                    maxLines = 8,
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(10.dp)
                 )
@@ -250,6 +270,7 @@ fun AiModelConfigDialog(
                             enableThinking = false
                             speculativeDecoding = false
                             defaultSystemPrompt = "You are a helpful, concise AI writing assistant. Transform or complete text according to user instructions. Return ONLY the final output without preamble or explanations."
+                            agentSystemPrompt = com.textmorph.app.agent.prompts.AgentPrompts.AGENT_SYSTEM_PROMPT
                         },
                         shape = RoundedCornerShape(10.dp)
                     ) {
@@ -278,7 +299,8 @@ fun AiModelConfigDialog(
                                 topP,
                                 enableThinking,
                                 speculativeDecoding,
-                                defaultSystemPrompt.trim()
+                                defaultSystemPrompt.trim(),
+                                agentSystemPrompt.trim()
                             )
                         },
                         shape = RoundedCornerShape(10.dp)

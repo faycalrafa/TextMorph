@@ -84,34 +84,6 @@ fun AppNavigationDrawerSheet(
                     .fillMaxWidth()
                     .verticalScroll(rememberScrollState())
             ) {
-                DrawerNavItem(
-                    icon = Icons.Default.Widgets,
-                    title = "Custom Prompts",
-                    subtitle = "Manage prompt actions and ribbon",
-                    isSelected = currentDestination == AppDestination.PROMPTS,
-                    onClick = { onSelectDestination(AppDestination.PROMPTS) }
-                )
-
-                DrawerNavItem(
-                    icon = Icons.Default.Terminal,
-                    title = "Custom Commands",
-                    subtitle = "Quick /commands for input fields",
-                    isSelected = currentDestination == AppDestination.CUSTOM_COMMANDS,
-                    onClick = { onSelectDestination(AppDestination.CUSTOM_COMMANDS) }
-                )
-
-                DrawerNavItem(
-                    icon = Icons.Default.Memory,
-                    title = "Model Hub",
-                    subtitle = "LiteRT, GGUF models & downloads",
-                    isSelected = currentDestination == AppDestination.MODEL_HUB,
-                    onClick = { onSelectDestination(AppDestination.MODEL_HUB) }
-                )
-
-                Spacer(modifier = Modifier.height(6.dp))
-                HorizontalDivider(modifier = Modifier.padding(horizontal = 12.dp))
-                Spacer(modifier = Modifier.height(6.dp))
-
                 // Chats / Multi-Tab Section Header
                 Row(
                     modifier = Modifier
@@ -161,6 +133,34 @@ fun AppNavigationDrawerSheet(
                         )
                     }
                 }
+
+                Spacer(modifier = Modifier.height(6.dp))
+                HorizontalDivider(modifier = Modifier.padding(horizontal = 12.dp))
+                Spacer(modifier = Modifier.height(6.dp))
+
+                DrawerNavItem(
+                    icon = Icons.Default.Widgets,
+                    title = "Custom Prompts",
+                    subtitle = "Manage prompt actions and ribbon",
+                    isSelected = currentDestination == AppDestination.PROMPTS,
+                    onClick = { onSelectDestination(AppDestination.PROMPTS) }
+                )
+
+                DrawerNavItem(
+                    icon = Icons.Default.Terminal,
+                    title = "Custom Commands",
+                    subtitle = "Quick /commands for input fields",
+                    isSelected = currentDestination == AppDestination.CUSTOM_COMMANDS,
+                    onClick = { onSelectDestination(AppDestination.CUSTOM_COMMANDS) }
+                )
+
+                DrawerNavItem(
+                    icon = Icons.Default.Memory,
+                    title = "Model Hub",
+                    subtitle = "LiteRT, GGUF models & downloads",
+                    isSelected = currentDestination == AppDestination.MODEL_HUB,
+                    onClick = { onSelectDestination(AppDestination.MODEL_HUB) }
+                )
             }
 
             HorizontalDivider()

@@ -22,7 +22,7 @@ class TextMorphUnitTests {
     fun testDefaultSeedPromptsContainsCoreCategories() {
         val seeds = PromptRepository.getDefaultSeedPrompts()
         assertNotNull(seeds)
-        assertEquals(3, seeds.size)
+        assertEquals(4, seeds.size)
 
         val hasTextTransform = seeds.any { it.category == PromptCategory.TEXT_TRANSFORM }
         val hasVision = seeds.any { it.category == PromptCategory.VISION_ACTION }
@@ -34,7 +34,13 @@ class TextMorphUnitTests {
     @Test
     fun testThreePreseededPromptsSpecifications() {
         val seeds = PromptRepository.getDefaultSeedPrompts()
-        assertEquals(3, seeds.size)
+        assertEquals(4, seeds.size)
+
+        val correct = seeds.firstOrNull { it.id == "seed_correct" }
+        assertNotNull(correct)
+        assertEquals("Correct", correct?.title)
+        assertEquals(PromptCategory.TEXT_TRANSFORM, correct?.category)
+        assertTrue(correct!!.systemInstruction.contains("Fix all grammar, punctuation, and spelling errors"))
 
         val creative = seeds.firstOrNull { it.id == "seed_creative_polish" }
         assertNotNull(creative)
@@ -65,7 +71,7 @@ class TextMorphUnitTests {
     @Test
     fun testSeedPromptsCleanExecutionPhrasing() {
         val seeds = PromptRepository.getDefaultSeedPrompts()
-        assertEquals(3, seeds.size)
+        assertEquals(4, seeds.size)
         for (prompt in seeds) {
             assertTrue(
                 "Prompt ${prompt.id} should enforce no comments / direct output",
@@ -73,7 +79,8 @@ class TextMorphUnitTests {
                         prompt.systemInstruction.contains("no explanations") ||
                         prompt.systemInstruction.contains("Output only the reply text") ||
                         prompt.systemInstruction.contains("Return ONLY the summary directly") ||
-                        prompt.systemInstruction.contains("Return ONLY the polished text directly")
+                        prompt.systemInstruction.contains("Return ONLY the polished text directly") ||
+                        prompt.systemInstruction.contains("Return ONLY the corrected text directly")
             )
         }
     }
@@ -389,13 +396,14 @@ class TextMorphUnitTests {
     @Test
     fun testCompanionActionPromptsContainsTransformsAndVision() {
         val seeds = PromptRepository.getDefaultSeedPrompts()
-        assertEquals(3, seeds.size)
+        assertEquals(4, seeds.size)
         val textTransforms = seeds.filter { it.category == PromptCategory.TEXT_TRANSFORM }
         val visionActions = seeds.filter { it.category == PromptCategory.VISION_ACTION }
 
-        assertEquals(2, textTransforms.size)
+        assertEquals(3, textTransforms.size)
         assertEquals(1, visionActions.size)
-        assertEquals("Creative Polish", textTransforms.first().title)
+        assertTrue(textTransforms.any { it.title == "Correct" })
+        assertTrue(textTransforms.any { it.title == "Creative Polish" })
     }
 
     @Test

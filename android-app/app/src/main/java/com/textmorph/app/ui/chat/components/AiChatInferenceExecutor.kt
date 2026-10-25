@@ -29,7 +29,8 @@ object AiChatInferenceExecutor {
         scope: CoroutineScope,
         onStart: () -> Unit,
         onComplete: () -> Unit,
-        setJob: (Job) -> Unit
+        setJob: (Job) -> Unit,
+        agentEngine: com.textmorph.app.agent.AgentEngine? = null
     ) {
         onStart()
 
@@ -94,9 +95,10 @@ object AiChatInferenceExecutor {
                     sb.append(chunk)
                     val currentText = sb.toString()
                     val (thought, answer) = extractThought(currentText)
+                    val effectiveContent = if (thought != null) answer else currentText
                     chatRepository.updateLastAssistantMessage(
                         sessionId = sessionId,
-                        content = answer.ifEmpty { currentText },
+                        content = effectiveContent,
                         thoughtContent = thought,
                         tokensPerSecond = lastMetrics?.tokensPerSecond,
                         totalTokens = lastMetrics?.tokenCount,
@@ -106,15 +108,56 @@ object AiChatInferenceExecutor {
 
                 val finalOutput = sb.toString().trim()
                 val (thought, answer) = extractThought(finalOutput)
+                val effectiveFinalContent = if (thought != null) answer else finalOutput
+
                 chatRepository.updateLastAssistantMessage(
                     sessionId = sessionId,
-                    content = answer.ifEmpty { finalOutput },
+                    content = effectiveFinalContent,
                     thoughtContent = thought,
                     tokensPerSecond = lastMetrics?.tokensPerSecond,
                     totalTokens = lastMetrics?.tokenCount,
                     durationMs = lastMetrics?.totalDurationMs
                 )
                 AppLogger.d(TAG, "Completed chat turn for session=$sessionId: length=${finalOutput.length}, speed=${lastMetrics?.tokensPerSecond} tok/s")
+
+                // If in Agent mode, check if LLM returned an autonomous tool action JSON
+                if (isAgent && agentEngine != null) {
+                    val parsedAction = com.textmorph.app.agent.parser.AgentActionParser.parseAction(effectiveFinalContent)
+                    if (parsedAction != null) {
+                        chatRepository.updateLastAssistantMessage(
+                            sessionId = sessionId,
+                            content = parsedAction.response.ifEmpty { "Executing ${parsedAction.action}…" },
+                            thoughtContent = thought,
+                            actionPayloadJson = parsedAction.action,
+                            actionStatus = "running"
+                        )
+                        scope.launch(Dispatchers.IO) {
+                            try {
+                                val result = agentEngine.execute(parsedAction) { statusUpdate ->
+                                    chatRepository.setGenerationStatus(statusUpdate)
+                                }
+                                chatRepository.updateLastAssistantMessage(
+                                    sessionId = sessionId,
+                                    content = if (result.success) {
+                                        parsedAction.response.ifEmpty { result.details }
+                                    } else {
+                                        "Error executing ${parsedAction.action}: ${result.details}"
+                                    },
+                                    actionStatus = if (result.success) "success" else "failed"
+                                )
+                            } catch (actEx: Exception) {
+                                AppLogger.e(TAG, "Action execution failed: ${actEx.message}", actEx)
+                                chatRepository.updateLastAssistantMessage(
+                                    sessionId = sessionId,
+                                    content = "Error: ${actEx.message}",
+                                    actionStatus = "failed"
+                                )
+                            } finally {
+                                chatRepository.setGenerationStatus(null)
+                            }
+                        }
+                    }
+                }
 
                 // Trigger background rolling summarization if message history exceeds trigger count
                 val allMessages = chatRepository.currentMessages.value
@@ -152,15 +195,18 @@ object AiChatInferenceExecutor {
             rawText.contains("<thought>") -> "<thought>" to "</thought>"
             else -> return null to rawText
         }
-        val start = rawText.indexOf(thinkTag.first) + thinkTag.first.length
+        val start = rawText.indexOf(thinkTag.first)
         val end = rawText.indexOf(thinkTag.second)
         return if (end != -1) {
-            val thought = rawText.substring(start, end).trim()
-            val answer = rawText.substring(end + thinkTag.second.length).trim()
+            val thought = rawText.substring(start + thinkTag.first.length, end).trim()
+            val pre = rawText.substring(0, start).trim()
+            val post = rawText.substring(end + thinkTag.second.length).trim()
+            val answer = listOf(pre, post).filter { it.isNotEmpty() }.joinToString("\n\n")
             thought to answer
         } else {
-            val thought = rawText.substring(start).trim()
-            thought to ""
+            val thought = rawText.substring(start + thinkTag.first.length).trim()
+            val pre = rawText.substring(0, start).trim()
+            thought to pre
         }
     }
 }

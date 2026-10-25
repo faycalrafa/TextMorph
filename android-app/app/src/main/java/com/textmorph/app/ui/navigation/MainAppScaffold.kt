@@ -114,7 +114,7 @@ fun MainAppScaffold(
     val chatSessions by chatRepository.sessions.collectAsState()
     val activeChatSessionId by chatRepository.activeSessionId.collectAsState()
 
-    var currentDestination by remember { mutableStateOf(AppDestination.PROMPTS) }
+    var currentDestination by remember { mutableStateOf(AppDestination.CHAT) }
 
     // Search Top Bar State
     var isSearchActive by remember { mutableStateOf(false) }
@@ -171,14 +171,14 @@ fun MainAppScaffold(
     }
 
     // Intercept Back button when search is open, drawer is open, or in sub-destination
-    BackHandler(enabled = isSearchActive || drawerState.isOpen || currentDestination != AppDestination.PROMPTS) {
+    BackHandler(enabled = isSearchActive || drawerState.isOpen || currentDestination != AppDestination.CHAT) {
         if (isSearchActive) {
             isSearchActive = false
             searchQuery = ""
         } else if (drawerState.isOpen) {
             scope.launch { drawerState.close() }
-        } else if (currentDestination != AppDestination.PROMPTS) {
-            currentDestination = AppDestination.PROMPTS
+        } else if (currentDestination != AppDestination.CHAT) {
+            currentDestination = AppDestination.CHAT
         }
     }
 
@@ -220,7 +220,7 @@ fun MainAppScaffold(
         if (currentDestination == AppDestination.DEV_LOGS) {
             DevLogsScreen(
                 installedVersionName = updateRepository.getCurrentVersionName(),
-                onNavigateBack = { currentDestination = AppDestination.PROMPTS },
+                onNavigateBack = { currentDestination = AppDestination.CHAT },
                 onOpenDrawer = { scope.launch { drawerState.open() } }
             )
         } else if (currentDestination == AppDestination.VERSION_HISTORY) {
@@ -365,7 +365,8 @@ fun MainAppScaffold(
                                 llamaCppEngine = llamaCppEngine,
                                 chatRepository = chatRepository,
                                 onNavigateToModelHub = { currentDestination = AppDestination.MODEL_HUB },
-                                onOpenDrawer = { scope.launch { drawerState.open() } }
+                                onOpenDrawer = { scope.launch { drawerState.open() } },
+                                onOpenAccessibilityDisclosure = { showProminentDisclosure = true }
                             )
                         }
 

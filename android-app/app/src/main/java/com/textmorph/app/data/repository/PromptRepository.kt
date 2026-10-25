@@ -68,8 +68,15 @@ class PromptRepository(private val context: Context) {
                     }.sortedBy { it.sortOrder }
                 }
 
-                _promptsState.value = migrated
-                savePromptsToDisk(migrated)
+                val withCorrect = if (migrated.none { it.id == "seed_correct" }) {
+                    val correctPrompt = defaultSeeds.first { it.id == "seed_correct" }
+                    listOf(correctPrompt) + migrated
+                } else {
+                    migrated
+                }.mapIndexed { index, prompt -> prompt.copy(sortOrder = index) }
+
+                _promptsState.value = withCorrect
+                savePromptsToDisk(withCorrect)
             }
         } catch (e: Exception) {
             AppLogger.e(TAG, "Error loading prompts from disk, falling back to seeds: ${e.message}", e)
@@ -192,6 +199,17 @@ class PromptRepository(private val context: Context) {
 
         fun getDefaultSeedPrompts(): List<PromptEntity> = listOf(
             PromptEntity(
+                id = "seed_correct",
+                title = "Correct",
+                systemInstruction = "Fix all grammar, punctuation, and spelling errors in this text while preserving the original meaning, tone, and formatting. Return ONLY the corrected text directly—no introductions, quotation marks, explanations, or commentary.",
+                iconEmoji = "✍️",
+                iconName = "spellcheck",
+                category = PromptCategory.TEXT_TRANSFORM,
+                requiresVision = false,
+                sortOrder = 0,
+                contextAction = ContextAction.NONE
+            ),
+            PromptEntity(
                 id = "seed_creative_polish",
                 title = "Creative Polish",
                 systemInstruction = "take this text and creatively enhance and elevate it: make it vibrant, articulate, and compelling while keeping the exact original intent and core facts. Return ONLY the polished text directly—no introductions, quotation marks, explanations, or commentary.",
@@ -199,7 +217,7 @@ class PromptRepository(private val context: Context) {
                 iconName = "auto_awesome",
                 category = PromptCategory.TEXT_TRANSFORM,
                 requiresVision = false,
-                sortOrder = 0,
+                sortOrder = 1,
                 contextAction = ContextAction.NONE
             ),
             PromptEntity(
@@ -210,7 +228,7 @@ class PromptRepository(private val context: Context) {
                 iconName = "summarize",
                 category = PromptCategory.TEXT_TRANSFORM,
                 requiresVision = false,
-                sortOrder = 1,
+                sortOrder = 2,
                 contextAction = ContextAction.CLIPBOARD
             ),
             PromptEntity(
@@ -221,7 +239,7 @@ class PromptRepository(private val context: Context) {
                 iconName = "screenshot",
                 category = PromptCategory.VISION_ACTION,
                 requiresVision = true,
-                sortOrder = 2,
+                sortOrder = 3,
                 contextAction = ContextAction.SCREENSHOT
             )
         )

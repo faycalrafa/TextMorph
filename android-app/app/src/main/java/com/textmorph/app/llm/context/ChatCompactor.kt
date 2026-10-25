@@ -17,14 +17,8 @@ object ChatCompactor {
     const val DEFAULT_SLIDING_WINDOW_TURNS = 4 // Last 4 turns (approx 8 messages)
     const val SUMMARY_TRIGGER_MESSAGE_COUNT = 10
 
-    const val DEFAULT_SYSTEM_PROMPT =
-        "You are TextMorph, an intelligent on-device AI companion and assistant for Android. " +
-        "You provide concise, helpful, and direct responses."
-
-    const val AGENT_SYSTEM_PROMPT =
-        "You are TextMorph Agent, an autonomous, highly capable, and analytical AI agent for Android. " +
-        "You think step-by-step, reason thoroughly, formulate actionable plans, and provide direct, structured solutions. " +
-        "When analyzing or planning, enclose your internal thought process inside <think>...</think> tags, followed by your decisive answer or execution steps."
+    val DEFAULT_SYSTEM_PROMPT = com.textmorph.app.agent.prompts.AgentPrompts.CHAT_SYSTEM_PROMPT
+    val AGENT_SYSTEM_PROMPT = com.textmorph.app.agent.prompts.AgentPrompts.AGENT_SYSTEM_PROMPT
 
     /**
      * Splits a list of messages into older messages (eligible for summarization)

@@ -256,6 +256,14 @@ fun ModelHubContent(
             }
         }
 
+        // System Prompts Inspector Card
+        item {
+            com.textmorph.app.ui.modelhub.components.SystemPromptsInspectorCard(
+                settings = settings,
+                onOpenAiConfig = { showAiConfigDialog = true }
+            )
+        }
+
         // Available Models List
         item {
             Text(
@@ -377,7 +385,7 @@ fun ModelHubContent(
     if (showAiConfigDialog) {
         AiModelConfigDialog(
             settings = settings,
-            onSave = { maxTokens, temp, k, p, thinking, speculative, prompt ->
+            onSave = { maxTokens, temp, k, p, thinking, speculative, prompt, agentPrompt ->
                 scope.launch {
                     settingsRepository.updateAiModelConfig(
                         maxTokens = maxTokens,
@@ -386,7 +394,8 @@ fun ModelHubContent(
                         topP = p,
                         enableThinking = thinking,
                         speculativeDecoding = speculative,
-                        defaultSystemPrompt = prompt
+                        defaultSystemPrompt = prompt,
+                        agentSystemPrompt = agentPrompt
                     )
                     showAiConfigDialog = false
                     Toast.makeText(context, "AI configurations saved.", Toast.LENGTH_SHORT).show()

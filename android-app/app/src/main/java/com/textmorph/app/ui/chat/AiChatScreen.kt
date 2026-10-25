@@ -88,7 +88,8 @@ fun AiChatContent(
     llamaCppEngine: LlamaCppEngine = LlamaCppEngineManager.getInstance(LocalContext.current),
     chatRepository: ChatSessionRepository = ChatSessionRepository.getInstance(LocalContext.current),
     onNavigateToModelHub: () -> Unit,
-    onOpenDrawer: () -> Unit = {}
+    onOpenDrawer: () -> Unit = {},
+    onOpenAccessibilityDisclosure: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -104,6 +105,24 @@ fun AiChatContent(
     val currentSession = sessions.find { it.id == activeSessionId }
     val isAgentMode = currentSession?.isAgentMode == true
 
+    fun getActiveEngine(): com.textmorph.app.llm.LlmEngine {
+        return when (settings.selectedEngine) {
+            EngineType.CLOUD_OPENAI -> {
+                val cloudEngine = OpenAiCloudEngine()
+                cloudEngine.updateConfig(settings.cloudBaseUrl, settings.cloudApiKey, settings.cloudModelId)
+                cloudEngine
+            }
+            EngineType.ON_DEVICE_LLAMA_CPP -> llamaCppEngine
+            else -> liteRtEngine
+        }
+    }
+
+    val agentEngine = remember {
+        com.textmorph.app.agent.AgentEngine(
+            context = context,
+            engineProvider = ::getActiveEngine
+        )
+    }
     var inputText by remember { mutableStateOf("") }
     val attachments = remember { mutableStateListOf<AttachedMediaItem>() }
     var isGenerating by remember { mutableStateOf(false) }
@@ -150,18 +169,6 @@ fun AiChatContent(
         }
     }
 
-    fun getActiveEngine(): com.textmorph.app.llm.LlmEngine {
-        return when (settings.selectedEngine) {
-            EngineType.CLOUD_OPENAI -> {
-                val cloudEngine = OpenAiCloudEngine()
-                cloudEngine.updateConfig(settings.cloudBaseUrl, settings.cloudApiKey, settings.cloudModelId)
-                cloudEngine
-            }
-            EngineType.ON_DEVICE_LLAMA_CPP -> llamaCppEngine
-            else -> liteRtEngine
-        }
-    }
-
     fun handleSend() {
         if ((inputText.isNotBlank() || attachments.isNotEmpty()) && !isGenerating) {
             val prompt = inputText.trim()
@@ -198,7 +205,8 @@ fun AiChatContent(
                 scope = scope,
                 onStart = { isGenerating = true },
                 onComplete = { isGenerating = false },
-                setJob = { currentJob = it }
+                setJob = { currentJob = it },
+                agentEngine = agentEngine
             )
         }
     }
@@ -222,7 +230,10 @@ fun AiChatContent(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f, fill = false)
+                ) {
                     IconButton(onClick = onOpenDrawer) {
                         Icon(Icons.Default.Menu, contentDescription = "Menu", tint = Color(0xFFE5E7EB))
                     }
@@ -248,126 +259,117 @@ fun AiChatContent(
                             overflow = TextOverflow.Ellipsis
                         )
                     }
+                }
 
-                    Spacer(modifier = Modifier.width(6.dp))
-
-                    // Agent Mode Toggle Chip
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = if (isAgentMode) Color(0x333B82F6) else Color(0x22374151),
-                        border = BorderStroke(1.dp, if (isAgentMode) Color(0xFF3B82F6) else Color(0x444B5563)),
-                        onClick = {
-                            val targetId = activeSessionId ?: return@Surface
-                            scope.launch { chatRepository.setAgentMode(targetId, !isAgentMode) }
-                        }
-                    ) {
-                        Text(
-                            text = if (isAgentMode) "✦ Agent" else "💬 Chat",
-                            fontSize = 11.5.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = if (isAgentMode) Color(0xFF60A5FA) else Color(0xFF9CA3AF),
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.width(8.dp))
-
-                    // Context Capacity Meter Pill
-                    ContextCapacityMeterPill(
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    // Context Capacity Gauge Ring Icon (No cluttered text in top bar)
+                    com.textmorph.app.ui.chat.components.ContextCapacityRingIcon(
                         metrics = contextMetrics,
                         onClick = { showCapacitySheet = true }
                     )
-                }
 
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        if (messages.isNotEmpty()) {
-                            IconButton(onClick = {
-                                currentJob?.cancel()
-                                isGenerating = false
-                                scope.launch { chatRepository.clearSessionMessages(activeSessionId ?: "") }
-                            }) {
-                                Icon(Icons.Default.DeleteOutline, contentDescription = "Clear Chat", tint = Color(0xFFE5E7EB).copy(alpha = 0.7f))
-                            }
+                    if (messages.isNotEmpty()) {
+                        IconButton(onClick = {
+                            currentJob?.cancel()
+                            isGenerating = false
+                            scope.launch { chatRepository.clearSessionMessages(activeSessionId ?: "") }
+                        }) {
+                            Icon(Icons.Default.DeleteOutline, contentDescription = "Clear Chat", tint = Color(0xFFE5E7EB).copy(alpha = 0.7f))
                         }
                     }
                 }
             }
+        }
 
-            // Messages View
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-            ) {
-                if (messages.isEmpty()) {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text(
-                            text = "Interactive AI Playground & Chat\nStart typing below to converse with $activeModelName",
-                            color = Color(0xFF9CA3AF),
-                            fontSize = 14.sp,
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+        // Floating Dismissible Permissions Tooltip
+        com.textmorph.app.ui.chat.components.MissingPermissionsTooltip(
+            onOpenAccessibilityDisclosure = onOpenAccessibilityDisclosure
+        )
+
+        // Messages View
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+        ) {
+            if (messages.isEmpty()) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text(
+                        text = "Interactive AI Playground & Chat\nStart typing below to converse with $activeModelName",
+                        color = Color(0xFF9CA3AF),
+                        fontSize = 14.sp,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    )
+                }
+            } else {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    items(messages, key = { it.id }) { msg ->
+                        ChatMessageItemView(
+                            message = msg,
+                            isGenerating = isGenerating && msg.id == messages.lastOrNull()?.id,
+                            generationStatus = activeGenerationStatus,
+                            onEditPrompt = { userMsg ->
+                                val targetId = activeSessionId ?: return@ChatMessageItemView
+                                inputText = userMsg.content
+                                scope.launch {
+                                    chatRepository.truncateMessages(targetId, userMsg.id, inclusive = true)
+                                }
+                            },
+                            onRetryPrompt = { userMsg ->
+                                val targetId = activeSessionId ?: return@ChatMessageItemView
+                                scope.launch {
+                                    chatRepository.truncateMessages(targetId, userMsg.id, inclusive = true)
+                                    inputText = userMsg.content
+                                    handleSend()
+                                }
+                            }
                         )
                     }
-                } else {
-                    LazyColumn(
-                        state = listState,
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        items(messages, key = { it.id }) { msg ->
-                            ChatMessageItemView(
-                                message = msg,
-                                isGenerating = isGenerating && msg.id == messages.lastOrNull()?.id,
-                                generationStatus = activeGenerationStatus,
-                                onEditPrompt = { userMsg ->
-                                    val targetId = activeSessionId ?: return@ChatMessageItemView
-                                    inputText = userMsg.content
-                                    scope.launch {
-                                        chatRepository.truncateMessages(targetId, userMsg.id, inclusive = true)
-                                    }
-                                },
-                                onRetryPrompt = { userMsg ->
-                                    val targetId = activeSessionId ?: return@ChatMessageItemView
-                                    scope.launch {
-                                        chatRepository.truncateMessages(targetId, userMsg.id, inclusive = true)
-                                        inputText = userMsg.content
-                                        handleSend()
-                                    }
-                                }
-                            )
-                        }
-                    }
                 }
             }
-
-            // Input Bar
-            ChatInputBar(
-                inputText = inputText,
-                onInputTextChanged = { inputText = it },
-                isGenerating = isGenerating,
-                isListening = isListening,
-                attachments = attachments,
-                onRemoveAttachment = { attachments.remove(it) },
-                onPickMedia = { mediaPickerLauncher.launch("*/*") },
-                onToggleVoice = {
-                    if (isListening) {
-                        voiceHelper.stopListening()
-                    } else {
-                        voiceHelper.startListening { transcript ->
-                            inputText = if (inputText.isBlank()) transcript else "$inputText $transcript"
-                        }
-                    }
-                },
-                capacityFraction = contextMetrics.usageFraction,
-                onCapacityClick = { showCapacitySheet = true },
-                onSend = ::handleSend,
-                onStop = {
-                    currentJob?.cancel()
-                    isGenerating = false
-                }
-            )
         }
+
+        // Chat / Agent Mode Pill Switcher (Gemini Style)
+        com.textmorph.app.ui.chat.components.ChatAgentModeToggleRow(
+            isAgentMode = isAgentMode,
+            onModeChanged = { newAgentMode ->
+                val targetId = activeSessionId ?: return@ChatAgentModeToggleRow
+                scope.launch { chatRepository.setAgentMode(targetId, newAgentMode) }
+            }
+        )
+
+        // Detached Rounded Input Bar
+        ChatInputBar(
+            inputText = inputText,
+            onInputTextChanged = { inputText = it },
+            isGenerating = isGenerating,
+            isListening = isListening,
+            attachments = attachments,
+            onRemoveAttachment = { attachments.remove(it) },
+            onPickMedia = { mediaPickerLauncher.launch("*/*") },
+            onToggleVoice = {
+                if (isListening) {
+                    voiceHelper.stopListening()
+                } else {
+                    voiceHelper.startListening { transcript ->
+                        inputText = if (inputText.isBlank()) transcript else "$inputText $transcript"
+                    }
+                }
+            },
+            capacityFraction = contextMetrics.usageFraction,
+            onCapacityClick = { showCapacitySheet = true },
+            onSend = ::handleSend,
+            onStop = {
+                currentJob?.cancel()
+                isGenerating = false
+            }
+        )
+    }
 
     if (showModelSwitchSheet) {
         ModelQuickSwitchBottomSheet(
@@ -418,12 +420,18 @@ fun AiChatContent(
                     val newSummary = ChatCompactor.summarizeTurns(getActiveEngine(), activeSession?.summary, targetMessages)
                     val updatedFacts = ChatCompactor.extractSessionFacts(getActiveEngine(), activeSession?.sessionState, allMessages)
                     chatRepository.updateSessionCompactionState(activeId, newSummary, updatedFacts)
+                    kotlinx.coroutines.withContext(Dispatchers.Main) {
+                        Toast.makeText(context, "Compacted history into summary", Toast.LENGTH_SHORT).show()
+                    }
                 }
             },
             onPruneContext = {
                 val activeId = activeSessionId ?: return@ContextCapacityBottomSheet
                 scope.launch(Dispatchers.IO) {
                     chatRepository.pruneSessionArtifacts(activeId)
+                    kotlinx.coroutines.withContext(Dispatchers.Main) {
+                        Toast.makeText(context, "Pruned context artifacts", Toast.LENGTH_SHORT).show()
+                    }
                 }
             },
             onDismiss = { showCapacitySheet = false }

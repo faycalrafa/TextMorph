@@ -153,7 +153,8 @@ class SettingsRepository(private val context: Context) {
         topP: Float,
         enableThinking: Boolean,
         speculativeDecoding: Boolean,
-        defaultSystemPrompt: String
+        defaultSystemPrompt: String,
+        agentSystemPrompt: String = com.textmorph.app.agent.prompts.AgentPrompts.AGENT_SYSTEM_PROMPT
     ) = updateSettings {
         it.copy(
             maxTokens = maxTokens,
@@ -162,7 +163,8 @@ class SettingsRepository(private val context: Context) {
             topP = topP,
             enableThinking = enableThinking,
             speculativeDecoding = speculativeDecoding,
-            defaultSystemPrompt = defaultSystemPrompt
+            defaultSystemPrompt = defaultSystemPrompt,
+            agentSystemPrompt = agentSystemPrompt
         )
     }
 
