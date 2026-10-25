@@ -67,9 +67,11 @@ fun AgentTaskTimelineCard(
     modifier: Modifier = Modifier
 ) {
     val steps = remember(message.actionStepsJson) { message.getActionSteps() }
-    val isRunning = message.actionStatus == "running"
-    val isInterrupted = message.actionStatus == "interrupted"
-    val isFailed = message.actionStatus == "failed"
+    val hasFailedStep = steps.any { it.status == AgentStepStatus.FAILED }
+    val hasInterruptedStep = steps.any { it.status == AgentStepStatus.INTERRUPTED }
+    val isRunning = message.actionStatus == "running" && !hasFailedStep && !hasInterruptedStep
+    val isInterrupted = message.actionStatus == "interrupted" || hasInterruptedStep
+    val isFailed = message.actionStatus == "failed" || (!isRunning && !isInterrupted && hasFailedStep)
     var isExpanded by remember { mutableStateOf(true) }
 
     val infiniteTransition = rememberInfiniteTransition(label = "TimelinePulse")

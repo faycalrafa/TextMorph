@@ -1,5 +1,6 @@
 package com.textmorph.app.ui.chat
 
+import android.Manifest
 import android.graphics.Bitmap
 import android.net.Uri
 import android.widget.Toast
@@ -67,6 +68,8 @@ import com.textmorph.app.llm.OpenAiCloudEngine
 import com.textmorph.app.llm.context.ChatCompactor
 import com.textmorph.app.ui.chat.components.AiChatInferenceExecutor
 import com.textmorph.app.ui.chat.components.AttachedMediaItem
+import com.textmorph.app.util.AppLogger
+import com.textmorph.app.util.PermissionUtils
 import com.textmorph.app.ui.chat.components.AttachmentPickerHelper
 import com.textmorph.app.ui.chat.components.ChatInputBar
 import com.textmorph.app.ui.chat.components.ChatMessageItemView
@@ -129,6 +132,7 @@ fun AiChatContent(
     var currentJob by remember { mutableStateOf<Job?>(null) }
     var showModelSwitchSheet by remember { mutableStateOf(false) }
     var showCapacitySheet by remember { mutableStateOf(false) }
+    var showAttachmentSheet by remember { mutableStateOf(false) }
 
     val voiceHelper = remember { VoiceInputHelper(context) }
     val isListening by voiceHelper.isListening.collectAsState()
@@ -211,6 +215,23 @@ fun AiChatContent(
         }
     }
 
+    val micPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        AppLogger.i("AiChatScreen", "Mic permission result: granted=$granted")
+        if (granted) {
+            voiceHelper.startListening { transcript ->
+                val newText = if (inputText.isBlank()) transcript else "$inputText $transcript"
+                inputText = newText
+                if (settings.autoSendVoiceInput && newText.isNotBlank()) {
+                    handleSend()
+                }
+            }
+        } else {
+            Toast.makeText(context, "Microphone permission is required for voice dictation.", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -218,68 +239,20 @@ fun AiChatContent(
             .imePadding()
     ) {
         // Top Bar
-        Surface(
-            color = Color(0xFF111827), // Elevated midnight
-            border = BorderStroke(1.dp, Color(0xFF1F2937)),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.weight(1f, fill = false)
-                ) {
-                    IconButton(onClick = onOpenDrawer) {
-                        Icon(Icons.Default.Menu, contentDescription = "Menu", tint = Color(0xFFE5E7EB))
-                    }
-
-                    // Quick Model Switcher Pill
-                    Row(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(Color(0xFF1F2937))
-                            .border(1.dp, Color(0xFF374151), RoundedCornerShape(8.dp))
-                            .clickable { showModelSwitchSheet = true }
-                            .padding(horizontal = 10.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(Icons.Default.Tune, contentDescription = null, tint = Color(0xFF3B82F6), modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = activeModelName,
-                            color = Color(0xFFF9FAFB),
-                            fontSize = 12.5.sp,
-                            fontWeight = FontWeight.Medium,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                }
-
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    // Context Capacity Gauge Ring Icon (No cluttered text in top bar)
-                    com.textmorph.app.ui.chat.components.ContextCapacityRingIcon(
-                        metrics = contextMetrics,
-                        onClick = { showCapacitySheet = true }
-                    )
-
-                    if (messages.isNotEmpty()) {
-                        IconButton(onClick = {
-                            currentJob?.cancel()
-                            isGenerating = false
-                            scope.launch { chatRepository.clearSessionMessages(activeSessionId ?: "") }
-                        }) {
-                            Icon(Icons.Default.DeleteOutline, contentDescription = "Clear Chat", tint = Color(0xFFE5E7EB).copy(alpha = 0.7f))
-                        }
-                    }
-                }
+        com.textmorph.app.ui.chat.components.AiChatTopBar(
+            activeModelName = activeModelName,
+            contextMetrics = contextMetrics,
+            hasMessages = messages.isNotEmpty(),
+            onOpenDrawer = onOpenDrawer,
+            onOpenModelSwitch = { showModelSwitchSheet = true },
+            onOpenCapacitySheet = { showCapacitySheet = true },
+            onClearChat = {
+                currentJob?.cancel()
+                agentEngine?.cancelRunningTask()
+                isGenerating = false
+                scope.launch { chatRepository.clearSessionMessages(activeSessionId ?: "") }
             }
-        }
+        )
 
         // Floating Dismissible Permissions Tooltip
         com.textmorph.app.ui.chat.components.MissingPermissionsTooltip(
@@ -327,6 +300,20 @@ fun AiChatContent(
                                     inputText = userMsg.content
                                     handleSend()
                                 }
+                            },
+                            onInterruptAction = {
+                                currentJob?.cancel()
+                                agentEngine?.cancelRunningTask()
+                                com.textmorph.app.agent.coordinator.TaskExecutionCoordinator.interrupt()
+                                isGenerating = false
+                                val targetId = activeSessionId ?: return@ChatMessageItemView
+                                scope.launch(Dispatchers.IO) {
+                                    chatRepository.updateLastAssistantMessage(
+                                        sessionId = targetId,
+                                        content = "Task stopped by user.",
+                                        actionStatus = "interrupted"
+                                    )
+                                }
                             }
                         )
                     }
@@ -351,17 +338,21 @@ fun AiChatContent(
             isListening = isListening,
             attachments = attachments,
             onRemoveAttachment = { attachments.remove(it) },
-            onPickMedia = { mediaPickerLauncher.launch("*/*") },
+            onPickMedia = { showAttachmentSheet = true },
             onToggleVoice = {
                 if (isListening) {
                     voiceHelper.stopListening()
                 } else {
-                    voiceHelper.startListening { transcript ->
-                        val newText = if (inputText.isBlank()) transcript else "$inputText $transcript"
-                        inputText = newText
-                        if (settings.autoSendVoiceInput && newText.isNotBlank()) {
-                            handleSend()
+                    if (PermissionUtils.hasRecordAudioPermission(context)) {
+                        voiceHelper.startListening { transcript ->
+                            val newText = if (inputText.isBlank()) transcript else "$inputText $transcript"
+                            inputText = newText
+                            if (settings.autoSendVoiceInput && newText.isNotBlank()) {
+                                handleSend()
+                            }
                         }
+                    } else {
+                        micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                     }
                 }
             },
@@ -370,8 +361,28 @@ fun AiChatContent(
             onSend = ::handleSend,
             onStop = {
                 currentJob?.cancel()
+                agentEngine?.cancelRunningTask()
+                com.textmorph.app.agent.coordinator.TaskExecutionCoordinator.interrupt()
                 isGenerating = false
+                val targetId = activeSessionId
+                if (targetId != null) {
+                    scope.launch(Dispatchers.IO) {
+                        chatRepository.updateLastAssistantMessage(
+                            sessionId = targetId,
+                            content = "Task stopped by user.",
+                            actionStatus = "interrupted"
+                        )
+                    }
+                }
             }
+        )
+    }
+
+    if (showAttachmentSheet) {
+        com.textmorph.app.ui.chat.components.ChatAttachmentBottomSheet(
+            onDismiss = { showAttachmentSheet = false },
+            onPhotoCaptured = { item -> attachments.add(item) },
+            onPickFiles = { mediaPickerLauncher.launch("*/*") }
         )
     }
 

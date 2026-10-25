@@ -123,11 +123,86 @@ object PermissionUtils {
 
     fun requestNotificationPermission(activity: Activity) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            ActivityCompat.requestPermissions(
-                activity,
-                arrayOf(Manifest.permission.POST_NOTIFICATIONS),
-                101
-            )
+            try {
+                ActivityCompat.requestPermissions(
+                    activity,
+                    arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+                    101
+                )
+                AppLogger.i("PermissionUtils", "Requested notification permission")
+            } catch (e: Exception) {
+                AppLogger.e("PermissionUtils", "Failed requesting notification permission: ${e.message}", e)
+            }
+        }
+    }
+
+    /**
+     * Checks whether the app can draw overlays (SYSTEM_ALERT_WINDOW / Display over other apps).
+     */
+    fun canDrawOverlays(context: Context): Boolean {
+        return try {
+            Settings.canDrawOverlays(context)
+        } catch (e: Exception) {
+            AppLogger.e("PermissionUtils", "Error checking overlay permission: ${e.message}", e)
+            false
+        }
+    }
+
+    fun requestOverlayPermission(context: Context) {
+        try {
+            val intent = Intent(
+                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                Uri.parse("package:${context.packageName}")
+            ).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(intent)
+            AppLogger.i("PermissionUtils", "Dispatched intent for overlay permission settings")
+        } catch (e: Exception) {
+            AppLogger.e("PermissionUtils", "Failed requesting overlay permission: ${e.message}", e)
+        }
+    }
+
+    /**
+     * Checks if RECORD_AUDIO is granted for voice speech-to-text dictation.
+     */
+    fun hasRecordAudioPermission(context: Context): Boolean {
+        return try {
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.RECORD_AUDIO
+            ) == PackageManager.PERMISSION_GRANTED
+        } catch (e: Exception) {
+            AppLogger.e("PermissionUtils", "Error checking audio record permission: ${e.message}", e)
+            false
+        }
+    }
+
+    /**
+     * Checks if CAMERA is granted for visual multimodal capture.
+     */
+    fun hasCameraPermission(context: Context): Boolean {
+        return try {
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.CAMERA
+            ) == PackageManager.PERMISSION_GRANTED
+        } catch (e: Exception) {
+            AppLogger.e("PermissionUtils", "Error checking camera permission: ${e.message}", e)
+            false
+        }
+    }
+
+    fun openAppSettings(context: Context) {
+        try {
+            val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                data = Uri.parse("package:${context.packageName}")
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(intent)
+            AppLogger.i("PermissionUtils", "Opened application details settings")
+        } catch (e: Exception) {
+            AppLogger.e("PermissionUtils", "Failed to open application details settings: ${e.message}", e)
         }
     }
 }

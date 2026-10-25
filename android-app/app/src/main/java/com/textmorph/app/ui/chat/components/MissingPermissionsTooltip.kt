@@ -28,9 +28,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BatteryAlert
+import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Layers
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material.icons.filled.Widgets
@@ -78,6 +80,8 @@ fun MissingPermissionsTooltip(
     var isStorageGranted by remember { mutableStateOf(PermissionUtils.isExternalStorageManager()) }
     var isNotificationGranted by remember { mutableStateOf(PermissionUtils.hasNotificationPermission(context)) }
     var isOverlayGranted by remember { mutableStateOf(android.provider.Settings.canDrawOverlays(context)) }
+    var isAudioGranted by remember { mutableStateOf(PermissionUtils.hasRecordAudioPermission(context)) }
+    var isCameraGranted by remember { mutableStateOf(PermissionUtils.hasCameraPermission(context)) }
 
     // Session-only dismiss state (resets on app process restart)
     var isDismissed by rememberSaveable { mutableStateOf(false) }
@@ -91,6 +95,8 @@ fun MissingPermissionsTooltip(
                     isStorageGranted = PermissionUtils.isExternalStorageManager()
                     isNotificationGranted = PermissionUtils.hasNotificationPermission(context)
                     isOverlayGranted = android.provider.Settings.canDrawOverlays(context)
+                    isAudioGranted = PermissionUtils.hasRecordAudioPermission(context)
+                    isCameraGranted = PermissionUtils.hasCameraPermission(context)
                 } catch (e: Exception) {
                     AppLogger.e("MissingPermissionsTooltip", "Error refreshing permissions status", e)
                 }
@@ -100,7 +106,7 @@ fun MissingPermissionsTooltip(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    val hasMissingPermissions = !isAccessibilityGranted || !isBatteryGranted || !isStorageGranted || !isNotificationGranted || !isOverlayGranted
+    val hasMissingPermissions = !isAccessibilityGranted || !isBatteryGranted || !isStorageGranted || !isNotificationGranted || !isOverlayGranted || !isAudioGranted || !isCameraGranted
 
     AnimatedVisibility(
         visible = hasMissingPermissions && !isDismissed,
@@ -242,6 +248,44 @@ fun MissingPermissionsTooltip(
                                     context.startActivity(intent)
                                 } catch (e: Exception) {
                                     AppLogger.e("MissingPermissionsTooltip", "Failed requesting overlay permission", e)
+                                }
+                            }
+                        )
+                    }
+                    if (!isAudioGranted) {
+                        PermissionActionChip(
+                            label = "Microphone",
+                            icon = Icons.Default.Mic,
+                            onClick = {
+                                try {
+                                    activity?.let {
+                                        androidx.core.app.ActivityCompat.requestPermissions(
+                                            it,
+                                            arrayOf(android.Manifest.permission.RECORD_AUDIO),
+                                            102
+                                        )
+                                    }
+                                } catch (e: Exception) {
+                                    AppLogger.e("MissingPermissionsTooltip", "Failed requesting audio permission", e)
+                                }
+                            }
+                        )
+                    }
+                    if (!isCameraGranted) {
+                        PermissionActionChip(
+                            label = "Camera",
+                            icon = Icons.Default.CameraAlt,
+                            onClick = {
+                                try {
+                                    activity?.let {
+                                        androidx.core.app.ActivityCompat.requestPermissions(
+                                            it,
+                                            arrayOf(android.Manifest.permission.CAMERA),
+                                            103
+                                        )
+                                    }
+                                } catch (e: Exception) {
+                                    AppLogger.e("MissingPermissionsTooltip", "Failed requesting camera permission", e)
                                 }
                             }
                         )

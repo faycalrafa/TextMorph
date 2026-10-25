@@ -58,6 +58,7 @@ import com.textmorph.app.ui.chat.components.AttachedMediaItem
 import com.textmorph.app.ui.chat.components.AttachmentPickerHelper
 import com.textmorph.app.ui.chat.components.ChatInputBar
 import com.textmorph.app.ui.chat.components.ChatMessageItemView
+import com.textmorph.app.util.PermissionUtils
 import com.textmorph.app.ui.chat.components.ContextCapacityRingIcon
 import com.textmorph.app.ui.chat.components.VoiceInputHelper
 import com.textmorph.app.util.AppLogger
@@ -198,130 +199,56 @@ fun FloatingChatBubbleContent(
             .height(440.dp)
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // Header
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(Color(0xFF1F2937)) // Elevated Slate
-                    .padding(horizontal = 14.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .size(24.dp)
-                            .clip(CircleShape)
-                            .background(Color(0xFF2563EB)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text("✦", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                    }
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "TextMorph",
-                        color = Color(0xFFF9FAFB),
-                        fontSize = 12.5.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = if (isAgentMode) Color(0x333B82F6) else Color(0x22374151),
-                        border = BorderStroke(1.dp, if (isAgentMode) Color(0xFF3B82F6) else Color(0x444B5563)),
-                        onClick = {
-                            val currentId = currentSessionId ?: return@Surface
-                            scope.launch { chatSessionRepository.setAgentMode(currentId, !isAgentMode) }
-                        }
-                    ) {
-                        Text(
-                            text = if (isAgentMode) "✦ Agent" else "💬 Chat",
-                            fontSize = 9.5.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = if (isAgentMode) Color(0xFF60A5FA) else Color(0xFF9CA3AF),
-                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
-                        )
-                    }
-                }
-
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    ContextCapacityRingIcon(
-                        metrics = contextMetrics,
-                        onClick = {
-                            val activeId = currentSessionId ?: return@ContextCapacityRingIcon
-                            val activeSession = chatSessionRepository.getActiveSession()
-                            Toast.makeText(
-                                context,
-                                "Context: ${contextMetrics.totalUsedTokens}/${contextMetrics.maxContextTokens} tok (${contextMetrics.colorState.label})",
-                                Toast.LENGTH_SHORT
-                            ).show()
-                            if (contextMetrics.usageFraction >= 0.6f) {
-                                scope.launch(Dispatchers.IO) {
-                                    val (older, _) = ChatCompactor.partitionWindow(messages)
-                                    if (older.isNotEmpty()) {
-                                        val activeEngine = if (liteRtEngine.sessionState.value.isLoaded) liteRtEngine else llamaCppEngine
-                                        val newSummary = ChatCompactor.summarizeTurns(activeEngine, activeSession?.summary, older)
-                                        val updatedFacts = ChatCompactor.extractSessionFacts(activeEngine, activeSession?.sessionState, messages)
-                                        chatSessionRepository.updateSessionCompactionState(activeId, newSummary, updatedFacts)
-                                    }
-                                }
+            // Header Dock
+            com.textmorph.app.service.overlay.components.FloatingChatBubbleHeader(
+                context = context,
+                isAgentMode = isAgentMode,
+                contextMetrics = contextMetrics,
+                onToggleAgentMode = {
+                    val currentId = currentSessionId ?: return@FloatingChatBubbleHeader
+                    scope.launch { chatSessionRepository.setAgentMode(currentId, !isAgentMode) }
+                },
+                onContextClick = {
+                    val activeId = currentSessionId ?: return@FloatingChatBubbleHeader
+                    val activeSession = chatSessionRepository.getActiveSession()
+                    Toast.makeText(
+                        context,
+                        "Context: ${contextMetrics.totalUsedTokens}/${contextMetrics.maxContextTokens} tok (${contextMetrics.colorState.label})",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                    if (contextMetrics.usageFraction >= 0.6f) {
+                        scope.launch(Dispatchers.IO) {
+                            val (older, _) = ChatCompactor.partitionWindow(messages)
+                            if (older.isNotEmpty()) {
+                                val activeEngine = if (liteRtEngine.sessionState.value.isLoaded) liteRtEngine else llamaCppEngine
+                                val newSummary = ChatCompactor.summarizeTurns(activeEngine, activeSession?.summary, older)
+                                val updatedFacts = ChatCompactor.extractSessionFacts(activeEngine, activeSession?.sessionState, messages)
+                                chatSessionRepository.updateSessionCompactionState(activeId, newSummary, updatedFacts)
                             }
                         }
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    IconButton(
-                        onClick = {
-                            onFocusRequested(false)
-                            onMinimizeToBubble()
-                            try {
-                                val fullChatIntent = Intent(context, com.textmorph.app.MainActivity::class.java).apply {
-                                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
-                                }
-                                context.startActivity(fullChatIntent)
-                            } catch (e: Exception) {
-                                AppLogger.e(TAG, "Failed launching full chat: ${e.message}", e)
-                            }
-                        },
-                        modifier = Modifier.size(28.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.OpenInFull,
-                            contentDescription = "Open Full Chat",
-                            tint = Color(0xFFE5E7EB),
-                            modifier = Modifier.size(15.dp)
-                        )
                     }
-                    Spacer(modifier = Modifier.width(4.dp))
-                    IconButton(
-                        onClick = {
-                            onFocusRequested(false)
-                            onSwitchToToolbar()
-                        },
-                        modifier = Modifier.size(28.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.ViewStream,
-                            contentDescription = "Toolbar",
-                            tint = Color(0xFFE5E7EB),
-                            modifier = Modifier.size(16.dp)
-                        )
+                },
+                onOpenFullChat = {
+                    onFocusRequested(false)
+                    onMinimizeToBubble()
+                    try {
+                        val fullChatIntent = Intent(context, com.textmorph.app.MainActivity::class.java).apply {
+                            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                        }
+                        context.startActivity(fullChatIntent)
+                    } catch (e: Exception) {
+                        AppLogger.e(TAG, "Failed launching full chat: ${e.message}", e)
                     }
-                    IconButton(
-                        onClick = {
-                            onFocusRequested(false)
-                            onMinimizeToBubble()
-                        },
-                        modifier = Modifier.size(28.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Remove,
-                            contentDescription = "Minimize",
-                            tint = Color(0xFFE5E7EB),
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
+                },
+                onSwitchToToolbar = {
+                    onFocusRequested(false)
+                    onSwitchToToolbar()
+                },
+                onDismiss = {
+                    onFocusRequested(false)
+                    onMinimizeToBubble()
                 }
-            }
+            )
 
             // Messages Log
             LazyColumn(
@@ -369,6 +296,20 @@ fun FloatingChatBubbleContent(
                             scope.launch {
                                 chatSessionRepository.truncateMessages(activeId, userMsg.id, inclusive = true)
                                 sendPrompt(userMsg.content)
+                            }
+                        },
+                        onInterruptAction = {
+                            generationJob?.cancel()
+                            agentEngine?.cancelRunningTask()
+                            com.textmorph.app.agent.coordinator.TaskExecutionCoordinator.interrupt()
+                            isGenerating = false
+                            val activeId = currentSessionId ?: return@ChatMessageItemView
+                            scope.launch(Dispatchers.IO) {
+                                chatSessionRepository.updateLastAssistantMessage(
+                                    sessionId = activeId,
+                                    content = "Task stopped by user.",
+                                    actionStatus = "interrupted"
+                                )
                             }
                         }
                     )
@@ -418,28 +359,32 @@ fun FloatingChatBubbleContent(
                         voiceDebounceJob?.cancel()
                         voiceHelper.stopListening()
                     } else {
-                        voiceHelper.startListening { transcript ->
-                            val newText = if (inputText.isBlank()) transcript else "$inputText $transcript"
-                            inputText = newText
-                            onFocusRequested(true)
-                            voiceDebounceJob?.cancel()
-                            if (autoSendVoiceInput && newText.isNotBlank()) {
-                                voiceDebounceJob = scope.launch {
-                                    kotlinx.coroutines.delay(1500L) // 1.5s silence breathing room
-                                    val promptText = inputText.trim()
-                                    if (promptText.isNotBlank()) {
-                                        val isAutomationIntent = promptText.startsWith("open ", true) ||
-                                            promptText.startsWith("search ", true) ||
-                                            promptText.contains("and search", true) ||
-                                            promptText.contains("and click", true) ||
-                                            promptText.startsWith("turn on ", true)
+                        if (!PermissionUtils.hasRecordAudioPermission(context)) {
+                            Toast.makeText(context, "Microphone permission is required for voice input. Please grant in TextMorph settings.", Toast.LENGTH_LONG).show()
+                        } else {
+                            voiceHelper.startListening { transcript ->
+                                val newText = if (inputText.isBlank()) transcript else "$inputText $transcript"
+                                inputText = newText
+                                onFocusRequested(true)
+                                voiceDebounceJob?.cancel()
+                                if (autoSendVoiceInput && newText.isNotBlank()) {
+                                    voiceDebounceJob = scope.launch {
+                                        kotlinx.coroutines.delay(1500L) // 1.5s silence breathing room
+                                        val promptText = inputText.trim()
+                                        if (promptText.isNotBlank()) {
+                                            val isAutomationIntent = promptText.startsWith("open ", true) ||
+                                                promptText.startsWith("search ", true) ||
+                                                promptText.contains("and search", true) ||
+                                                promptText.contains("and click", true) ||
+                                                promptText.startsWith("turn on ", true)
 
-                                        if (isAutomationIntent) {
-                                            inputText = ""
-                                            onFocusRequested(false)
-                                            onAutomateAction(promptText)
-                                        } else {
-                                            sendPrompt(promptText)
+                                            if (isAutomationIntent) {
+                                                inputText = ""
+                                                onFocusRequested(false)
+                                                onAutomateAction(promptText)
+                                            } else {
+                                                sendPrompt(promptText)
+                                            }
                                         }
                                     }
                                 }
@@ -469,7 +414,19 @@ fun FloatingChatBubbleContent(
                 },
                 onStop = {
                     generationJob?.cancel()
+                    agentEngine?.cancelRunningTask()
+                    com.textmorph.app.agent.coordinator.TaskExecutionCoordinator.interrupt()
                     isGenerating = false
+                    val activeId = currentSessionId
+                    if (activeId != null) {
+                        scope.launch(Dispatchers.IO) {
+                            chatSessionRepository.updateLastAssistantMessage(
+                                sessionId = activeId,
+                                content = "Task stopped by user.",
+                                actionStatus = "interrupted"
+                            )
+                        }
+                    }
                 }
             )
         }

@@ -215,4 +215,61 @@ class ChatAndAutomationUpgradeUnitTests {
         val decoded = json.decodeFromString<ChatSessionEntity>(jsonStr)
         assertTrue(decoded.isAgentMode)
     }
+
+    @Test
+    fun testAgentTimelineCardFailedStepResolution() {
+        val failedStep = com.textmorph.app.agent.model.AgentTaskStep(
+            stepIndex = 1,
+            actionType = "make_call",
+            title = "Calling nouh now.",
+            status = com.textmorph.app.agent.model.AgentStepStatus.FAILED,
+            detail = "No phone number provided or contact not found."
+        )
+        val msgWithFailedStep = ChatMessageEntity(
+            sessionId = "s1",
+            role = "assistant",
+            content = "Calling nouh now.",
+            actionStatus = "running", // Even if actionStatus was left as running in message!
+            actionStepsJson = com.textmorph.app.agent.model.AgentTaskStep.serializeList(listOf(failedStep))
+        )
+
+        val steps = msgWithFailedStep.getActionSteps()
+        val hasFailedStep = steps.any { it.status == com.textmorph.app.agent.model.AgentStepStatus.FAILED }
+        val hasInterruptedStep = steps.any { it.status == com.textmorph.app.agent.model.AgentStepStatus.INTERRUPTED }
+        val isRunning = msgWithFailedStep.actionStatus == "running" && !hasFailedStep && !hasInterruptedStep
+        val isInterrupted = msgWithFailedStep.actionStatus == "interrupted" || hasInterruptedStep
+        val isFailed = msgWithFailedStep.actionStatus == "failed" || (!isRunning && !isInterrupted && hasFailedStep)
+
+        // Verifies the fix for the bug in user's screenshot!
+        assertTrue(hasFailedStep)
+        assertFalse(isRunning) // Stop button and spinner will NOT be shown!
+        assertTrue(isFailed) // Displays Task Failed with red error banner!
+    }
+
+    @Test
+    fun testAgentTimelineCardInterruptedResolution() {
+        val interruptedStep = com.textmorph.app.agent.model.AgentTaskStep(
+            stepIndex = 1,
+            actionType = "read_screen",
+            title = "Viewing screen…",
+            status = com.textmorph.app.agent.model.AgentStepStatus.INTERRUPTED,
+            detail = "Interrupted by user"
+        )
+        val msgInterrupted = ChatMessageEntity(
+            sessionId = "s1",
+            role = "assistant",
+            content = "Task stopped by user.",
+            actionStatus = "interrupted",
+            actionStepsJson = com.textmorph.app.agent.model.AgentTaskStep.serializeList(listOf(interruptedStep))
+        )
+
+        val steps = msgInterrupted.getActionSteps()
+        val hasFailedStep = steps.any { it.status == com.textmorph.app.agent.model.AgentStepStatus.FAILED }
+        val hasInterruptedStep = steps.any { it.status == com.textmorph.app.agent.model.AgentStepStatus.INTERRUPTED }
+        val isRunning = msgInterrupted.actionStatus == "running" && !hasFailedStep && !hasInterruptedStep
+        val isInterrupted = msgInterrupted.actionStatus == "interrupted" || hasInterruptedStep
+
+        assertFalse(isRunning)
+        assertTrue(isInterrupted)
+    }
 }

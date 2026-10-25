@@ -124,6 +124,7 @@ object AiChatInferenceExecutor {
                 if (isAgent && agentEngine != null) {
                     val parsedAction = com.textmorph.app.agent.parser.AgentActionParser.parseAction(effectiveFinalContent)
                     if (parsedAction != null) {
+                        AppLogger.i(TAG, "Executing autonomous agent action: ${parsedAction.action}")
                         chatRepository.updateLastAssistantMessage(
                             sessionId = sessionId,
                             content = parsedAction.response.ifEmpty { "Executing ${parsedAction.action}…" },
@@ -131,53 +132,85 @@ object AiChatInferenceExecutor {
                             actionPayloadJson = parsedAction.action,
                             actionStatus = "running"
                         )
-                        scope.launch(Dispatchers.IO) {
-                            try {
-                                val result = agentEngine.execute(
-                                    action = parsedAction,
-                                    onProgress = { statusUpdate ->
-                                        chatRepository.setGenerationStatus(statusUpdate)
-                                    },
-                                    onStepsUpdated = { steps ->
-                                        scope.launch(Dispatchers.IO) {
-                                            val isInterrupted = com.textmorph.app.agent.coordinator.TaskExecutionCoordinator.state.value.isInterrupted
-                                            chatRepository.updateLastAssistantMessage(
-                                                sessionId = sessionId,
-                                                content = parsedAction.response.ifEmpty { "Executing ${parsedAction.action}…" },
-                                                thoughtContent = thought,
-                                                actionPayloadJson = parsedAction.action,
-                                                actionStatus = if (isInterrupted) "interrupted" else "running",
-                                                actionStepsJson = com.textmorph.app.agent.model.AgentTaskStep.serializeList(steps)
-                                            )
-                                        }
+                        try {
+                            val result = agentEngine.execute(
+                                action = parsedAction,
+                                onProgress = { statusUpdate ->
+                                    chatRepository.setGenerationStatus(statusUpdate)
+                                },
+                                onStepsUpdated = { steps ->
+                                    val isInterrupted = com.textmorph.app.agent.coordinator.TaskExecutionCoordinator.state.value.isInterrupted
+                                    val hasFailed = steps.any { it.status == com.textmorph.app.agent.model.AgentStepStatus.FAILED }
+                                    val currentStatus = when {
+                                        isInterrupted -> "interrupted"
+                                        hasFailed -> "failed"
+                                        else -> "running"
                                     }
-                                )
-                                val finalSteps = com.textmorph.app.agent.coordinator.TaskExecutionCoordinator.state.value.stepsHistory
-                                val taskState = com.textmorph.app.agent.coordinator.TaskExecutionCoordinator.state.value
-                                val isInterrupted = taskState.isInterrupted
-                                val isSuccess = result.success && !isInterrupted && !taskState.isFailed
-                                val finalContent = when {
-                                    isInterrupted -> "Task stopped by user."
-                                    isSuccess -> parsedAction.response.ifEmpty { result.details }
-                                    result.details.startsWith("Task Failed:") || result.details.startsWith("Error:") -> result.details
-                                    else -> "Task Failed: ${result.details}"
+                                    scope.launch(Dispatchers.IO) {
+                                        chatRepository.updateLastAssistantMessage(
+                                            sessionId = sessionId,
+                                            content = parsedAction.response.ifEmpty { "Executing ${parsedAction.action}…" },
+                                            thoughtContent = thought,
+                                            actionPayloadJson = parsedAction.action,
+                                            actionStatus = currentStatus,
+                                            actionStepsJson = com.textmorph.app.agent.model.AgentTaskStep.serializeList(steps)
+                                        )
+                                    }
                                 }
-                                chatRepository.updateLastAssistantMessage(
-                                    sessionId = sessionId,
-                                    content = finalContent,
-                                    actionStatus = if (isInterrupted) "interrupted" else if (isSuccess) "success" else "failed",
-                                    actionStepsJson = if (finalSteps.isNotEmpty()) com.textmorph.app.agent.model.AgentTaskStep.serializeList(finalSteps) else null
-                                )
-                            } catch (actEx: Exception) {
-                                AppLogger.e(TAG, "Action execution failed: ${actEx.message}", actEx)
-                                chatRepository.updateLastAssistantMessage(
-                                    sessionId = sessionId,
-                                    content = "Error: ${actEx.message}",
-                                    actionStatus = "failed"
-                                )
-                            } finally {
-                                chatRepository.setGenerationStatus(null)
+                            )
+                            val taskState = com.textmorph.app.agent.coordinator.TaskExecutionCoordinator.state.value
+                            val isInterrupted = taskState.isInterrupted
+                            val isSuccess = result.success && !isInterrupted && !taskState.isFailed
+                            val finalContent = when {
+                                isInterrupted -> "Task stopped by user."
+                                isSuccess -> parsedAction.response.ifEmpty { result.details }
+                                result.details.startsWith("Task Failed:") || result.details.startsWith("Error:") -> result.details
+                                else -> "Task Failed: ${result.details}"
                             }
+                            val finalSteps = if (parsedAction.action == com.textmorph.app.agent.model.AgentAction.ACTION_EXECUTE_TASK) {
+                                taskState.stepsHistory
+                            } else {
+                                val stepStatus = when {
+                                    isInterrupted -> com.textmorph.app.agent.model.AgentStepStatus.INTERRUPTED
+                                    isSuccess -> com.textmorph.app.agent.model.AgentStepStatus.COMPLETED
+                                    else -> com.textmorph.app.agent.model.AgentStepStatus.FAILED
+                                }
+                                listOf(
+                                    com.textmorph.app.agent.model.AgentTaskStep(
+                                        stepIndex = 1,
+                                        actionType = parsedAction.action,
+                                        title = parsedAction.response.ifEmpty { "Executing ${parsedAction.action}…" },
+                                        detail = result.details,
+                                        status = stepStatus
+                                    )
+                                )
+                            }
+                            chatRepository.updateLastAssistantMessage(
+                                sessionId = sessionId,
+                                content = finalContent,
+                                actionStatus = if (isInterrupted) "interrupted" else if (isSuccess) "success" else "failed",
+                                actionStepsJson = com.textmorph.app.agent.model.AgentTaskStep.serializeList(finalSteps)
+                            )
+                            AppLogger.i(TAG, "Completed agent action ${parsedAction.action}: success=$isSuccess, status=${if (isInterrupted) "interrupted" else if (isSuccess) "success" else "failed"}")
+                        } catch (ce: kotlinx.coroutines.CancellationException) {
+                            AppLogger.i(TAG, "Agent action execution cancelled by user.")
+                            com.textmorph.app.agent.coordinator.TaskExecutionCoordinator.interrupt()
+                            agentEngine.cancelRunningTask()
+                            chatRepository.updateLastAssistantMessage(
+                                sessionId = sessionId,
+                                content = "Task stopped by user.",
+                                actionStatus = "interrupted"
+                            )
+                            throw ce
+                        } catch (actEx: Exception) {
+                            AppLogger.e(TAG, "Action execution failed: ${actEx.message}", actEx)
+                            chatRepository.updateLastAssistantMessage(
+                                sessionId = sessionId,
+                                content = "Error: ${actEx.message}",
+                                actionStatus = "failed"
+                            )
+                        } finally {
+                            chatRepository.setGenerationStatus(null)
                         }
                     }
                 }
@@ -198,11 +231,22 @@ object AiChatInferenceExecutor {
                         }
                     }
                 }
+            } catch (ce: kotlinx.coroutines.CancellationException) {
+                AppLogger.i(TAG, "Chat turn cancelled: ${ce.message}")
+                com.textmorph.app.agent.coordinator.TaskExecutionCoordinator.interrupt()
+                agentEngine?.cancelRunningTask()
+                chatRepository.updateLastAssistantMessage(
+                    sessionId = sessionId,
+                    content = "Task stopped by user.",
+                    actionStatus = "interrupted"
+                )
+                throw ce
             } catch (e: Exception) {
                 AppLogger.e(TAG, "Inference error during chat turn: ${e.message}", e)
                 chatRepository.updateLastAssistantMessage(
                     sessionId = sessionId,
-                    content = "Error: ${e.message}"
+                    content = "Error: ${e.message}",
+                    actionStatus = "failed"
                 )
             } finally {
                 chatRepository.setGenerationStatus(null)

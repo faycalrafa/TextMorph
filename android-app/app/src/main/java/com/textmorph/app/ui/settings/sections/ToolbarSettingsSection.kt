@@ -17,12 +17,23 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.DialogProperties
 import com.textmorph.app.data.model.AppSettings
+import com.textmorph.app.util.AppLogger
+import com.textmorph.app.util.PermissionUtils
 
 @Composable
 fun ToolbarSettingsSection(
@@ -36,6 +47,72 @@ fun ToolbarSettingsSection(
     onSetAutoSendVoiceInput: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
+    val TAG = "ToolbarSettingsSection"
+    var showPermissionDialog by remember { mutableStateOf(false) }
+    var missingServiceType by remember { mutableStateOf<String?>(null) }
+
+    fun checkAndPromptPermissions(): Boolean {
+        return if (!PermissionUtils.isAccessibilityServiceEnabled(context)) {
+            AppLogger.w(TAG, "Floating toolbar enabled but Accessibility Service is disabled")
+            missingServiceType = "accessibility"
+            showPermissionDialog = true
+            false
+        } else if (!PermissionUtils.canDrawOverlays(context)) {
+            AppLogger.w(TAG, "Floating toolbar enabled but Display Over Apps permission is missing")
+            missingServiceType = "overlay"
+            showPermissionDialog = true
+            false
+        } else {
+            true
+        }
+    }
+
+    if (showPermissionDialog) {
+        val isAccessibility = missingServiceType == "accessibility"
+        AlertDialog(
+            onDismissRequest = { showPermissionDialog = false },
+            title = {
+                Text(
+                    text = if (isAccessibility) "Accessibility Service Required" else "Display Over Apps Required",
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFFF9FAFB)
+                )
+            },
+            text = {
+                Text(
+                    text = if (isAccessibility) {
+                        "TextMorph uses the Android Accessibility Service to draw the floating assistant companion over your active apps and detect input focus. Please enable TextMorph under Downloaded Services in Accessibility Settings."
+                    } else {
+                        "Display Over Other Apps permission is required so the floating companion can appear above your screen. Please grant this permission in Android Settings."
+                    },
+                    color = Color(0xFFD1D5DB)
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showPermissionDialog = false
+                        if (isAccessibility) {
+                            PermissionUtils.openAccessibilitySettings(context)
+                        } else {
+                            PermissionUtils.requestOverlayPermission(context)
+                        }
+                    }
+                ) {
+                    Text("Open Settings", fontWeight = FontWeight.Bold, color = Color(0xFF60A5FA))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showPermissionDialog = false }) {
+                    Text("Cancel", color = Color(0xFF9CA3AF))
+                }
+            },
+            containerColor = Color(0xFF1F2937),
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        )
+    }
+
     Card(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
@@ -61,7 +138,12 @@ fun ToolbarSettingsSection(
                 }
                 Switch(
                     checked = settings.floatingToolbarEnabled,
-                    onCheckedChange = onSetFloatingToolbarEnabled
+                    onCheckedChange = { enabled ->
+                        onSetFloatingToolbarEnabled(enabled)
+                        if (enabled) {
+                            checkAndPromptPermissions()
+                        }
+                    }
                 )
             }
 
@@ -79,7 +161,12 @@ fun ToolbarSettingsSection(
                 Switch(
                     checked = settings.alwaysShowFloatingToolbar,
                     enabled = settings.floatingToolbarEnabled,
-                    onCheckedChange = onSetAlwaysShowFloatingToolbar
+                    onCheckedChange = { enabled ->
+                        onSetAlwaysShowFloatingToolbar(enabled)
+                        if (enabled) {
+                            checkAndPromptPermissions()
+                        }
+                    }
                 )
             }
 

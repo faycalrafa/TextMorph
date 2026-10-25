@@ -63,6 +63,7 @@ fun ChatMessageItemView(
     generationStatus: String? = null,
     onEditPrompt: ((ChatMessageEntity) -> Unit)? = null,
     onRetryPrompt: ((ChatMessageEntity) -> Unit)? = null,
+    onInterruptAction: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -164,7 +165,10 @@ fun ChatMessageItemView(
                 if (message.actionStepsJson != null) {
                     AgentTaskTimelineCard(
                         message = message,
-                        onInterrupt = { com.textmorph.app.agent.coordinator.TaskExecutionCoordinator.interrupt() }
+                        onInterrupt = {
+                            com.textmorph.app.agent.coordinator.TaskExecutionCoordinator.interrupt()
+                            onInterruptAction?.invoke()
+                        }
                     )
                 } else if (isAction) {
                     ActionExecutionCard(

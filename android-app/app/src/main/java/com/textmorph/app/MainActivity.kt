@@ -10,6 +10,9 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import android.Manifest
+import android.os.Build
+import androidx.activity.result.contract.ActivityResultContracts
 import com.textmorph.app.data.repository.ModelStorageRepository
 import com.textmorph.app.data.repository.PromptRepository
 import com.textmorph.app.data.repository.SettingsRepository
@@ -19,6 +22,7 @@ import com.textmorph.app.service.LlmForegroundService
 import com.textmorph.app.theme.TextMorphTheme
 import com.textmorph.app.ui.dashboard.DashboardScreen
 import com.textmorph.app.util.AppLogger
+import com.textmorph.app.util.PermissionUtils
 
 class MainActivity : ComponentActivity() {
 
@@ -28,6 +32,14 @@ class MainActivity : ComponentActivity() {
     private lateinit var modelRepository: ModelStorageRepository
     private lateinit var updateRepository: UpdateRepository
     private lateinit var slashCommandRepository: SlashCommandRepository
+
+    private val startupPermissionsLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { results ->
+        results.forEach { (permission, granted) ->
+            AppLogger.i(TAG, "Startup permission result for $permission: granted=$granted")
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -40,6 +52,9 @@ class MainActivity : ComponentActivity() {
         modelRepository = ModelStorageRepository.getInstance(applicationContext)
         updateRepository = UpdateRepository(applicationContext)
         slashCommandRepository = SlashCommandRepository.getInstance(applicationContext)
+
+        // Request startup permissions (Mic, Camera, and Notifications) if not already granted
+        requestStartupPermissions()
 
         // Ensure LLM Foreground Service is running
         try {
@@ -65,6 +80,26 @@ class MainActivity : ComponentActivity() {
                     )
                 }
             }
+        }
+    }
+
+    private fun requestStartupPermissions() {
+        val needed = mutableListOf<String>()
+        if (!PermissionUtils.hasRecordAudioPermission(this)) {
+            needed.add(Manifest.permission.RECORD_AUDIO)
+        }
+        if (!PermissionUtils.hasCameraPermission(this)) {
+            needed.add(Manifest.permission.CAMERA)
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !PermissionUtils.hasNotificationPermission(this)) {
+            needed.add(Manifest.permission.POST_NOTIFICATIONS)
+        }
+
+        if (needed.isNotEmpty()) {
+            AppLogger.i(TAG, "Requesting startup permissions: ${needed.joinToString()}")
+            startupPermissionsLauncher.launch(needed.toTypedArray())
+        } else {
+            AppLogger.i(TAG, "All startup permissions already granted.")
         }
     }
 }

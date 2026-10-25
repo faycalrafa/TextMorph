@@ -19,8 +19,11 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BatteryAlert
+import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.Layers
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.Widgets
@@ -61,17 +64,23 @@ fun ReadinessBanner(
     val lifecycleOwner = LocalLifecycleOwner.current
 
     var isAccessibilityGranted by remember { mutableStateOf(PermissionUtils.isAccessibilityServiceEnabled(context)) }
+    var isOverlayGranted by remember { mutableStateOf(PermissionUtils.canDrawOverlays(context)) }
     var isBatteryGranted by remember { mutableStateOf(PermissionUtils.isIgnoringBatteryOptimizations(context)) }
     var isStorageGranted by remember { mutableStateOf(PermissionUtils.isExternalStorageManager()) }
     var isNotificationGranted by remember { mutableStateOf(PermissionUtils.hasNotificationPermission(context)) }
+    var isAudioGranted by remember { mutableStateOf(PermissionUtils.hasRecordAudioPermission(context)) }
+    var isCameraGranted by remember { mutableStateOf(PermissionUtils.hasCameraPermission(context)) }
 
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 isAccessibilityGranted = PermissionUtils.isAccessibilityServiceEnabled(context)
+                isOverlayGranted = PermissionUtils.canDrawOverlays(context)
                 isBatteryGranted = PermissionUtils.isIgnoringBatteryOptimizations(context)
                 isStorageGranted = PermissionUtils.isExternalStorageManager()
                 isNotificationGranted = PermissionUtils.hasNotificationPermission(context)
+                isAudioGranted = PermissionUtils.hasRecordAudioPermission(context)
+                isCameraGranted = PermissionUtils.hasCameraPermission(context)
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -80,7 +89,7 @@ fun ReadinessBanner(
         }
     }
 
-    val allReady = isAccessibilityGranted && isBatteryGranted && isStorageGranted && isNotificationGranted
+    val allReady = isAccessibilityGranted && isOverlayGranted && isBatteryGranted && isStorageGranted && isNotificationGranted && isAudioGranted && isCameraGranted
 
     AnimatedVisibility(
         visible = !allReady,
@@ -155,6 +164,61 @@ fun ReadinessBanner(
                     isStorageGranted = PermissionUtils.isExternalStorageManager()
                 }
             )
+
+            // Display Over Other Apps Check Card
+            if (!isOverlayGranted) {
+                ReadinessItem(
+                    title = "Display Over Other Apps",
+                    description = "Required to show the floating companion button and chat bubble above other apps.",
+                    icon = Icons.Default.Layers,
+                    isGranted = isOverlayGranted,
+                    actionLabel = "Allow",
+                    onAction = {
+                        PermissionUtils.requestOverlayPermission(context)
+                        isOverlayGranted = PermissionUtils.canDrawOverlays(context)
+                    }
+                )
+            }
+
+            // Voice Microphone Check Card
+            if (!isAudioGranted) {
+                ReadinessItem(
+                    title = "Voice Input (Microphone)",
+                    description = "Required for real-time speech dictation in chat and toolbar.",
+                    icon = Icons.Default.Mic,
+                    isGranted = isAudioGranted,
+                    actionLabel = "Allow",
+                    onAction = {
+                        activity?.let {
+                            androidx.core.app.ActivityCompat.requestPermissions(
+                                it,
+                                arrayOf(android.Manifest.permission.RECORD_AUDIO),
+                                102
+                            )
+                        }
+                    }
+                )
+            }
+
+            // Camera Check Card
+            if (!isCameraGranted) {
+                ReadinessItem(
+                    title = "Camera Capture",
+                    description = "Allows taking photos for on-device visual multimodal analysis.",
+                    icon = Icons.Default.CameraAlt,
+                    isGranted = isCameraGranted,
+                    actionLabel = "Allow",
+                    onAction = {
+                        activity?.let {
+                            androidx.core.app.ActivityCompat.requestPermissions(
+                                it,
+                                arrayOf(android.Manifest.permission.CAMERA),
+                                103
+                            )
+                        }
+                    }
+                )
+            }
 
             // Notifications Check Card
             if (!isNotificationGranted) {
