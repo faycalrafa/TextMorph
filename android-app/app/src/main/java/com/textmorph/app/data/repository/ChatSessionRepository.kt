@@ -206,6 +206,8 @@ class ChatSessionRepository private constructor(private val context: Context) {
         sessionId: String,
         content: String,
         thoughtContent: String? = null,
+        rawNakedOutput: String? = null,
+        systemPrompt: String? = null,
         actionPayloadJson: String? = null,
         actionStatus: String? = null,
         actionStepsJson: String? = null,
@@ -221,6 +223,8 @@ class ChatSessionRepository private constructor(private val context: Context) {
                 existing[lastAssistantIndex] = last.copy(
                     content = content,
                     thoughtContent = thoughtContent ?: last.thoughtContent,
+                    rawNakedOutput = rawNakedOutput ?: last.rawNakedOutput,
+                    systemPrompt = systemPrompt ?: last.systemPrompt,
                     actionPayloadJson = actionPayloadJson ?: last.actionPayloadJson,
                     actionStatus = actionStatus ?: last.actionStatus,
                     actionStepsJson = actionStepsJson ?: last.actionStepsJson,

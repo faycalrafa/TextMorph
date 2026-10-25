@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.Visibility
@@ -85,6 +86,7 @@ fun ModelItemCard(
     onDelete: () -> Unit,
     onImportToPrivateStorage: () -> Unit = {},
     onNavigateToChat: () -> Unit = {},
+    onOpenBenchmark: () -> Unit = {},
     modelRepository: ModelStorageRepository,
     modifier: Modifier = Modifier
 ) {
@@ -92,8 +94,6 @@ fun ModelItemCard(
     val isDownloading = workInfo?.state == WorkInfo.State.RUNNING || workInfo?.state == WorkInfo.State.ENQUEUED
     val downloadPercent = workInfo?.progress?.getInt(DownloadWorker.KEY_PROGRESS_PERCENT, 0) ?: 0
     val isGguf = model.modelFileType == ModelFileType.GGUF || model.name.endsWith(".gguf", ignoreCase = true)
-
-    var isAccordionExpanded by remember { mutableStateOf(false) }
 
     fun formatSize(bytes: Long): String {
         if (bytes <= 0L) return ""
@@ -339,6 +339,18 @@ fun ModelItemCard(
                         Spacer(modifier = Modifier.width(4.dp))
                         Text("Chat", fontSize = 12.sp)
                     }
+
+                    // Agentic Benchmark Button
+                    OutlinedButton(
+                        onClick = onOpenBenchmark,
+                        shape = RoundedCornerShape(8.dp),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                        modifier = Modifier.height(34.dp)
+                    ) {
+                        Icon(Icons.Default.Speed, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Benchmark", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    }
                 } else if (model.isDownloaded) {
                     // Activate Model Button
                     Button(
@@ -389,83 +401,11 @@ fun ModelItemCard(
             // Accordion-Style Console Logs (Only under the current active / loading model)
             if (isCurrentActive || isLoadingEngine) {
                 Spacer(modifier = Modifier.height(8.dp))
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = Color(0xFF1E293B).copy(alpha = 0.7f),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { isAccordionExpanded = !isAccordionExpanded }
-                ) {
-                    Column(modifier = Modifier.padding(8.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    imageVector = Icons.Default.Terminal,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = if (isLoadingEngine) "Loading: ${loadingProgress?.statusText ?: "Compiling..."}"
-                                    else "Active Session Logs (${sessionState?.backend ?: "GPU"})",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color(0xFF94A3B8)
-                                )
-                            }
-
-                            Icon(
-                                imageVector = if (isAccordionExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                                contentDescription = if (isAccordionExpanded) "Collapse Logs" else "Expand Logs",
-                                tint = Color(0xFF94A3B8),
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-
-                        // Collapsible Log Body
-                        AnimatedVisibility(
-                            visible = isAccordionExpanded,
-                            enter = expandVertically(),
-                            exit = shrinkVertically()
-                        ) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(top = 8.dp)
-                                    .background(Color(0xFF0F172A), RoundedCornerShape(6.dp))
-                                    .padding(8.dp)
-                            ) {
-                                val lines = loadingProgress?.logLines ?: emptyList()
-                                if (lines.isEmpty()) {
-                                    Text(
-                                        text = "Session ready. Waiting for inference requests...",
-                                        fontFamily = FontFamily.Monospace,
-                                        fontSize = 11.sp,
-                                        color = Color(0xFF64748B)
-                                    )
-                                } else {
-                                    lines.takeLast(10).forEach { line ->
-                                        Text(
-                                            text = line,
-                                            fontFamily = FontFamily.Monospace,
-                                            fontSize = 10.sp,
-                                            color = when {
-                                                line.contains("error", ignoreCase = true) || line.contains("fail", ignoreCase = true) -> Color(0xFFF87171)
-                                                line.contains("success", ignoreCase = true) || line.contains("ready", ignoreCase = true) -> Color(0xFF4ADE80)
-                                                else -> Color(0xFFCBD5E1)
-                                            }
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+                ModelConsoleLogsAccordion(
+                    isLoadingEngine = isLoadingEngine,
+                    loadingProgress = loadingProgress,
+                    sessionState = sessionState
+                )
             }
         }
     }

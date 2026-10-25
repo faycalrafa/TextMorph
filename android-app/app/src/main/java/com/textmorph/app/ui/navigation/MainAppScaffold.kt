@@ -127,6 +127,7 @@ fun MainAppScaffold(
     var isCheckingUpdate by remember { mutableStateOf(false) }
     var activeReleaseInfo by remember { mutableStateOf<AppReleaseInfo?>(null) }
     var downloadState by remember { mutableStateOf<DownloadState?>(null) }
+    var showLlmDumpDialog by remember { mutableStateOf(false) }
 
     fun triggerUpdateCheck() {
         scope.launch {
@@ -283,6 +284,14 @@ fun MainAppScaffold(
                                         IconButton(onClick = { isSearchActive = true }) {
                                             Icon(Icons.Default.Search, contentDescription = "Search Prompts")
                                         }
+                                    }
+                                } else if (currentDestination == AppDestination.MODEL_HUB) {
+                                    IconButton(onClick = { showLlmDumpDialog = true }) {
+                                        Icon(
+                                            imageVector = Icons.Default.Terminal,
+                                            contentDescription = "Raw LLM Conversation Dump",
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
                                     }
                                 }
                             },
@@ -446,7 +455,10 @@ fun MainAppScaffold(
                 showUpdateDialog = false
                 downloadState = null
             },
-            onDownloadStateChanged = { downloadState = it }
+            onDownloadStateChanged = { downloadState = it },
+            showLlmDumpDialog = showLlmDumpDialog,
+            onDismissLlmDumpDialog = { showLlmDumpDialog = false },
+            chatRepository = chatRepository
         )
     }
 }

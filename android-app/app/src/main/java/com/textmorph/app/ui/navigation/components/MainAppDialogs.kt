@@ -36,7 +36,10 @@ fun MainAppDialogs(
     activeReleaseInfo: AppReleaseInfo?,
     downloadState: DownloadState?,
     onDismissUpdateDialog: () -> Unit,
-    onDownloadStateChanged: (DownloadState?) -> Unit
+    onDownloadStateChanged: (DownloadState?) -> Unit,
+    showLlmDumpDialog: Boolean = false,
+    onDismissLlmDumpDialog: () -> Unit = {},
+    chatRepository: com.textmorph.app.data.repository.ChatSessionRepository? = null
 ) {
     if (showPromptEditor) {
         PromptEditorDialog(
@@ -88,6 +91,13 @@ fun MainAppDialogs(
                     }
                 }
             }
+        )
+    }
+
+    if (showLlmDumpDialog && chatRepository != null) {
+        com.textmorph.app.ui.modelhub.components.LlmConversationDumpDialog(
+            chatRepository = chatRepository,
+            onDismiss = onDismissLlmDumpDialog
         )
     }
 }

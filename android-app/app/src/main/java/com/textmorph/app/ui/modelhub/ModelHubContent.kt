@@ -57,6 +57,7 @@ import com.textmorph.app.llm.LiteRtLmEngineManager
 import com.textmorph.app.llm.LlamaCppEngine
 import com.textmorph.app.llm.LlamaCppEngineManager
 import com.textmorph.app.data.model.ModelInfo
+import com.textmorph.app.ui.modelhub.components.AgentBenchmarkDialog
 import com.textmorph.app.ui.modelhub.components.AiModelConfigDialog
 import com.textmorph.app.ui.modelhub.components.DeleteModelDialog
 import com.textmorph.app.ui.modelhub.components.ModelItemCard
@@ -91,6 +92,8 @@ fun ModelHubContent(
     var pendingMmprojModelId by remember { mutableStateOf<String?>(null) }
     var modelToDelete by remember { mutableStateOf<ModelInfo?>(null) }
     var showAiConfigDialog by remember { mutableStateOf(false) }
+    var showBenchmarkDialog by remember { mutableStateOf(false) }
+    var benchmarkModelName by remember { mutableStateOf("") }
 
     LaunchedEffect(Unit) {
         modelRepository.refreshModels()
@@ -356,6 +359,10 @@ fun ModelHubContent(
                     }
                 },
                 onNavigateToChat = onNavigateToChat,
+                onOpenBenchmark = {
+                    benchmarkModelName = model.name
+                    showBenchmarkDialog = true
+                },
                 modelRepository = modelRepository
             )
         }
@@ -404,6 +411,17 @@ fun ModelHubContent(
                 }
             },
             onDismiss = { showAiConfigDialog = false }
+        )
+    }
+
+    // Agentic Capability Benchmark Dialog
+    if (showBenchmarkDialog) {
+        val activeEngine = if (isLlamaActive) llamaCppEngine else liteRtEngine
+        AgentBenchmarkDialog(
+            engine = activeEngine,
+            modelName = if (benchmarkModelName.isNotBlank()) benchmarkModelName else activeSessionState.modelName,
+            backend = activeSessionState.backend,
+            onDismiss = { showBenchmarkDialog = false }
         )
     }
 }

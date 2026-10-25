@@ -100,6 +100,8 @@ object AiChatInferenceExecutor {
                         sessionId = sessionId,
                         content = effectiveContent,
                         thoughtContent = thought,
+                        rawNakedOutput = currentText,
+                        systemPrompt = systemPrompt,
                         tokensPerSecond = lastMetrics?.tokensPerSecond,
                         totalTokens = lastMetrics?.tokenCount,
                         durationMs = lastMetrics?.totalDurationMs
@@ -114,6 +116,8 @@ object AiChatInferenceExecutor {
                     sessionId = sessionId,
                     content = effectiveFinalContent,
                     thoughtContent = thought,
+                    rawNakedOutput = finalOutput,
+                    systemPrompt = systemPrompt,
                     tokensPerSecond = lastMetrics?.tokensPerSecond,
                     totalTokens = lastMetrics?.tokenCount,
                     durationMs = lastMetrics?.totalDurationMs
@@ -133,6 +137,8 @@ object AiChatInferenceExecutor {
                             sessionId = sessionId,
                             content = parsedAction.response.ifEmpty { "Executing ${parsedAction.action}…" },
                             thoughtContent = thought,
+                            rawNakedOutput = finalOutput,
+                            systemPrompt = systemPrompt,
                             actionPayloadJson = parsedAction.action,
                             actionStatus = "running"
                         )
@@ -155,6 +161,8 @@ object AiChatInferenceExecutor {
                                             sessionId = sessionId,
                                             content = parsedAction.response.ifEmpty { "Executing ${parsedAction.action}…" },
                                             thoughtContent = thought,
+                                            rawNakedOutput = finalOutput,
+                                            systemPrompt = systemPrompt,
                                             actionPayloadJson = parsedAction.action,
                                             actionStatus = currentStatus,
                                             actionStepsJson = com.textmorph.app.agent.model.AgentTaskStep.serializeList(steps)

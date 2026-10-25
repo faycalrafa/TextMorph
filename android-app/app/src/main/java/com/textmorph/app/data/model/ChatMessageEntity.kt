@@ -13,6 +13,8 @@ data class ChatMessageEntity(
     val role: String, // "user", "assistant", "system", "action"
     val content: String,
     val thoughtContent: String? = null,
+    val rawNakedOutput: String? = null,
+    val systemPrompt: String? = null,
     val attachmentsJson: String = "[]", // List<AttachmentItem> serialized
     val actionPayloadJson: String? = null,
     val actionStatus: String? = null, // "pending", "running", "success", "failed", "interrupted"

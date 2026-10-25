@@ -172,6 +172,30 @@ object SystemTelemetryManager {
             }
         }
 
+        // Fallback: Universal Battery Temperature (accessible on 100% of Android devices)
+        if (cpuTemp == null) {
+            try {
+                val intent = context.registerReceiver(null, android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED))
+                val raw = intent?.getIntExtra(android.os.BatteryManager.EXTRA_TEMPERATURE, 0) ?: 0
+                if (raw > 0) {
+                    val tempC = raw / 10.0f
+                    if (tempC in 15f..80f) {
+                        cpuTemp = tempC
+                    }
+                }
+            } catch (e: Exception) {
+                AppLogger.d(TAG, "Battery temp read skipped: ${e.message}")
+            }
+        }
+
         return Pair(cpuTemp, gpuTemp)
+    }
+
+    /**
+     * Returns best-effort device temperature in Celsius (CPU or Battery).
+     */
+    fun getDeviceTemperature(context: Context): Float? {
+        val (cpu, gpu) = getTemperatures(context)
+        return cpu ?: gpu
     }
 }
