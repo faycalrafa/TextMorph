@@ -1,5 +1,6 @@
 package com.textmorph.app.data.model
 
+import com.textmorph.app.agent.model.AgentTaskStep
 import kotlinx.serialization.Serializable
 
 /**
@@ -14,12 +15,17 @@ data class ChatMessageEntity(
     val thoughtContent: String? = null,
     val attachmentsJson: String = "[]", // List<AttachmentItem> serialized
     val actionPayloadJson: String? = null,
-    val actionStatus: String? = null, // "pending", "running", "success", "failed"
+    val actionStatus: String? = null, // "pending", "running", "success", "failed", "interrupted"
+    val actionStepsJson: String? = null, // List<AgentTaskStep> serialized
     val timestamp: Long = System.currentTimeMillis(),
     val tokensPerSecond: Float? = null,
     val totalTokens: Int? = null,
     val durationMs: Long? = null
-)
+) {
+    fun getActionSteps(): List<AgentTaskStep> {
+        return AgentTaskStep.deserializeList(actionStepsJson)
+    }
+}
 
 @Serializable
 data class ChatAttachment(

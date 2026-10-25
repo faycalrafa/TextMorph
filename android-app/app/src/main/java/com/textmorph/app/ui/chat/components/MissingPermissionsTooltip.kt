@@ -1,6 +1,9 @@
 package com.textmorph.app.ui.chat.components
 
 import android.app.Activity
+import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -27,6 +30,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BatteryAlert
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material.icons.filled.Widgets
@@ -73,6 +77,7 @@ fun MissingPermissionsTooltip(
     var isBatteryGranted by remember { mutableStateOf(PermissionUtils.isIgnoringBatteryOptimizations(context)) }
     var isStorageGranted by remember { mutableStateOf(PermissionUtils.isExternalStorageManager()) }
     var isNotificationGranted by remember { mutableStateOf(PermissionUtils.hasNotificationPermission(context)) }
+    var isOverlayGranted by remember { mutableStateOf(android.provider.Settings.canDrawOverlays(context)) }
 
     // Session-only dismiss state (resets on app process restart)
     var isDismissed by rememberSaveable { mutableStateOf(false) }
@@ -85,6 +90,7 @@ fun MissingPermissionsTooltip(
                     isBatteryGranted = PermissionUtils.isIgnoringBatteryOptimizations(context)
                     isStorageGranted = PermissionUtils.isExternalStorageManager()
                     isNotificationGranted = PermissionUtils.hasNotificationPermission(context)
+                    isOverlayGranted = android.provider.Settings.canDrawOverlays(context)
                 } catch (e: Exception) {
                     AppLogger.e("MissingPermissionsTooltip", "Error refreshing permissions status", e)
                 }
@@ -94,7 +100,7 @@ fun MissingPermissionsTooltip(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    val hasMissingPermissions = !isAccessibilityGranted || !isBatteryGranted || !isStorageGranted || !isNotificationGranted
+    val hasMissingPermissions = !isAccessibilityGranted || !isBatteryGranted || !isStorageGranted || !isNotificationGranted || !isOverlayGranted
 
     AnimatedVisibility(
         visible = hasMissingPermissions && !isDismissed,
@@ -219,6 +225,23 @@ fun MissingPermissionsTooltip(
                                     activity?.let { PermissionUtils.requestNotificationPermission(it) }
                                 } catch (e: Exception) {
                                     AppLogger.e("MissingPermissionsTooltip", "Failed to request notifications", e)
+                                }
+                            }
+                        )
+                    }
+                    if (!isOverlayGranted) {
+                        PermissionActionChip(
+                            label = "Display Over Apps",
+                            icon = Icons.Default.Layers,
+                            onClick = {
+                                try {
+                                    val intent = Intent(
+                                        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                        Uri.parse("package:${context.packageName}")
+                                    )
+                                    context.startActivity(intent)
+                                } catch (e: Exception) {
+                                    AppLogger.e("MissingPermissionsTooltip", "Failed requesting overlay permission", e)
                                 }
                             }
                         )

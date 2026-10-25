@@ -1,6 +1,8 @@
 package com.textmorph.app.agent
 
+import com.textmorph.app.agent.coordinator.TaskExecutionCoordinator
 import com.textmorph.app.agent.model.AgentAction
+import com.textmorph.app.agent.model.AgentTaskStep
 import com.textmorph.app.agent.parser.AgentActionParser
 import com.textmorph.app.agent.prompts.AgentPrompts
 import com.textmorph.app.agent.tools.AppLauncherTool
@@ -34,89 +36,147 @@ class TaskExecutor(
     suspend fun executeTask(
         goal: String,
         maxSteps: Int = 15,
-        onProgress: (step: Int, message: String) -> Unit
+        onProgress: (step: Int, message: String) -> Unit,
+        onStepsUpdated: ((List<AgentTaskStep>) -> Unit)? = null
     ): String = withContext(Dispatchers.IO) {
         isCancelled = false
         AppLogger.i(TAG, "Executing multi-step task: '$goal' (maxSteps=$maxSteps)")
+        TaskExecutionCoordinator.startTask(goal)
+        onStepsUpdated?.invoke(TaskExecutionCoordinator.state.value.stepsHistory)
         onProgress(0, "Starting: $goal")
 
-        if (!screenTool.isAccessibilityReady()) {
-            return@withContext "Accessibility Service is not enabled. Please enable TextMorph in Android Accessibility Settings to automate the screen."
-        }
+        val interruptListener = { cancel() }
+        TaskExecutionCoordinator.addInterruptListener(interruptListener)
 
-        // 1. Check for quick launcher shortcuts to accelerate cold starts
-        val shortcutApp = detectFastShortcutApp(goal)
-        var lastAction = ""
-        if (shortcutApp != null) {
-            onProgress(1, "Opening $shortcutApp…")
-            appLauncher.openApp(shortcutApp)
-            lastAction = "open_app"
-            delay(2800)
-        }
+        try {
+            if (!screenTool.isAccessibilityReady()) {
+                val errorMsg = "Accessibility Service is not enabled. Please enable TextMorph in Android Accessibility Settings to automate the screen."
+                TaskExecutionCoordinator.finishTask(errorMsg, success = false)
+                onStepsUpdated?.invoke(TaskExecutionCoordinator.state.value.stepsHistory)
+                return@withContext errorMsg
+            }
 
-        var consecutiveFailures = 0
-        var sameActionCount = 0
+            // 1. Check for quick launcher shortcuts to accelerate cold starts
+            val shortcutApp = detectFastShortcutApp(goal)
+            var lastAction = ""
+            if (shortcutApp != null) {
+                TaskExecutionCoordinator.beginStep(1, AgentAction.ACTION_OPEN_APP, "Opening $shortcutApp…", "Fast shortcut launcher")
+                onStepsUpdated?.invoke(TaskExecutionCoordinator.state.value.stepsHistory)
+                onProgress(1, "Opening $shortcutApp…")
+                val openSuccess = appLauncher.openApp(shortcutApp).isSuccess
+                TaskExecutionCoordinator.completeCurrentStep(openSuccess)
+                onStepsUpdated?.invoke(TaskExecutionCoordinator.state.value.stepsHistory)
+                lastAction = "open_app"
+                delay(2800)
+            }
 
-        for (step in 1..maxSteps) {
-            if (isCancelled) return@withContext "Task cancelled by user."
+            var consecutiveFailures = 0
+            var sameActionCount = 0
 
-            val dump = screenTool.readScreen(goal)
-            val prompt = buildStepPrompt(goal, step, maxSteps, dump)
-
-            onProgress(step, "Analyzing screen (Step $step/$maxSteps)…")
-            val rawOutput = queryLlm(prompt)
-            if (isCancelled) return@withContext "Task cancelled by user."
-
-            val action = AgentActionParser.parseAction(rawOutput)
-            if (action == null) {
-                AppLogger.w(TAG, "Failed parsing action JSON at step $step: $rawOutput")
-                if (++consecutiveFailures >= 3) {
-                    return@withContext "Stopped: Model did not return valid actions."
+            for (step in 1..maxSteps) {
+                if (isCancelled || TaskExecutionCoordinator.state.value.isInterrupted) {
+                    TaskExecutionCoordinator.interrupt()
+                    onStepsUpdated?.invoke(TaskExecutionCoordinator.state.value.stepsHistory)
+                    return@withContext "Task stopped by user."
                 }
-                delay(1200)
-                continue
-            }
 
-            val reasoning = action.reasoning ?: action.response
-            onProgress(step, reasoning.ifEmpty { "Executing ${action.action}" })
+                TaskExecutionCoordinator.setThinking(true)
+                onProgress(step, "Analyzing screen (Step $step/$maxSteps)…")
 
-            if (action.isComplete || action.action == AgentAction.ACTION_DONE) {
-                AppLogger.i(TAG, "Task complete in $step steps: $reasoning")
-                return@withContext reasoning.ifEmpty { "Task completed successfully." }
-            }
+                val dump = screenTool.readScreen(goal)
+                val prompt = buildStepPrompt(goal, step, maxSteps, dump)
 
-            sameActionCount = if (action.action == lastAction) sameActionCount + 1 else 1
-            if (sameActionCount > 3 && (action.action == "scroll" || action.action == "press_enter")) {
-                onProgress(step, "Recovering: Action repeated too many times. Navigating…")
-                screenTool.pressBack()
-                delay(1000)
-                continue
-            }
-            lastAction = action.action
+                val rawOutput = queryLlm(prompt)
+                if (isCancelled || TaskExecutionCoordinator.state.value.isInterrupted) {
+                    TaskExecutionCoordinator.interrupt()
+                    onStepsUpdated?.invoke(TaskExecutionCoordinator.state.value.stepsHistory)
+                    return@withContext "Task stopped by user."
+                }
 
-            val success = executeSingleAction(action)
-            if (success) {
-                consecutiveFailures = 0
-            } else {
-                consecutiveFailures++
-                if (consecutiveFailures >= 4) {
-                    onProgress(step, "Recovering: Backing out…")
+                val action = AgentActionParser.parseAction(rawOutput)
+                if (action == null) {
+                    AppLogger.w(TAG, "Failed parsing action JSON at step $step: $rawOutput")
+                    if (++consecutiveFailures >= 3) {
+                        val stopMsg = "Stopped: Model did not return valid actions."
+                        TaskExecutionCoordinator.finishTask(stopMsg, success = false)
+                        onStepsUpdated?.invoke(TaskExecutionCoordinator.state.value.stepsHistory)
+                        return@withContext stopMsg
+                    }
+                    delay(1200)
+                    continue
+                }
+
+                val title = formatActionTitle(action)
+                val reasoning = action.reasoning ?: action.response
+                TaskExecutionCoordinator.beginStep(step, action.action, title, reasoning)
+                onStepsUpdated?.invoke(TaskExecutionCoordinator.state.value.stepsHistory)
+                onProgress(step, reasoning.ifEmpty { title })
+
+                if (action.isComplete || action.action == AgentAction.ACTION_DONE) {
+                    AppLogger.i(TAG, "Task complete in $step steps: $reasoning")
+                    val finishSummary = reasoning.ifEmpty { "Task completed successfully." }
+                    TaskExecutionCoordinator.finishTask(finishSummary, success = true)
+                    onStepsUpdated?.invoke(TaskExecutionCoordinator.state.value.stepsHistory)
+                    return@withContext finishSummary
+                }
+
+                sameActionCount = if (action.action == lastAction) sameActionCount + 1 else 1
+                if (sameActionCount > 3 && (action.action == "scroll" || action.action == "press_enter")) {
+                    onProgress(step, "Recovering: Action repeated too many times. Navigating…")
                     screenTool.pressBack()
                     delay(1000)
+                    continue
                 }
+                lastAction = action.action
+
+                val success = executeSingleAction(action)
+                TaskExecutionCoordinator.completeCurrentStep(success)
+                onStepsUpdated?.invoke(TaskExecutionCoordinator.state.value.stepsHistory)
+
+                if (success) {
+                    consecutiveFailures = 0
+                } else {
+                    consecutiveFailures++
+                    if (consecutiveFailures >= 4) {
+                        onProgress(step, "Recovering: Backing out…")
+                        screenTool.pressBack()
+                        delay(1000)
+                    }
+                }
+
+                val stepDelay = when (action.action) {
+                    "open_app" -> 2800L
+                    "type_text" -> 1600L
+                    "click_text", "click_at" -> 1400L
+                    "scroll", "swipe" -> 900L
+                    else -> 1000L
+                }
+                delay(stepDelay)
             }
 
-            val stepDelay = when (action.action) {
-                "open_app" -> 2800L
-                "type_text" -> 1600L
-                "click_text", "click_at" -> 1400L
-                "scroll", "swipe" -> 900L
-                else -> 1000L
-            }
-            delay(stepDelay)
+            val maxStepMsg = "Reached maximum allowed steps ($maxSteps). Task may be partially completed."
+            TaskExecutionCoordinator.finishTask(maxStepMsg, success = true)
+            onStepsUpdated?.invoke(TaskExecutionCoordinator.state.value.stepsHistory)
+            maxStepMsg
+        } finally {
+            TaskExecutionCoordinator.removeInterruptListener(interruptListener)
         }
+    }
 
-        "Reached maximum allowed steps ($maxSteps). Task may be partially completed."
+    private fun formatActionTitle(action: AgentAction): String {
+        return when (action.action) {
+            AgentAction.ACTION_OPEN_APP -> "Opening ${action.getStringParamWithAliases("app_name", "name", "app", default = "App")}"
+            AgentAction.ACTION_CLICK_TEXT -> "Tapping \"${action.getStringParamWithAliases("text", "label")}\""
+            AgentAction.ACTION_CLICK_AT -> "Tapping at (${action.getFloatParam("x")}, ${action.getFloatParam("y")})"
+            AgentAction.ACTION_TYPE_TEXT -> "Typing \"${action.getStringParamWithAliases("text", "content")}\""
+            AgentAction.ACTION_PRESS_ENTER -> "Submitting keyboard enter"
+            AgentAction.ACTION_SCROLL -> "Scrolling ${action.getStringParam("direction", "down")}"
+            AgentAction.ACTION_SWIPE -> "Swiping on screen"
+            AgentAction.ACTION_PRESS_BACK -> "Pressing Back"
+            AgentAction.ACTION_PRESS_HOME -> "Pressing Home"
+            AgentAction.ACTION_DONE -> "Task finished"
+            else -> "Executing ${action.action}"
+        }
     }
 
     private suspend fun queryLlm(prompt: String): String {

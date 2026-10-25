@@ -8,6 +8,7 @@ import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -81,11 +82,40 @@ class FloatingToolbarWindowManager(
     private var windowParams: WindowManager.LayoutParams? = null
     private var startDragWinX = 0
     private var startDragWinY = 0
+    private var wasShownForTask = false
 
     // Automation Controller & Coordinate Animator
     private val coordinateAnimator = OverlayCoordinateAnimator(windowManager, { overlayContainer }, { windowParams })
     private val automationController = ScreenAutomationController(service)
     val actionExecutor = DeviceActionExecutor(service, automationController, liteRtEngine, llamaCppEngine, cloudEngine)
+
+    init {
+        windowScope.launch {
+            com.textmorph.app.agent.coordinator.TaskExecutionCoordinator.state.collect { taskState ->
+                if (taskState.isRunning) {
+                    if (!isShowingActive) {
+                        wasShownForTask = true
+                        show(
+                            autoExpand = false,
+                            onTakeScreenshot = { callback -> service.captureScreenContext(callback) },
+                            onExtractTranscript = { service.extractConversationTranscript() }
+                        )
+                    }
+                    if (displayState != OverlayDisplayState.AUTOMATING_ACTION) {
+                        transitionTo(OverlayDisplayState.AUTOMATING_ACTION)
+                    }
+                } else if (displayState == OverlayDisplayState.AUTOMATING_ACTION) {
+                    val settings = settingsRepository.settingsState.value
+                    if (wasShownForTask && !settings.alwaysShowFloatingToolbar) {
+                        wasShownForTask = false
+                        hide()
+                    } else {
+                        transitionTo(OverlayDisplayState.COLLAPSED_BUBBLE)
+                    }
+                }
+            }
+        }
+    }
 
     fun isBusy(): Boolean = isBusyState || displayState == OverlayDisplayState.AUTOMATING_ACTION
     fun isExpanded(): Boolean = displayState != OverlayDisplayState.COLLAPSED_BUBBLE
@@ -245,7 +275,10 @@ class FloatingToolbarWindowManager(
                         OverlayDisplayState.COLLAPSED_BUBBLE -> handleCollapsedBubbleClick()
                         OverlayDisplayState.EXPANDED_TOOLBAR -> singleTapHandler?.invoke() ?: transitionTo(OverlayDisplayState.COLLAPSED_BUBBLE)
                         OverlayDisplayState.EXPANDED_CHAT -> transitionTo(OverlayDisplayState.COLLAPSED_BUBBLE)
-                        OverlayDisplayState.AUTOMATING_ACTION -> actionExecutor.stopExecution()
+                        OverlayDisplayState.AUTOMATING_ACTION -> {
+                            com.textmorph.app.agent.coordinator.TaskExecutionCoordinator.interrupt()
+                            actionExecutor.stopExecution()
+                        }
                     }
                 },
                 onOutsideTap = {
@@ -343,25 +376,21 @@ class FloatingToolbarWindowManager(
                                             }
                                         },
                                         onFocusRequested = { isFocused -> setChatInputFocused(isFocused) },
-                                        autoSendVoiceInput = curSettings.autoSendVoiceInput
+                                        autoSendVoiceInput = curSettings.autoSendVoiceInput,
+                                        onTakeScreenshotContext = { cb -> service.captureScreenContext(cb) },
+                                        engineProvider = { getActiveEngine() }
                                     )
                                 }
                                 OverlayDisplayState.AUTOMATING_ACTION -> {
-                                    Box(
-                                        modifier = Modifier.size(56.dp),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        FloatingEdgePill(
-                                            state = FloatingButtonState.GENERATING,
-                                            isDragging = false,
-                                            onClick = { actionExecutor.stopExecution() }
-                                        )
-                                        CircularProgressIndicator(
-                                            modifier = Modifier.size(52.dp),
-                                            color = Color(0xFFA27B5C),
-                                            strokeWidth = 3.dp
-                                        )
-                                    }
+                                    val taskState by com.textmorph.app.agent.coordinator.TaskExecutionCoordinator.state.collectAsState()
+                                    com.textmorph.app.service.overlay.components.TaskExecutionBubble(
+                                        currentStep = taskState.currentStep,
+                                        isThinking = taskState.isThinking,
+                                        onInterrupt = {
+                                            com.textmorph.app.agent.coordinator.TaskExecutionCoordinator.interrupt()
+                                            actionExecutor.stopExecution()
+                                        }
+                                    )
                                 }
                             }
                         }

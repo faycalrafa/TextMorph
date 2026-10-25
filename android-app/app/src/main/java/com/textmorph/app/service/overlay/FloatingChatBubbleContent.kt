@@ -1,6 +1,8 @@
 package com.textmorph.app.service.overlay
 
+import android.content.Intent
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -21,6 +23,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.OpenInFull
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.ViewStream
 import androidx.compose.material3.Icon
@@ -80,6 +83,8 @@ fun FloatingChatBubbleContent(
     onAutomateAction: (goal: String) -> Unit,
     onFocusRequested: (Boolean) -> Unit,
     autoSendVoiceInput: Boolean = true,
+    onTakeScreenshotContext: (((ByteArray) -> Unit) -> Unit)? = null,
+    engineProvider: (() -> com.textmorph.app.llm.LlmEngine)? = null,
     modifier: Modifier = Modifier
 ) {
     val TAG = "FloatingChatBubble"
@@ -97,7 +102,23 @@ fun FloatingChatBubbleContent(
     var inputText by remember { mutableStateOf("") }
     var isGenerating by remember { mutableStateOf(false) }
     var generationJob by remember { mutableStateOf<Job?>(null) }
+    var voiceDebounceJob by remember { mutableStateOf<Job?>(null) }
     val attachments = remember { mutableStateListOf<AttachedMediaItem>() }
+
+    fun resolveActiveEngine(): com.textmorph.app.llm.LlmEngine {
+        return engineProvider?.invoke() ?: when {
+            liteRtEngine.sessionState.value.isLoaded -> liteRtEngine
+            llamaCppEngine.sessionState.value.isLoaded -> llamaCppEngine
+            else -> cloudEngine
+        }
+    }
+
+    val agentEngine = remember {
+        com.textmorph.app.agent.AgentEngine(
+            context = context,
+            engineProvider = ::resolveActiveEngine
+        )
+    }
 
     val voiceHelper = remember { VoiceInputHelper(context) }
     val isListening by voiceHelper.isListening.collectAsState()
@@ -124,11 +145,7 @@ fun FloatingChatBubbleContent(
         inputText = ""
         attachments.clear()
 
-        val activeEngine = when {
-            liteRtEngine.sessionState.value.isLoaded -> liteRtEngine
-            llamaCppEngine.sessionState.value.isLoaded -> llamaCppEngine
-            else -> cloudEngine
-        }
+        val activeEngine = resolveActiveEngine()
 
         AiChatInferenceExecutor.executeTurn(
             sessionId = activeId,
@@ -140,7 +157,8 @@ fun FloatingChatBubbleContent(
             scope = scope,
             onStart = { isGenerating = true },
             onComplete = { isGenerating = false },
-            setJob = { generationJob = it }
+            setJob = { generationJob = it },
+            agentEngine = agentEngine
         )
     }
 
@@ -254,6 +272,29 @@ fun FloatingChatBubbleContent(
                     IconButton(
                         onClick = {
                             onFocusRequested(false)
+                            onMinimizeToBubble()
+                            try {
+                                val fullChatIntent = Intent(context, com.textmorph.app.MainActivity::class.java).apply {
+                                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                                }
+                                context.startActivity(fullChatIntent)
+                            } catch (e: Exception) {
+                                AppLogger.e(TAG, "Failed launching full chat: ${e.message}", e)
+                            }
+                        },
+                        modifier = Modifier.size(28.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.OpenInFull,
+                            contentDescription = "Open Full Chat",
+                            tint = Color(0xFFE5E7EB),
+                            modifier = Modifier.size(15.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(4.dp))
+                    IconButton(
+                        onClick = {
+                            onFocusRequested(false)
                             onSwitchToToolbar()
                         },
                         modifier = Modifier.size(28.dp)
@@ -347,31 +388,60 @@ fun FloatingChatBubbleContent(
                 attachments = attachments,
                 onRemoveAttachment = { attachments.remove(it) },
                 onPickMedia = {
-                    AppLogger.d(TAG, "Launching OverlayMediaPickerActivity trampoline")
-                    OverlayMediaPickerActivity.launch(context)
+                    if (onTakeScreenshotContext != null) {
+                        Toast.makeText(context, "Capturing screen underneath...", Toast.LENGTH_SHORT).show()
+                        onTakeScreenshotContext { screenBytes ->
+                            try {
+                                val bmp = BitmapFactory.decodeByteArray(screenBytes, 0, screenBytes.size)
+                                if (bmp != null) {
+                                    attachments.add(
+                                        AttachedMediaItem(
+                                            uri = android.net.Uri.EMPTY,
+                                            name = "Current Screen",
+                                            mimeType = "image/png",
+                                            isImage = true,
+                                            bitmap = bmp
+                                        )
+                                    )
+                                }
+                            } catch (e: Exception) {
+                                AppLogger.e(TAG, "Failed attaching current screen: ${e.message}", e)
+                            }
+                        }
+                    } else {
+                        AppLogger.d(TAG, "Launching OverlayMediaPickerActivity trampoline")
+                        OverlayMediaPickerActivity.launch(context)
+                    }
                 },
                 onToggleVoice = {
                     if (isListening) {
+                        voiceDebounceJob?.cancel()
                         voiceHelper.stopListening()
                     } else {
                         voiceHelper.startListening { transcript ->
                             val newText = if (inputText.isBlank()) transcript else "$inputText $transcript"
                             inputText = newText
                             onFocusRequested(true)
+                            voiceDebounceJob?.cancel()
                             if (autoSendVoiceInput && newText.isNotBlank()) {
-                                val promptText = newText.trim()
-                                val isAutomationIntent = promptText.startsWith("open ", true) ||
-                                    promptText.startsWith("search ", true) ||
-                                    promptText.contains("and search", true) ||
-                                    promptText.contains("and click", true) ||
-                                    promptText.startsWith("turn on ", true)
+                                voiceDebounceJob = scope.launch {
+                                    kotlinx.coroutines.delay(1500L) // 1.5s silence breathing room
+                                    val promptText = inputText.trim()
+                                    if (promptText.isNotBlank()) {
+                                        val isAutomationIntent = promptText.startsWith("open ", true) ||
+                                            promptText.startsWith("search ", true) ||
+                                            promptText.contains("and search", true) ||
+                                            promptText.contains("and click", true) ||
+                                            promptText.startsWith("turn on ", true)
 
-                                if (isAutomationIntent) {
-                                    inputText = ""
-                                    onFocusRequested(false)
-                                    onAutomateAction(promptText)
-                                } else {
-                                    sendPrompt(promptText)
+                                        if (isAutomationIntent) {
+                                            inputText = ""
+                                            onFocusRequested(false)
+                                            onAutomateAction(promptText)
+                                        } else {
+                                            sendPrompt(promptText)
+                                        }
+                                    }
                                 }
                             }
                         }

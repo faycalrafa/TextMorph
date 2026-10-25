@@ -31,3 +31,9 @@ val LightBg = Color(0xFFF8FAFC)
 val LightSurface = Color(0xFFFFFFFF)
 val LightText = Color(0xFF0F172A)
 val LightMuted = Color(0xFF64748B)
+
+// Danger & Destructive Actions (Proper Vivid Crimson Red)
+val DangerRed = Color(0xFFDC2626) // Vivid Crimson Red (Tailwind Red 600)
+val DangerRedDark = Color(0xFFB91C1C) // Deep Crimson (Tailwind Red 700)
+val DangerRedSurface = Color(0x28DC2626) // Tinted container background
+

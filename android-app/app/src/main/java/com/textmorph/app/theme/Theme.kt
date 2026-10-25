@@ -24,7 +24,11 @@ private val ForestClayDarkColorScheme = darkColorScheme(
     onBackground = ForestClayOnText,
     onSurface = ForestClayOnText,
     onSurfaceVariant = ForestClayMuted,
-    outline = ForestClaySurfaceVariant
+    outline = ForestClaySurfaceVariant,
+    error = DangerRed,
+    onError = Color.White,
+    errorContainer = DangerRedSurface,
+    onErrorContainer = Color(0xFFFCA5A5)
 )
 
 private val DarkSlateColorScheme = darkColorScheme(
@@ -35,7 +39,11 @@ private val DarkSlateColorScheme = darkColorScheme(
     surfaceVariant = BgDark2,
     onPrimary = TextDark,
     onBackground = TextDark,
-    onSurface = TextDark
+    onSurface = TextDark,
+    error = DangerRed,
+    onError = Color.White,
+    errorContainer = DangerRedSurface,
+    onErrorContainer = Color(0xFFFCA5A5)
 )
 
 private val SepiaColorScheme = lightColorScheme(
@@ -45,7 +53,11 @@ private val SepiaColorScheme = lightColorScheme(
     surfaceVariant = SepiaSurface,
     onPrimary = SepiaBg,
     onBackground = SepiaText,
-    onSurface = SepiaText
+    onSurface = SepiaText,
+    error = DangerRed,
+    onError = Color.White,
+    errorContainer = DangerRedSurface,
+    onErrorContainer = DangerRed
 )
 
 private val LightColorScheme = lightColorScheme(
@@ -55,7 +67,11 @@ private val LightColorScheme = lightColorScheme(
     surfaceVariant = Color(0xFFF1F5F9),
     onPrimary = LightSurface,
     onBackground = LightText,
-    onSurface = LightText
+    onSurface = LightText,
+    error = DangerRed,
+    onError = Color.White,
+    errorContainer = DangerRedSurface,
+    onErrorContainer = DangerRed
 )
 
 @Composable

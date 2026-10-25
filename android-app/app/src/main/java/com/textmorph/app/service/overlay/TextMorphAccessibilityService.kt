@@ -458,6 +458,8 @@ class TextMorphAccessibilityService : AccessibilityService() {
 
         fun getInstance(): TextMorphAccessibilityService? = instance
 
+        fun getOverlayManager(): FloatingToolbarWindowManager? = instance?.overlayManager
+
         fun getScreenAutomationController(): ScreenAutomationController? {
             val service = instance ?: return null
             return ScreenAutomationController(service)

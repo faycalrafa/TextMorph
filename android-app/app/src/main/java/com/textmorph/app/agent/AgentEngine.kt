@@ -40,11 +40,21 @@ class AgentEngine(
 
     suspend fun execute(
         action: AgentAction,
-        onProgress: ((String) -> Unit)? = null
+        onProgress: ((String) -> Unit)? = null,
+        onStepsUpdated: ((List<com.textmorph.app.agent.model.AgentTaskStep>) -> Unit)? = null
     ): AgentActionResult = withContext(Dispatchers.IO) {
         AppLogger.i(TAG, "Executing agent action: ${action.action}")
         try {
-            when (action.action) {
+            val initialStep = com.textmorph.app.agent.model.AgentTaskStep(
+                stepIndex = 1,
+                actionType = action.action,
+                title = action.response.ifEmpty { "Executing ${action.action}" },
+                status = com.textmorph.app.agent.model.AgentStepStatus.RUNNING
+            )
+            if (action.action != AgentAction.ACTION_EXECUTE_TASK) {
+                onStepsUpdated?.invoke(listOf(initialStep))
+            }
+            val result = when (action.action) {
                 AgentAction.ACTION_OPEN_APP -> {
                     val appName = action.getStringParamWithAliases("app_name", "name", "app", "target")
                     val res = appLauncher.openApp(appName)
@@ -181,9 +191,11 @@ class AgentEngine(
 
                 AgentAction.ACTION_EXECUTE_TASK -> {
                     val goal = action.getStringParam("goal").ifEmpty { action.response }
-                    val summary = taskExecutor.executeTask(goal) { step, msg ->
-                        onProgress?.invoke("Step $step: $msg")
-                    }
+                    val summary = taskExecutor.executeTask(
+                        goal = goal,
+                        onProgress = { step, msg -> onProgress?.invoke("Step $step: $msg") },
+                        onStepsUpdated = onStepsUpdated
+                    )
                     AgentActionResult(action.action, true, summary)
                 }
 
@@ -191,6 +203,11 @@ class AgentEngine(
                     AgentActionResult(action.action, true, action.response.ifEmpty { "Completed" })
                 }
             }
+            if (action.action != AgentAction.ACTION_EXECUTE_TASK) {
+                val finalStatus = if (result.success) com.textmorph.app.agent.model.AgentStepStatus.COMPLETED else com.textmorph.app.agent.model.AgentStepStatus.FAILED
+                onStepsUpdated?.invoke(listOf(initialStep.copy(status = finalStatus, detail = result.details)))
+            }
+            result
         } catch (e: Exception) {
             AppLogger.e(TAG, "Error executing action ${action.action}: ${e.message}", e)
             AgentActionResult(action.action, false, "Error: ${e.message}")

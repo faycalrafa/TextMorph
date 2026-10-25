@@ -157,10 +157,16 @@ fun ChatMessageItemView(
 
                 // 3. Action or HTML or Standard Content
                 val isAction = message.actionPayloadJson != null ||
+                    message.actionStepsJson != null ||
                     message.role == "action" ||
                     (message.content.trim().startsWith("{\"action\":") && message.content.contains("}"))
 
-                if (isAction) {
+                if (message.actionStepsJson != null) {
+                    AgentTaskTimelineCard(
+                        message = message,
+                        onInterrupt = { com.textmorph.app.agent.coordinator.TaskExecutionCoordinator.interrupt() }
+                    )
+                } else if (isAction) {
                     ActionExecutionCard(
                         actionName = "Autonomous Action",
                         reasoning = message.content,

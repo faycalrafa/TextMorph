@@ -85,7 +85,7 @@ class SettingsRepository(private val context: Context) {
             activeModelName = name,
             activeModelPath = sanitizedPath,
             activeModelUri = uriString,
-            selectedEngine = if (it.selectedEngine != EngineType.CLOUD_OPENAI || overrideEngine != null) autoEngine else it.selectedEngine
+            selectedEngine = autoEngine
         )
     }
 

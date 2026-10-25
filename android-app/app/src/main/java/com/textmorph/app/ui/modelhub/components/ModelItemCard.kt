@@ -303,7 +303,10 @@ fun ModelItemCard(
                     // Stop / Offload Model Button
                     Button(
                         onClick = onOffload,
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = com.textmorph.app.theme.DangerRed,
+                            contentColor = Color.White
+                        ),
                         shape = RoundedCornerShape(8.dp),
                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                         modifier = Modifier.height(34.dp)

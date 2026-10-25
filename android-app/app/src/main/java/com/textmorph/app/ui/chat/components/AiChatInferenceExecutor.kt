@@ -133,17 +133,38 @@ object AiChatInferenceExecutor {
                         )
                         scope.launch(Dispatchers.IO) {
                             try {
-                                val result = agentEngine.execute(parsedAction) { statusUpdate ->
-                                    chatRepository.setGenerationStatus(statusUpdate)
-                                }
+                                val result = agentEngine.execute(
+                                    action = parsedAction,
+                                    onProgress = { statusUpdate ->
+                                        chatRepository.setGenerationStatus(statusUpdate)
+                                    },
+                                    onStepsUpdated = { steps ->
+                                        scope.launch(Dispatchers.IO) {
+                                            val isInterrupted = com.textmorph.app.agent.coordinator.TaskExecutionCoordinator.state.value.isInterrupted
+                                            chatRepository.updateLastAssistantMessage(
+                                                sessionId = sessionId,
+                                                content = parsedAction.response.ifEmpty { "Executing ${parsedAction.action}…" },
+                                                thoughtContent = thought,
+                                                actionPayloadJson = parsedAction.action,
+                                                actionStatus = if (isInterrupted) "interrupted" else "running",
+                                                actionStepsJson = com.textmorph.app.agent.model.AgentTaskStep.serializeList(steps)
+                                            )
+                                        }
+                                    }
+                                )
+                                val finalSteps = com.textmorph.app.agent.coordinator.TaskExecutionCoordinator.state.value.stepsHistory
+                                val isInterrupted = com.textmorph.app.agent.coordinator.TaskExecutionCoordinator.state.value.isInterrupted
                                 chatRepository.updateLastAssistantMessage(
                                     sessionId = sessionId,
-                                    content = if (result.success) {
+                                    content = if (isInterrupted) {
+                                        "Task stopped by user."
+                                    } else if (result.success) {
                                         parsedAction.response.ifEmpty { result.details }
                                     } else {
                                         "Error executing ${parsedAction.action}: ${result.details}"
                                     },
-                                    actionStatus = if (result.success) "success" else "failed"
+                                    actionStatus = if (isInterrupted) "interrupted" else if (result.success) "success" else "failed",
+                                    actionStepsJson = if (finalSteps.isNotEmpty()) com.textmorph.app.agent.model.AgentTaskStep.serializeList(finalSteps) else null
                                 )
                             } catch (actEx: Exception) {
                                 AppLogger.e(TAG, "Action execution failed: ${actEx.message}", actEx)

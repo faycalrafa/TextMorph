@@ -382,7 +382,12 @@ fun AiChatContent(
             onDismiss = { showModelSwitchSheet = false },
             onSelectModel = { model ->
                 scope.launch {
-                    settingsRepository.setActiveModel(model.name, model.path, model.uriString)
+                    val targetEngine = when (model.modelFileType) {
+                        com.textmorph.app.data.model.ModelFileType.GGUF -> com.textmorph.app.data.model.EngineType.ON_DEVICE_LLAMA_CPP
+                        else -> com.textmorph.app.data.model.EngineType.ON_DEVICE_LITERT
+                    }
+                    settingsRepository.setActiveModel(model.name, model.path, model.uriString, targetEngine)
+                    settingsRepository.setEngine(targetEngine)
                     showModelSwitchSheet = false
                     Toast.makeText(context, "Switched active model to: ${model.name}", Toast.LENGTH_SHORT).show()
                 }

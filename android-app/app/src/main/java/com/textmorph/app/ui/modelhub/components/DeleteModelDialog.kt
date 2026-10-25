@@ -113,7 +113,8 @@ fun DeleteModelDialog(
                     Button(
                         onClick = { onConfirm(deleteFilePermanently) },
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = if (deleteFilePermanently) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+                            containerColor = if (deleteFilePermanently) com.textmorph.app.theme.DangerRed else MaterialTheme.colorScheme.primary,
+                            contentColor = androidx.compose.ui.graphics.Color.White
                         ),
                         shape = RoundedCornerShape(10.dp)
                     ) {

@@ -208,6 +208,7 @@ class ChatSessionRepository private constructor(private val context: Context) {
         thoughtContent: String? = null,
         actionPayloadJson: String? = null,
         actionStatus: String? = null,
+        actionStepsJson: String? = null,
         tokensPerSecond: Float? = null,
         totalTokens: Int? = null,
         durationMs: Long? = null
@@ -222,6 +223,7 @@ class ChatSessionRepository private constructor(private val context: Context) {
                     thoughtContent = thoughtContent ?: last.thoughtContent,
                     actionPayloadJson = actionPayloadJson ?: last.actionPayloadJson,
                     actionStatus = actionStatus ?: last.actionStatus,
+                    actionStepsJson = actionStepsJson ?: last.actionStepsJson,
                     tokensPerSecond = tokensPerSecond ?: last.tokensPerSecond,
                     totalTokens = totalTokens ?: last.totalTokens,
                     durationMs = durationMs ?: last.durationMs
