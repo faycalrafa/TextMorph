@@ -344,12 +344,29 @@ class TextMorphAccessibilityService : AccessibilityService() {
         }
     }
 
+    private fun setAllOverlaysVisible(visible: Boolean) {
+        overlayManager?.setOverlayVisible(visible)
+        interactionOverlayManager?.setOverlayVisible(visible)
+    }
+
+    suspend fun captureScreenBitmapBytes(): ByteArray? = kotlinx.coroutines.suspendCancellableCoroutine { cont ->
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            cont.resume(null, null)
+            return@suspendCancellableCoroutine
+        }
+        captureScreenContext { bytes ->
+            if (cont.isActive) {
+                cont.resume(bytes, null)
+            }
+        }
+    }
+
     fun captureScreenContext(onCaptured: (ByteArray) -> Unit) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             try {
-                AppLogger.i(TAG, "Capturing screen for multimodal vision context (excluding floating overlay)...")
-                // Temporarily hide the floating overlay window
-                overlayManager?.setOverlayVisible(false)
+                AppLogger.i(TAG, "Capturing clean screen for multimodal context (excluding all overlays)...")
+                // Temporarily hide all floating overlay windows
+                setAllOverlaysVisible(false)
 
                 // Wait 120ms so SurfaceFlinger composes a clean frame behind the overlay
                 mainHandler.postDelayed({
@@ -377,33 +394,27 @@ class TextMorphAccessibilityService : AccessibilityService() {
                                     } catch (e: Exception) {
                                         AppLogger.e(TAG, "Error processing screenshot hardware buffer: ${e.message}", e)
                                     } finally {
-                                        mainHandler.post {
-                                            overlayManager?.setOverlayVisible(true)
-                                        }
+                                        mainHandler.post { setAllOverlaysVisible(true) }
                                     }
                                 }
 
                                 override fun onFailure(errorCode: Int) {
                                     AppLogger.w(TAG, "Take screenshot callback failed with code: $errorCode")
-                                    mainHandler.post {
-                                        overlayManager?.setOverlayVisible(true)
-                                    }
+                                    mainHandler.post { setAllOverlaysVisible(true) }
                                 }
                             }
                         )
                     } catch (e: Exception) {
                         AppLogger.e(TAG, "Failed to initiate screen capture: ${e.message}", e)
-                        overlayManager?.setOverlayVisible(true)
+                        setAllOverlaysVisible(true)
                     }
                 }, 120L)
 
                 // Safeguard timeout to ensure overlay visibility is restored
-                mainHandler.postDelayed({
-                    overlayManager?.setOverlayVisible(true)
-                }, 1500L)
+                mainHandler.postDelayed({ setAllOverlaysVisible(true) }, 1500L)
             } catch (e: Exception) {
                 AppLogger.e(TAG, "Failed in captureScreenContext: ${e.message}", e)
-                overlayManager?.setOverlayVisible(true)
+                setAllOverlaysVisible(true)
             }
         }
     }

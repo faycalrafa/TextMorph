@@ -19,6 +19,7 @@ import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -39,7 +40,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.textmorph.app.data.model.ActionCommandSyntax
 import com.textmorph.app.data.model.AppSettings
+import com.textmorph.app.data.model.ScreenPerceptionMode
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -54,7 +57,9 @@ fun AiModelConfigDialog(
         enableThinking: Boolean,
         speculativeDecoding: Boolean,
         defaultSystemPrompt: String,
-        agentSystemPrompt: String
+        agentSystemPrompt: String,
+        actionCommandSyntax: ActionCommandSyntax,
+        screenPerceptionMode: ScreenPerceptionMode
     ) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -66,6 +71,8 @@ fun AiModelConfigDialog(
     var speculativeDecoding by remember { mutableStateOf(settings.speculativeDecoding) }
     var defaultSystemPrompt by remember { mutableStateOf(settings.defaultSystemPrompt) }
     var agentSystemPrompt by remember { mutableStateOf(settings.agentSystemPrompt) }
+    var actionCommandSyntax by remember { mutableStateOf(settings.actionCommandSyntax) }
+    var screenPerceptionMode by remember { mutableStateOf(settings.screenPerceptionMode) }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -237,6 +244,79 @@ fun AiModelConfigDialog(
 
                 Spacer(modifier = Modifier.height(14.dp))
 
+                // Command Syntax Selector
+                Text(
+                    text = "Agent Command Syntax",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    text = "Format for autonomous device actions. Code-as-Action saves ~70% token overhead.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    FilterChip(
+                        selected = actionCommandSyntax == ActionCommandSyntax.CODE_AS_ACTION,
+                        onClick = {
+                            actionCommandSyntax = ActionCommandSyntax.CODE_AS_ACTION
+                            agentSystemPrompt = com.textmorph.app.agent.prompts.AgentPrompts.AGENT_SYSTEM_PROMPT_CODE_ACTION
+                        },
+                        label = { Text("Code-as-Action (Default)") }
+                    )
+                    FilterChip(
+                        selected = actionCommandSyntax == ActionCommandSyntax.JSON_BASED,
+                        onClick = {
+                            actionCommandSyntax = ActionCommandSyntax.JSON_BASED
+                            agentSystemPrompt = com.textmorph.app.agent.prompts.AgentPrompts.AGENT_SYSTEM_PROMPT_JSON
+                        },
+                        label = { Text("JSON-Based") }
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // Screen Perception Mode Selector
+                Text(
+                    text = "Screen Perception Mode",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    text = "How the autonomous agent perceives the device screen before deciding actions.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    FilterChip(
+                        selected = screenPerceptionMode == ScreenPerceptionMode.ACCESSIBILITY_TREE,
+                        onClick = { screenPerceptionMode = ScreenPerceptionMode.ACCESSIBILITY_TREE },
+                        label = { Text("Accessibility Tree (Default)") }
+                    )
+                    FilterChip(
+                        selected = screenPerceptionMode == ScreenPerceptionMode.SCREEN_CAPTURE,
+                        onClick = { screenPerceptionMode = ScreenPerceptionMode.SCREEN_CAPTURE },
+                        label = { Text("Screen Capture (Multimodal)") }
+                    )
+                    FilterChip(
+                        selected = screenPerceptionMode == ScreenPerceptionMode.PRIVATE_AGENT,
+                        onClick = { screenPerceptionMode = ScreenPerceptionMode.PRIVATE_AGENT },
+                        label = { Text("Private Agent Way") }
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
                 // Agent Mode System Prompt
                 Text(
                     text = "Agent Mode System Prompt (Tools & Automation)",
@@ -269,8 +349,10 @@ fun AiModelConfigDialog(
                             topP = 0.9f
                             enableThinking = false
                             speculativeDecoding = false
+                            actionCommandSyntax = ActionCommandSyntax.CODE_AS_ACTION
+                            screenPerceptionMode = ScreenPerceptionMode.ACCESSIBILITY_TREE
                             defaultSystemPrompt = "You are a helpful, concise AI writing assistant. Transform or complete text according to user instructions. Return ONLY the final output without preamble or explanations."
-                            agentSystemPrompt = com.textmorph.app.agent.prompts.AgentPrompts.AGENT_SYSTEM_PROMPT
+                            agentSystemPrompt = com.textmorph.app.agent.prompts.AgentPrompts.AGENT_SYSTEM_PROMPT_CODE_ACTION
                         },
                         shape = RoundedCornerShape(10.dp)
                     ) {
@@ -298,7 +380,9 @@ fun AiModelConfigDialog(
                                 enableThinking,
                                 speculativeDecoding,
                                 defaultSystemPrompt.trim(),
-                                agentSystemPrompt.trim()
+                                agentSystemPrompt.trim(),
+                                actionCommandSyntax,
+                                screenPerceptionMode
                             )
                         },
                         shape = RoundedCornerShape(10.dp)

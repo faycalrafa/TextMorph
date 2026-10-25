@@ -2,9 +2,11 @@ package com.textmorph.app.data.repository
 
 import android.content.Context
 import androidx.core.util.AtomicFile
+import com.textmorph.app.data.model.ActionCommandSyntax
 import com.textmorph.app.data.model.AppSettings
 import com.textmorph.app.data.model.EngineType
 import com.textmorph.app.data.model.ModelFileType
+import com.textmorph.app.data.model.ScreenPerceptionMode
 import com.textmorph.app.theme.ThemeMode
 import com.textmorph.app.util.AppLogger
 import kotlinx.coroutines.Dispatchers
@@ -146,6 +148,14 @@ class SettingsRepository(private val context: Context) {
         it.copy(quickFixEnabled = enabled)
     }
 
+    suspend fun setActionCommandSyntax(syntax: ActionCommandSyntax) = updateSettings {
+        it.copy(actionCommandSyntax = syntax)
+    }
+
+    suspend fun setScreenPerceptionMode(mode: ScreenPerceptionMode) = updateSettings {
+        it.copy(screenPerceptionMode = mode)
+    }
+
     suspend fun updateAiModelConfig(
         maxTokens: Int,
         temperature: Float,
@@ -154,7 +164,9 @@ class SettingsRepository(private val context: Context) {
         enableThinking: Boolean,
         speculativeDecoding: Boolean,
         defaultSystemPrompt: String,
-        agentSystemPrompt: String = com.textmorph.app.agent.prompts.AgentPrompts.AGENT_SYSTEM_PROMPT
+        agentSystemPrompt: String = com.textmorph.app.agent.prompts.AgentPrompts.AGENT_SYSTEM_PROMPT_CODE_ACTION,
+        actionCommandSyntax: ActionCommandSyntax? = null,
+        screenPerceptionMode: ScreenPerceptionMode? = null
     ) = updateSettings {
         it.copy(
             maxTokens = maxTokens,
@@ -164,7 +176,9 @@ class SettingsRepository(private val context: Context) {
             enableThinking = enableThinking,
             speculativeDecoding = speculativeDecoding,
             defaultSystemPrompt = defaultSystemPrompt,
-            agentSystemPrompt = agentSystemPrompt
+            agentSystemPrompt = agentSystemPrompt,
+            actionCommandSyntax = actionCommandSyntax ?: it.actionCommandSyntax,
+            screenPerceptionMode = screenPerceptionMode ?: it.screenPerceptionMode
         )
     }
 

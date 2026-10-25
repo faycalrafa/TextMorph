@@ -2,6 +2,7 @@ package com.textmorph.app.agent.tools
 
 import android.accessibilityservice.AccessibilityService
 import com.textmorph.app.service.overlay.ScreenAutomationController
+import com.textmorph.app.service.overlay.TextMorphAccessibilityService
 import com.textmorph.app.util.AppLogger
 
 /**
@@ -21,6 +22,23 @@ class ScreenAutomationTool(
     fun readScreen(query: String = ""): String {
         val ctrl = controllerProvider() ?: return "Accessibility Service is not active. Please enable TextMorph in Accessibility Settings."
         return ctrl.getCompressedScreenDump(query)
+    }
+
+    fun readScreenHierarchy(): String {
+        val ctrl = controllerProvider() ?: return "Accessibility Service is not active. Please enable TextMorph in Accessibility Settings."
+        return ctrl.getSemanticScreenDump()
+    }
+
+    fun readScreenPrivateAgent(query: String = ""): String {
+        val ctrl = controllerProvider() ?: return "Accessibility Service is not active. Please enable TextMorph in Accessibility Settings."
+        return ctrl.getCompressedScreenDump(query)
+    }
+
+    suspend fun captureCleanScreenshotBytes(): ByteArray? {
+        val service = serviceProvider() as? TextMorphAccessibilityService
+            ?: TextMorphAccessibilityService.getInstance()
+            ?: return null
+        return service.captureScreenBitmapBytes()
     }
 
     fun clickText(text: String): Boolean {

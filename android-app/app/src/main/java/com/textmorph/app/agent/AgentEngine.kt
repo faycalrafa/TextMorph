@@ -36,7 +36,10 @@ class AgentEngine(
     val communication = CommunicationTool(context, contactsTool)
     val deviceControl = DeviceControlTool(context)
     val screenAutomation = ScreenAutomationTool(controllerProvider, serviceProvider)
-    val taskExecutor = TaskExecutor(appLauncher, screenAutomation, engineProvider)
+    private val settingsProvider = {
+        com.textmorph.app.data.repository.SettingsRepository.getInstance(context).settingsState.value
+    }
+    val taskExecutor = TaskExecutor(appLauncher, screenAutomation, engineProvider, settingsProvider)
 
     suspend fun execute(
         action: AgentAction,

@@ -7,6 +7,9 @@ import com.textmorph.app.agent.parser.AgentActionParser
 import com.textmorph.app.agent.prompts.AgentPrompts
 import com.textmorph.app.agent.tools.AppLauncherTool
 import com.textmorph.app.agent.tools.ScreenAutomationTool
+import com.textmorph.app.data.model.ActionCommandSyntax
+import com.textmorph.app.data.model.AppSettings
+import com.textmorph.app.data.model.ScreenPerceptionMode
 import com.textmorph.app.llm.LlmEngine
 import com.textmorph.app.util.AppLogger
 import kotlinx.coroutines.Dispatchers
@@ -15,12 +18,14 @@ import kotlinx.coroutines.withContext
 
 /**
  * Autonomous multi-step screen navigation and interaction routine.
- * Guided step-by-step by LLM analysis of accessibility tree dumps.
+ * Guided step-by-step by LLM analysis of accessibility tree dumps, compressed
+ * PrivateAgent hierarchies, or clean screenshot bitmaps.
  */
 class TaskExecutor(
     private val appLauncher: AppLauncherTool,
     private val screenTool: ScreenAutomationTool,
-    private val engineProvider: () -> LlmEngine
+    private val engineProvider: () -> LlmEngine,
+    private val settingsProvider: () -> AppSettings = { AppSettings() }
 ) {
 
     private val TAG = "TaskExecutor"
@@ -48,6 +53,13 @@ class TaskExecutor(
         val interruptListener = { cancel() }
         TaskExecutionCoordinator.addInterruptListener(interruptListener)
 
+        val settings = settingsProvider()
+        val commandSyntax = settings.actionCommandSyntax
+        val perceptionMode = settings.screenPerceptionMode
+        val taskSystemPrompt = AgentPrompts.getTaskSystemPrompt(commandSyntax)
+
+        AppLogger.i(TAG, "Task configured with syntax=$commandSyntax, perceptionMode=$perceptionMode")
+
         try {
             if (!screenTool.isAccessibilityReady()) {
                 val errorMsg = "Accessibility Service is not enabled. Please enable TextMorph in Android Accessibility Settings to automate the screen."
@@ -67,7 +79,7 @@ class TaskExecutor(
                 TaskExecutionCoordinator.completeCurrentStep(openSuccess)
                 onStepsUpdated?.invoke(TaskExecutionCoordinator.state.value.stepsHistory)
                 lastAction = "open_app"
-                delay(2800)
+                delay(3000)
             }
 
             var consecutiveFailures = 0
@@ -80,18 +92,53 @@ class TaskExecutor(
                     return@withContext "Task stopped by user."
                 }
 
-                TaskExecutionCoordinator.beginStep(step, AgentAction.ACTION_READ_SCREEN, "Viewing screen…", "Inspecting visible UI elements")
+                TaskExecutionCoordinator.beginStep(step, AgentAction.ACTION_READ_SCREEN, "Viewing screen…", "Perceiving active screen context")
                 onStepsUpdated?.invoke(TaskExecutionCoordinator.state.value.stepsHistory)
                 onProgress(step, "Viewing screen (Step $step/$maxSteps)…")
 
-                val dump = screenTool.readScreen(goal)
+                var imageBytes: ByteArray? = null
+                val screenDump: String = when (perceptionMode) {
+                    ScreenPerceptionMode.SCREEN_CAPTURE -> {
+                        val captured = screenTool.captureCleanScreenshotBytes()
+                        if (captured != null) {
+                            imageBytes = captured
+                            "[Clean Screen Screenshot Attached - Inspect visually]"
+                        } else {
+                            AppLogger.w(TAG, "Clean screenshot capture unavailable, falling back to semantic tree.")
+                            screenTool.readScreenHierarchy()
+                        }
+                    }
+                    ScreenPerceptionMode.PRIVATE_AGENT -> {
+                        screenTool.readScreenPrivateAgent(goal)
+                    }
+                    ScreenPerceptionMode.ACCESSIBILITY_TREE -> {
+                        screenTool.readScreenHierarchy()
+                    }
+                }
+
+                // Heuristic 1: Detect loading / spinner states and allow settle time
+                val lowerDump = screenDump.lowercase()
+                if (lowerDump.contains("loading") || lowerDump.contains("please wait") || lowerDump.contains("buffering")) {
+                    AppLogger.i(TAG, "Loading indicator detected on screen. Waiting 2000ms for content to settle...")
+                    onProgress(step, "Waiting for screen to finish loading…")
+                    delay(2000)
+                }
+
+                // Heuristic 2: Auto-dismiss keyboard if lingering after typing or during failures
+                if (lowerDump.contains("inputmethod") || lowerDump.contains("gboard") || lowerDump.contains("softkeyboard")) {
+                    if (lastAction == "type_text" || consecutiveFailures >= 2) {
+                        AppLogger.i(TAG, "Keyboard visible after typing or failure; pressing back to reveal UI elements.")
+                        screenTool.pressBack()
+                        delay(600)
+                    }
+                }
 
                 TaskExecutionCoordinator.setThinking(true)
                 onProgress(step, "Planning next action (Step $step/$maxSteps)…")
 
-                val prompt = buildStepPrompt(goal, step, maxSteps, dump)
+                val prompt = buildStepPrompt(goal, step, maxSteps, screenDump, commandSyntax, consecutiveFailures >= 2)
 
-                val rawOutput = queryLlm(prompt)
+                val rawOutput = queryLlm(prompt, imageBytes, taskSystemPrompt)
                 if (isCancelled || TaskExecutionCoordinator.state.value.isInterrupted) {
                     TaskExecutionCoordinator.interrupt()
                     onStepsUpdated?.invoke(TaskExecutionCoordinator.state.value.stepsHistory)
@@ -100,7 +147,7 @@ class TaskExecutor(
 
                 val action = AgentActionParser.parseAction(rawOutput)
                 if (action == null) {
-                    AppLogger.w(TAG, "Failed parsing action JSON at step $step: $rawOutput")
+                    AppLogger.w(TAG, "Failed parsing action at step $step: $rawOutput")
                     if (++consecutiveFailures >= 3) {
                         val failMsg = "Task Failed: Model did not return valid actions."
                         TaskExecutionCoordinator.finishTask(failMsg, success = false)
@@ -126,8 +173,16 @@ class TaskExecutor(
                 }
 
                 sameActionCount = if (action.action == lastAction) sameActionCount + 1 else 1
-                if (sameActionCount > 3 && (action.action == "scroll" || action.action == "press_enter")) {
-                    onProgress(step, "Recovering: Action repeated too many times. Navigating…")
+
+                // Anti-loop protections:
+                if (action.action == "press_enter" && sameActionCount > 2) {
+                    onProgress(step, "Recovering: Enter pressed repeatedly without progress. Navigating…")
+                    screenTool.pressBack()
+                    delay(1000)
+                    continue
+                }
+                if ((action.action == "scroll" || action.action == "swipe") && sameActionCount > 3) {
+                    onProgress(step, "Recovering: Scroll repeated too many times. Navigating…")
                     screenTool.pressBack()
                     delay(1000)
                     continue
@@ -143,17 +198,19 @@ class TaskExecutor(
                 } else {
                     consecutiveFailures++
                     if (consecutiveFailures >= 4) {
-                        onProgress(step, "Recovering: Backing out…")
+                        onProgress(step, "Recovering: Action repeated failures. Backing out…")
                         screenTool.pressBack()
                         delay(1000)
                     }
                 }
 
+                // PrivateAgent adaptive timing delays:
                 val stepDelay = when (action.action) {
-                    "open_app" -> 2800L
-                    "type_text" -> 1600L
-                    "click_text", "click_at" -> 1400L
-                    "scroll", "swipe" -> 900L
+                    "open_app" -> 3000L
+                    "type_text" -> 2000L
+                    "click_text", "click_at" -> 1500L
+                    "press_enter" -> 1500L
+                    "scroll", "swipe" -> 1000L
                     else -> 1000L
                 }
                 delay(stepDelay)
@@ -190,11 +247,15 @@ class TaskExecutor(
         }
     }
 
-    private suspend fun queryLlm(prompt: String): String {
+    private suspend fun queryLlm(
+        prompt: String,
+        imageBytes: ByteArray? = null,
+        systemInstruction: String = AgentPrompts.TASK_SYSTEM_PROMPT_CODE_ACTION
+    ): String {
         return try {
             val engine = engineProvider()
             val sb = StringBuilder()
-            engine.generateStream(prompt, AgentPrompts.TASK_SYSTEM_PROMPT).collect { token ->
+            engine.generateStream(prompt, systemInstruction, imageBytes).collect { token ->
                 sb.append(token)
             }
             sb.toString().trim()
@@ -211,7 +272,7 @@ class TaskExecutor(
         return try {
             when (action.action) {
                 "click_text" -> {
-                    val text = action.getStringParam("text")
+                    val text = action.getStringParamWithAliases("text", "label")
                     screenTool.clickText(text)
                 }
                 "click_at" -> {
@@ -220,8 +281,8 @@ class TaskExecutor(
                     screenTool.clickAt(x, y)
                 }
                 "type_text" -> {
-                    val text = action.getStringParam("text")
-                    val hint = action.getStringParam("field_hint").ifEmpty { null }
+                    val text = action.getStringParamWithAliases("text", "content")
+                    val hint = action.getStringParamWithAliases("field_hint", "hint").ifEmpty { null }
                     screenTool.typeText(text, hint)
                 }
                 "press_enter" -> screenTool.pressEnter()
@@ -239,7 +300,7 @@ class TaskExecutor(
                 "press_back" -> screenTool.pressBack()
                 "press_home" -> screenTool.pressHome()
                 "open_app" -> {
-                    val app = action.getStringParam("app_name")
+                    val app = action.getStringParamWithAliases("app_name", "name", "app")
                     appLauncher.openApp(app).isSuccess
                 }
                 "wait" -> true
@@ -251,11 +312,35 @@ class TaskExecutor(
         }
     }
 
-    private fun buildStepPrompt(goal: String, step: Int, maxSteps: Int, screenDump: String): String {
-        return """
+    private fun buildStepPrompt(
+        goal: String,
+        step: Int,
+        maxSteps: Int,
+        screenDump: String,
+        syntax: ActionCommandSyntax,
+        warnFailure: Boolean
+    ): String {
+        val failureWarning = if (warnFailure) {
+            "\nIMPORTANT NOTICE: Previous action did not succeed or change the screen. Try targeting a different element, using click_at(x, y), or scrolling to find the target.\n"
+        } else ""
+
+        return if (syntax == ActionCommandSyntax.JSON_BASED) {
+            """
             GOAL: $goal
+            $failureWarning
             CURRENT SCREEN:
             $screenDump
+
+            Step $step/$maxSteps. Return ONLY a single JSON object with your action on one line:
+            {"action": "click_text", "text": "target text"} or {"action": "click_at", "x": 500, "y": 800} or {"action": "type_text", "text": "search query"} or {"action": "press_enter"} or {"action": "scroll", "direction": "down"} or {"action": "open_app", "app_name": "App"} or {"action": "press_back"} or {"action": "done", "response": "summary"}
+            """.trimIndent()
+        } else {
+            """
+            GOAL: $goal
+            $failureWarning
+            CURRENT SCREEN:
+            $screenDump
+
             Step $step/$maxSteps. Return ONLY a single action command on one line:
             - click_text("exact text to click")
             - click_at(x, y)
@@ -265,7 +350,8 @@ class TaskExecutor(
             - open_app("AppName")
             - press_back()
             - done("Task summary")
-        """.trimIndent()
+            """.trimIndent()
+        }
     }
 
     private fun detectFastShortcutApp(goal: String): String? {

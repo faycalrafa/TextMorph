@@ -10,9 +10,24 @@ enum class EngineType(val displayName: String) {
 }
 
 @Serializable
+enum class ActionCommandSyntax(val displayName: String) {
+    CODE_AS_ACTION("Code-as-Action"),
+    JSON_BASED("JSON-Based")
+}
+
+@Serializable
+enum class ScreenPerceptionMode(val displayName: String) {
+    ACCESSIBILITY_TREE("Accessibility Tree"),
+    SCREEN_CAPTURE("Screen Capture (Multimodal)"),
+    PRIVATE_AGENT("Private Agent Way")
+}
+
+@Serializable
 data class AppSettings(
     val theme: ThemeMode = ThemeMode.DARK_SLATE,
     val selectedEngine: EngineType = EngineType.ON_DEVICE_LITERT,
+    val actionCommandSyntax: ActionCommandSyntax = ActionCommandSyntax.CODE_AS_ACTION,
+    val screenPerceptionMode: ScreenPerceptionMode = ScreenPerceptionMode.ACCESSIBILITY_TREE,
     val activeModelPath: String? = null,
     val activeModelUri: String? = null,
     val activeModelName: String = "gemma-4-E2B-it.litertlm",
@@ -46,5 +61,5 @@ data class AppSettings(
     val enableThinking: Boolean = false,
     val speculativeDecoding: Boolean = false,
     val defaultSystemPrompt: String = "You are a helpful, concise AI writing assistant. Transform or complete text according to user instructions. Return ONLY the final output without preamble or explanations.",
-    val agentSystemPrompt: String = com.textmorph.app.agent.prompts.AgentPrompts.AGENT_SYSTEM_PROMPT
+    val agentSystemPrompt: String = com.textmorph.app.agent.prompts.AgentPrompts.AGENT_SYSTEM_PROMPT_CODE_ACTION
 )

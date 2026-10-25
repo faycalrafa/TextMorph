@@ -70,6 +70,19 @@ class AgentInteractionOverlayManager(
         }
     }
 
+    /**
+     * Toggles visibility of the interaction overlay view (e.g. during clean screenshots).
+     */
+    fun setOverlayVisible(visible: Boolean) {
+        service.mainHandler.post {
+            try {
+                composeView?.visibility = if (visible) android.view.View.VISIBLE else android.view.View.INVISIBLE
+            } catch (e: Exception) {
+                AppLogger.e(TAG, "Error toggling interaction overlay visibility: ${e.message}", e)
+            }
+        }
+    }
+
     private fun attachOverlay() {
         if (isAttached || composeView != null) return
 

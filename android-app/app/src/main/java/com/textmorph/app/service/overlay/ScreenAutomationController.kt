@@ -119,44 +119,12 @@ class ScreenAutomationController(private val service: AccessibilityService) {
 
     fun getCompressedScreenDump(taskQuery: String): String {
         val nodes = dumpScreenHierarchy()
-        if (nodes.isEmpty()) return "Screen is empty or unavailable."
+        return ScreenLinearizer.formatPrivateAgentWay(nodes, taskQuery, getCurrentPackage())
+    }
 
-        val sb = StringBuilder()
-        val currentPkg = getCurrentPackage()
-        if (currentPkg != null) {
-            sb.appendLine("APP: $currentPkg")
-        }
-
-        val stopWords = setOf("to", "and", "the", "a", "in", "of", "for", "on", "with", "at", "by", "from", "go", "turn", "open")
-        val keywords = taskQuery.lowercase()
-            .replace(Regex("[^a-z0-9\\s]"), "")
-            .split(Regex("\\s+"))
-            .filter { it.isNotBlank() && it !in stopWords }
-
-        for (node in nodes) {
-            val label = node.displayText.trim()
-            val lowerLabel = label.lowercase()
-
-            if (lowerLabel.contains("battery") || lowerLabel.contains("percent") ||
-                lowerLabel.contains("do not disturb") || lowerLabel.matches(Regex("^\\d{1,2}:\\d{2}$"))
-            ) {
-                continue
-            }
-
-            val tags = mutableListOf<String>()
-            if (node.isClickable) tags.add("tap")
-            if (node.isEditable) tags.add("edit")
-            if (node.isScrollable) tags.add("scroll")
-
-            val isMatch = keywords.any { kw -> lowerLabel.contains(kw) }
-            val star = if (isMatch) "*" else ""
-            val truncated = if (label.length > 60) label.take(60) + "…" else label
-            val quoted = if (truncated.isNotEmpty()) "\"$truncated\"" else "(no-label)"
-            val tagStr = if (tags.isNotEmpty()) "[${tags.joinToString(",")}]" else ""
-
-            sb.appendLine("[${node.index}]$star ${node.className} $quoted $tagStr center:(${node.centerX},${node.centerY})")
-        }
-        return sb.toString().trim()
+    fun getSemanticScreenDump(): String {
+        val nodes = dumpScreenHierarchy()
+        return ScreenLinearizer.formatSemanticTree(nodes, getCurrentPackage())
     }
 
     fun clickAtCoordinates(x: Float, y: Float): Boolean {
@@ -174,6 +142,13 @@ class ScreenAutomationController(private val service: AccessibilityService) {
         }
     }
 
+    /**
+     * 1-to-1 port of PrivateAgent's 4-pass click disambiguation.
+     * Pass 1: exact match, skip editable (prefer buttons/links)
+     * Pass 2: substring match, skip editable
+     * Pass 3: exact match, allow editable
+     * Pass 4: substring match, allow editable
+     */
     fun clickByText(targetText: String): Boolean {
         try {
             val allWindows = service.windows
@@ -182,7 +157,10 @@ class ScreenAutomationController(private val service: AccessibilityService) {
                     val root = window.root ?: continue
                     try {
                         if (root.packageName?.toString() == ownPackage) continue
-                        val found = findAndClickNode(root, targetText)
+                        val found = findAndClickNode(root, targetText, exactOnly = true, skipEditable = true)
+                            || findAndClickNode(root, targetText, exactOnly = false, skipEditable = true)
+                            || findAndClickNode(root, targetText, exactOnly = true, skipEditable = false)
+                            || findAndClickNode(root, targetText, exactOnly = false, skipEditable = false)
                         if (found) return true
                     } finally {
                         try { root.recycle() } catch (e: Exception) { AppLogger.d(TAG, "Recycle: ${e.message}") }
@@ -195,38 +173,50 @@ class ScreenAutomationController(private val service: AccessibilityService) {
         return false
     }
 
-    private fun findAndClickNode(node: AccessibilityNodeInfo, targetText: String): Boolean {
+    private fun findAndClickNode(
+        node: AccessibilityNodeInfo,
+        targetText: String,
+        exactOnly: Boolean = false,
+        skipEditable: Boolean = true
+    ): Boolean {
         val text = node.text?.toString() ?: ""
         val desc = node.contentDescription?.toString() ?: ""
-        val matches = text.contains(targetText, ignoreCase = true) || desc.contains(targetText, ignoreCase = true)
+        val exactMatch = text.equals(targetText, ignoreCase = true) || desc.equals(targetText, ignoreCase = true)
+        val containsMatch = text.contains(targetText, ignoreCase = true) || desc.contains(targetText, ignoreCase = true)
+        val matches = if (exactOnly) exactMatch else containsMatch
 
-        if (matches && !node.isEditable) {
-            var target: AccessibilityNodeInfo? = node
-            while (target != null && !target.isClickable) {
-                target = target.parent
-            }
-            if (target?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true) {
-                val rect = Rect()
-                node.getBoundsInScreen(rect)
-                if (!rect.isEmpty) {
-                    onTapDispatched?.invoke(rect.centerX().toFloat(), rect.centerY().toFloat())
-                }
-                return true
-            }
-            val rect = Rect()
-            node.getBoundsInScreen(rect)
-            if (!rect.isEmpty) {
-                return clickAtCoordinates(rect.centerX().toFloat(), rect.centerY().toFloat())
-            }
+        if (matches && (!skipEditable || !node.isEditable) && clickNodeOrParent(node)) {
+            return true
         }
 
         for (i in 0 until node.childCount) {
             val child = node.getChild(i) ?: continue
             try {
-                if (findAndClickNode(child, targetText)) return true
+                if (findAndClickNode(child, targetText, exactOnly, skipEditable)) return true
             } finally {
                 try { child.recycle() } catch (e: Exception) { AppLogger.d(TAG, "Child recycle: ${e.message}") }
             }
+        }
+        return false
+    }
+
+    private fun clickNodeOrParent(node: AccessibilityNodeInfo): Boolean {
+        var target: AccessibilityNodeInfo? = node
+        while (target != null && !target.isClickable) {
+            target = target.parent
+        }
+        if (target?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true) {
+            val rect = Rect()
+            node.getBoundsInScreen(rect)
+            if (!rect.isEmpty) {
+                onTapDispatched?.invoke(rect.centerX().toFloat(), rect.centerY().toFloat())
+            }
+            return true
+        }
+        val rect = Rect()
+        node.getBoundsInScreen(rect)
+        if (!rect.isEmpty) {
+            return clickAtCoordinates(rect.centerX().toFloat(), rect.centerY().toFloat())
         }
         return false
     }
@@ -283,22 +273,102 @@ class ScreenAutomationController(private val service: AccessibilityService) {
     }
 
     fun pressImeEnter(): Boolean {
+        // Tier 1: ACTION_IME_ENTER on focused input
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             try {
-                val focused = service.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
-                if (focused != null) {
-                    try {
-                        val ok = focused.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id)
-                        if (ok) return true
-                    } finally {
-                        try { focused.recycle() } catch (e: Exception) { AppLogger.d(TAG, "Recycle: ${e.message}") }
+                val allWindows = service.windows
+                if (allWindows != null) {
+                    for (window in allWindows) {
+                        val root = window.root ?: continue
+                        try {
+                            if (root.packageName?.toString() == ownPackage) continue
+                            val focused = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+                            if (focused != null) {
+                                try {
+                                    val submitted = focused.performAction(
+                                        AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id
+                                    )
+                                    if (submitted) return true
+                                } finally {
+                                    try { focused.recycle() } catch (e: Exception) { AppLogger.d(TAG, "Focused recycle: ${e.message}") }
+                                }
+                            }
+                        } finally {
+                            try { root.recycle() } catch (e: Exception) { AppLogger.d(TAG, "Root recycle: ${e.message}") }
+                        }
                     }
                 }
             } catch (e: Exception) {
                 AppLogger.d(TAG, "IME Enter direct error: ${e.message}")
             }
         }
-        return clickByText("Search") || clickByText("Enter") || clickByText("Go") || clickByText("Done")
+
+        // Tier 2: Search windows for keyboard action node
+        try {
+            val allWindows = service.windows
+            if (allWindows != null) {
+                for (window in allWindows) {
+                    val root = window.root ?: continue
+                    try {
+                        val actionNode = findKeyboardActionNode(root)
+                        if (actionNode != null) {
+                            try {
+                                if (clickNodeOrParent(actionNode)) return true
+                            } finally {
+                                try { actionNode.recycle() } catch (e: Exception) { AppLogger.d(TAG, "ActionNode recycle: ${e.message}") }
+                            }
+                        }
+                    } finally {
+                        try { root.recycle() } catch (e: Exception) { AppLogger.d(TAG, "Root recycle: ${e.message}") }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            AppLogger.d(TAG, "Keyboard action node search error: ${e.message}")
+        }
+
+        // Tier 3: Tap inside the actual IME window bottom-right corner
+        try {
+            val allWindows = service.windows
+            if (allWindows != null) {
+                for (window in allWindows) {
+                    if (window.type != AccessibilityWindowInfo.TYPE_INPUT_METHOD) continue
+                    val bounds = Rect()
+                    window.getBoundsInScreen(bounds)
+                    if (!bounds.isEmpty) {
+                        val x = bounds.right - (bounds.width() * 0.10f)
+                        val y = bounds.bottom - (bounds.height() * 0.14f)
+                        AppLogger.i(TAG, "Executing IME window bottom-right corner tap at ($x, $y)")
+                        return clickAtCoordinates(x, y)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            AppLogger.d(TAG, "IME window corner tap error: ${e.message}")
+        }
+
+        return false
+    }
+
+    private fun findKeyboardActionNode(node: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+        val label = (node.text?.toString().orEmpty().ifEmpty {
+            node.contentDescription?.toString().orEmpty()
+        }).trim().lowercase()
+        val actionLabels = setOf("search", "enter", "go", "done", "send", "next")
+        if (node.isClickable && (label in actionLabels || label.endsWith(" search"))) {
+            return AccessibilityNodeInfo.obtain(node)
+        }
+
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i) ?: continue
+            try {
+                val found = findKeyboardActionNode(child)
+                if (found != null) return found
+            } finally {
+                try { child.recycle() } catch (e: Exception) { AppLogger.d(TAG, "Child recycle: ${e.message}") }
+            }
+        }
+        return null
     }
 
     fun performScroll(direction: String): Boolean {

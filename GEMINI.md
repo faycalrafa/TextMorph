@@ -99,9 +99,17 @@ flowchart TD
 - **Zero Silent Swallowing**: Catch blocks MUST NEVER be empty (`catch (e: Exception) {}`). Always log full stack traces and contextual metadata.
 - **Global Error Interception**: Uncaught exceptions must be routed to `AppErrorBus.postError()` to surface interactive diagnostic dialogs.
 
-### F. Mobile Agent Tap Automation Architecture (Semantic Tree First)
-- **Primary Tier (Accessibility Tree First - Default)**: Query `AccessibilityNodeInfo` bounds, visible text labels, and content descriptions. Perform clicks via semantic action or bounding box center `(cx, cy)`. Sub-200ms latency, zero vision token overhead, 100% deterministic accuracy.
-- **Fallback Tier (VLM On-Demand Only)**: Only resort to full screenshot capture when the accessibility tree is empty (e.g. raw Canvas, uninstrumented Flutter/Unity games).
+### F. Mobile Agent UI Interaction & Perception Architecture
+- **Pure Code-as-Action Prompts (Default)**: `AGENT_SYSTEM_PROMPT` and `TASK_SYSTEM_PROMPT` default strictly to Code-as-Action syntax (`click_text(...)`, `click_at(...)`, `type_text(...)`, `press_enter()`, `scroll(...)`, `open_app(...)`, `done(...)`) to reduce token consumption and eliminate JSON syntax failures on smaller on-device SLMs. A toggle in `AiModelConfigDialog` allows instant switching to JSON-based syntax. `AgentActionParser` maintains full dual-syntax decoding and error recovery.
+- **Tri-Modal Screen Perception**:
+  1. *Accessibility Tree Dump (Default)*: Fast sub-200ms semantic hierarchy with spatial bounds, element roles, and indentation.
+  2. *Screen Capture with Bitmap*: Clean hardware screenshot capture (all floating toolbars and interaction cues temporarily hidden with a 120ms SurfaceFlinger settling delay) passed as raw image bytes to multimodal engines (`LiteRtLmEngine`, `LlamaCppEngine`, `OpenAiCloudEngine`).
+  3. *Private Agent Way*: Linearized, query-targeted hierarchy marking keyword matches with `*`, stripping decorative layout noise, and mapping coordinate centers.
+- **1-to-1 PrivateAgent UI Interaction Model**:
+  - *4-Pass Click Disambiguation*: Pass 1 (exact match, skip editable) -> Pass 2 (contains match, skip editable) -> Pass 3 (exact match, allow editable) -> Pass 4 (contains match, allow editable). Prevents erroneously clicking search input boxes over target search results.
+  - *Multi-Tier Keyboard Submission*: Dispatches `ACTION_IME_ENTER`, with fallback to IME keyboard window detection (`AccessibilityWindowInfo.TYPE_INPUT_METHOD`) tapping bottom-right corner `(right - 10%, bottom - 14%)`.
+  - *Adaptive Delays*: 3000ms app open, 2000ms text entry, 1500ms click/enter, 1000ms scroll.
+  - *Anti-Loop & Heuristic Recovery*: Caps repetitive enter ($\le 2$) and scroll ($\le 3$) loops with back-out navigation, auto-dismisses lingering soft keyboards blocking target controls, waits on loading spinners, and injects failure recovery warnings if actions do not change screen state.
 - **Cleartext HTTP for Local Inference**: Allow cleartext HTTP traffic to local network IPs (`192.168.x.x`, `10.x.x.x`, `127.0.0.1`, custom ports) so users can freely connect to Ollama, LM Studio, or local servers without transport errors.
 
 ---

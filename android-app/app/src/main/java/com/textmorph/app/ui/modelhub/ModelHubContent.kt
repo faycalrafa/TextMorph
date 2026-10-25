@@ -385,7 +385,7 @@ fun ModelHubContent(
     if (showAiConfigDialog) {
         AiModelConfigDialog(
             settings = settings,
-            onSave = { maxTokens, temp, k, p, thinking, speculative, prompt, agentPrompt ->
+            onSave = { maxTokens, temp, k, p, thinking, speculative, prompt, agentPrompt, syntax, perceptionMode ->
                 scope.launch {
                     settingsRepository.updateAiModelConfig(
                         maxTokens = maxTokens,
@@ -395,7 +395,9 @@ fun ModelHubContent(
                         enableThinking = thinking,
                         speculativeDecoding = speculative,
                         defaultSystemPrompt = prompt,
-                        agentSystemPrompt = agentPrompt
+                        agentSystemPrompt = agentPrompt,
+                        actionCommandSyntax = syntax,
+                        screenPerceptionMode = perceptionMode
                     )
                     showAiConfigDialog = false
                     Toast.makeText(context, "AI configurations saved.", Toast.LENGTH_SHORT).show()
