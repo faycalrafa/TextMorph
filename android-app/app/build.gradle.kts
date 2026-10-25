@@ -9,13 +9,13 @@ android {
     compileSdk = 36
     val appVersionName = providers.environmentVariable("APP_VERSION_NAME")
         .orElse(providers.gradleProperty("appVersionName"))
-        .getOrElse("2.9.4")
+        .getOrElse("3.0.0")
 
     defaultConfig {
         applicationId = "com.textmorph.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 39
+        versionCode = 40
         versionName = appVersionName
 
         ndk {

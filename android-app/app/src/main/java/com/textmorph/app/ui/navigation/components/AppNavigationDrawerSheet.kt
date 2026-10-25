@@ -18,6 +18,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.BugReport
+import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.ChatBubbleOutline
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Info
@@ -152,6 +153,14 @@ fun AppNavigationDrawerSheet(
                     subtitle = "Quick /commands for input fields",
                     isSelected = currentDestination == AppDestination.CUSTOM_COMMANDS,
                     onClick = { onSelectDestination(AppDestination.CUSTOM_COMMANDS) }
+                )
+
+                DrawerNavItem(
+                    icon = Icons.Default.Build,
+                    title = "Agent Tools",
+                    subtitle = "Built-in actions & code-as-action tester",
+                    isSelected = currentDestination == AppDestination.TOOLS,
+                    onClick = { onSelectDestination(AppDestination.TOOLS) }
                 )
 
                 DrawerNavItem(

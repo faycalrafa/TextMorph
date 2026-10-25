@@ -4,6 +4,7 @@ enum class AppDestination(val title: String) {
     PROMPTS("Custom Prompts"),
     CUSTOM_COMMANDS("Custom Commands"),
     MODEL_HUB("Model Hub"),
+    TOOLS("Agent Tools"),
     CHAT("AI Playground"),
     SETTINGS("Settings"),
     ABOUT("About TextMorph"),

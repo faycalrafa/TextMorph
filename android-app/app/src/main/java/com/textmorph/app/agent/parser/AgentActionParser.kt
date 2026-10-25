@@ -26,6 +26,15 @@ object AgentActionParser {
      */
     fun parseAction(rawText: String): AgentAction? {
         val trimmed = rawText.trim()
+        if (trimmed.isBlank()) return null
+
+        // 1. Dual-Syntax Priority: Try Code-as-Action first (ultra-low token footprint)
+        val codeAction = CodeActionParser.parse(trimmed)
+        if (codeAction != null) {
+            return codeAction
+        }
+
+        // 2. Fallback: Parse legacy JSON syntax
         if (!trimmed.contains("\"action\"")) return null
 
         try {
@@ -66,6 +75,11 @@ object AgentActionParser {
         val end = rawText.lastIndexOf('}')
         if (start != -1 && end != -1 && end > start && rawText.contains("\"action\"")) {
             return (rawText.substring(0, start) + rawText.substring(end + 1)).trim()
+        }
+        // Strip Code-as-Action function command if isolated or wrapped in code fences
+        val cmdMatch = Regex("""(?:```(?:python|code|js|bash)?\s*)?`?[a-zA-Z_][a-zA-Z0-9_]*\s*\([\s\S]*?\)`?(?:\s*```)?""").find(rawText)
+        if (cmdMatch != null && cmdMatch.value.isNotBlank() && !rawText.contains("\n\n")) {
+            return rawText.replace(cmdMatch.value, "").trim()
         }
         return rawText.trim()
     }

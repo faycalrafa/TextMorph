@@ -86,12 +86,11 @@ import com.textmorph.app.ui.about.DevLogsScreen
 import com.textmorph.app.ui.about.VersionHistoryScreen
 import com.textmorph.app.ui.chat.AiChatContent
 import com.textmorph.app.ui.commands.CustomCommandsContent
-import com.textmorph.app.ui.common.ProminentDisclosureDialog
-import com.textmorph.app.ui.common.UpdateDialog
 import com.textmorph.app.ui.dashboard.DashboardHomeScreen
 import com.textmorph.app.ui.modelhub.ModelHubContent
-import com.textmorph.app.ui.prompts.PromptEditorDialog
+import com.textmorph.app.ui.navigation.components.MainAppDialogs
 import com.textmorph.app.ui.settings.SettingsContent
+import com.textmorph.app.ui.tools.AgentToolsScreen
 import com.textmorph.app.util.PermissionUtils
 import com.textmorph.app.util.SystemTelemetryManager
 import kotlinx.coroutines.launch
@@ -231,7 +230,7 @@ fun MainAppScaffold(
         } else {
             Scaffold(
                 topBar = {
-                    if (currentDestination != AppDestination.CHAT) {
+                    if (currentDestination != AppDestination.CHAT && currentDestination != AppDestination.TOOLS) {
                         TopAppBar(
                             title = {
                                 if (isSearchActive) {
@@ -410,6 +409,12 @@ fun MainAppScaffold(
                             )
                         }
 
+                        AppDestination.TOOLS -> {
+                            AgentToolsScreen(
+                                onOpenDrawer = { scope.launch { drawerState.open() } }
+                            )
+                        }
+
                         AppDestination.VERSION_HISTORY,
                         AppDestination.DEV_LOGS -> {
                             // Handled in root Scaffold branch
@@ -419,68 +424,29 @@ fun MainAppScaffold(
             }
         }
 
-        // Prompt Editor Dialog
-        if (showPromptEditor) {
-            PromptEditorDialog(
-                prompt = editingPrompt,
-                onDismiss = {
-                    showPromptEditor = false
-                    editingPrompt = null
-                },
-                onSave = { updated ->
-                    scope.launch {
-                        if (editingPrompt == null) {
-                            promptRepository.addPrompt(updated)
-                        } else {
-                            promptRepository.updatePrompt(updated)
-                        }
-                        showPromptEditor = false
-                        editingPrompt = null
-                        Toast.makeText(context, "Prompt saved successfully.", Toast.LENGTH_SHORT).show()
-                    }
-                }
-            )
-        }
-
-        // Accessibility Prominent Disclosure Dialog
-        if (showProminentDisclosure) {
-            ProminentDisclosureDialog(
-                onDismiss = { showProminentDisclosure = false },
-                onAcceptAndContinue = {
-                    showProminentDisclosure = false
-                    scope.launch { settingsRepository.setProminentDisclosureShown(true) }
-                    PermissionUtils.openAccessibilitySettings(context)
-                }
-            )
-        }
-
-        // In-App Update Dialog
-        if (showUpdateDialog && activeReleaseInfo != null) {
-            UpdateDialog(
-                releaseInfo = activeReleaseInfo!!,
-                downloadState = downloadState,
-                onDismiss = {
-                    showUpdateDialog = false
-                    downloadState = null
-                },
-                onStartDownload = {
-                    scope.launch {
-                        updateRepository.downloadApk(activeReleaseInfo!!.downloadUrl).collect { state ->
-                            downloadState = state
-                        }
-                    }
-                },
-                onInstall = {
-                    val state = downloadState
-                    if (state is DownloadState.Completed) {
-                        updateRepository.installApk(state.file)
-                    } else {
-                        updateRepository.getDownloadedApkFile()?.let { file ->
-                            updateRepository.installApk(file)
-                        }
-                    }
-                }
-            )
-        }
+        // Root Modal Dialogs
+        MainAppDialogs(
+            context = context,
+            scope = scope,
+            promptRepository = promptRepository,
+            settingsRepository = settingsRepository,
+            updateRepository = updateRepository,
+            showPromptEditor = showPromptEditor,
+            editingPrompt = editingPrompt,
+            onDismissPromptEditor = {
+                showPromptEditor = false
+                editingPrompt = null
+            },
+            showProminentDisclosure = showProminentDisclosure,
+            onDismissProminentDisclosure = { showProminentDisclosure = false },
+            showUpdateDialog = showUpdateDialog,
+            activeReleaseInfo = activeReleaseInfo,
+            downloadState = downloadState,
+            onDismissUpdateDialog = {
+                showUpdateDialog = false
+                downloadState = null
+            },
+            onDownloadStateChanged = { downloadState = it }
+        )
     }
 }
