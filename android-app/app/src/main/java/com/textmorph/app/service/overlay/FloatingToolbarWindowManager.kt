@@ -342,7 +342,8 @@ class FloatingToolbarWindowManager(
                                                 transitionTo(OverlayDisplayState.COLLAPSED_BUBBLE)
                                             }
                                         },
-                                        onFocusRequested = { isFocused -> setChatInputFocused(isFocused) }
+                                        onFocusRequested = { isFocused -> setChatInputFocused(isFocused) },
+                                        autoSendVoiceInput = curSettings.autoSendVoiceInput
                                     )
                                 }
                                 OverlayDisplayState.AUTOMATING_ACTION -> {

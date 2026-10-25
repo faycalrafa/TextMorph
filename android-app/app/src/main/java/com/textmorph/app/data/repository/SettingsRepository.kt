@@ -168,6 +168,8 @@ class SettingsRepository(private val context: Context) {
         )
     }
 
+    suspend fun setAutoSendVoiceInput(enabled: Boolean) = updateSettings { it.copy(autoSendVoiceInput = enabled) }
+
     private fun saveSettingsToDisk(settings: AppSettings) {
         try {
             val atomicFile = AtomicFile(settingsFile)

@@ -81,7 +81,7 @@ fun AboutSoftwareUpdatesCard(
                 OutlinedButton(
                     onClick = onCheckForUpdates,
                     enabled = !isCheckingUpdate,
-                    modifier = Modifier.weight(1f, fill = false).fillMaxWidth(if (downloadedApk != null && downloadedApk.exists()) 0.48f else 1f),
+                    modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(8.dp)
                 ) {
                     if (isCheckingUpdate) {
@@ -102,7 +102,7 @@ fun AboutSoftwareUpdatesCard(
                 if (downloadedApk != null && downloadedApk.exists()) {
                     Button(
                         onClick = onInstallDownloadedApk,
-                        modifier = Modifier.weight(1f, fill = false).fillMaxWidth(0.48f),
+                        modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(8.dp)
                     ) {
                         Icon(

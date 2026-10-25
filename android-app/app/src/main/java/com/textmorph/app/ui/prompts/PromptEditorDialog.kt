@@ -212,7 +212,7 @@ fun PromptEditorDialog(
                 // Action Buttons in FlowRow (Contract Rule: wrap in FlowRow to avoid truncation)
                 FlowRow(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     OutlinedButton(
@@ -221,7 +221,6 @@ fun PromptEditorDialog(
                     ) {
                         Text("Cancel")
                     }
-                    Spacer(modifier = Modifier.width(8.dp))
                     Button(
                         onClick = {
                             if (title.isNotBlank()) {

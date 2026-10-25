@@ -55,7 +55,7 @@ import com.textmorph.app.ui.chat.components.AttachedMediaItem
 import com.textmorph.app.ui.chat.components.AttachmentPickerHelper
 import com.textmorph.app.ui.chat.components.ChatInputBar
 import com.textmorph.app.ui.chat.components.ChatMessageItemView
-import com.textmorph.app.ui.chat.components.ContextCapacityMeterPill
+import com.textmorph.app.ui.chat.components.ContextCapacityRingIcon
 import com.textmorph.app.ui.chat.components.VoiceInputHelper
 import com.textmorph.app.util.AppLogger
 import java.io.ByteArrayOutputStream
@@ -79,6 +79,7 @@ fun FloatingChatBubbleContent(
     onSwitchToToolbar: () -> Unit,
     onAutomateAction: (goal: String) -> Unit,
     onFocusRequested: (Boolean) -> Unit,
+    autoSendVoiceInput: Boolean = true,
     modifier: Modifier = Modifier
 ) {
     val TAG = "FloatingChatBubble"
@@ -199,48 +200,37 @@ fun FloatingChatBubbleContent(
                         Text("✦", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                     }
                     Spacer(modifier = Modifier.width(8.dp))
-                    Column {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                text = "TextMorph",
-                                color = Color(0xFFF9FAFB),
-                                fontSize = 12.5.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = if (isAgentMode) Color(0x333B82F6) else Color(0x22374151),
-                                border = BorderStroke(1.dp, if (isAgentMode) Color(0xFF3B82F6) else Color(0x444B5563)),
-                                onClick = {
-                                    val currentId = currentSessionId ?: return@Surface
-                                    scope.launch { chatSessionRepository.setAgentMode(currentId, !isAgentMode) }
-                                }
-                            ) {
-                                Text(
-                                    text = if (isAgentMode) "✦ Agent" else "💬 Chat",
-                                    fontSize = 9.5.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = if (isAgentMode) Color(0xFF60A5FA) else Color(0xFF9CA3AF),
-                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
-                                )
-                            }
+                    Text(
+                        text = "TextMorph",
+                        color = Color(0xFFF9FAFB),
+                        fontSize = 12.5.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = if (isAgentMode) Color(0x333B82F6) else Color(0x22374151),
+                        border = BorderStroke(1.dp, if (isAgentMode) Color(0xFF3B82F6) else Color(0x444B5563)),
+                        onClick = {
+                            val currentId = currentSessionId ?: return@Surface
+                            scope.launch { chatSessionRepository.setAgentMode(currentId, !isAgentMode) }
                         }
+                    ) {
                         Text(
-                            text = activeModelName,
-                            color = Color(0xFF60A5FA),
-                            fontSize = 10.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            text = if (isAgentMode) "✦ Agent" else "💬 Chat",
+                            fontSize = 9.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = if (isAgentMode) Color(0xFF60A5FA) else Color(0xFF9CA3AF),
+                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
                         )
                     }
                 }
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    ContextCapacityMeterPill(
+                    ContextCapacityRingIcon(
                         metrics = contextMetrics,
                         onClick = {
-                            val activeId = currentSessionId ?: return@ContextCapacityMeterPill
+                            val activeId = currentSessionId ?: return@ContextCapacityRingIcon
                             val activeSession = chatSessionRepository.getActiveSession()
                             Toast.makeText(
                                 context,
@@ -365,8 +355,25 @@ fun FloatingChatBubbleContent(
                         voiceHelper.stopListening()
                     } else {
                         voiceHelper.startListening { transcript ->
-                            inputText = if (inputText.isBlank()) transcript else "$inputText $transcript"
+                            val newText = if (inputText.isBlank()) transcript else "$inputText $transcript"
+                            inputText = newText
                             onFocusRequested(true)
+                            if (autoSendVoiceInput && newText.isNotBlank()) {
+                                val promptText = newText.trim()
+                                val isAutomationIntent = promptText.startsWith("open ", true) ||
+                                    promptText.startsWith("search ", true) ||
+                                    promptText.contains("and search", true) ||
+                                    promptText.contains("and click", true) ||
+                                    promptText.startsWith("turn on ", true)
+
+                                if (isAutomationIntent) {
+                                    inputText = ""
+                                    onFocusRequested(false)
+                                    onAutomateAction(promptText)
+                                } else {
+                                    sendPrompt(promptText)
+                                }
+                            }
                         }
                     }
                 },

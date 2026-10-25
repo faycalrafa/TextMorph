@@ -213,7 +213,8 @@ fun SettingsContent(
             onSetAlwaysShowFloatingToolbar = { enabled -> scope.launch { settingsRepository.setAlwaysShowFloatingToolbar(enabled) } },
             onSetAlwaysOpenBarWithKeyboard = { enabled -> scope.launch { settingsRepository.setAlwaysOpenBarWithKeyboard(enabled) } },
             onSetCompactChipsMode = { enabled -> scope.launch { settingsRepository.setCompactChipsMode(enabled) } },
-            onSetQuickFixEnabled = { enabled -> scope.launch { settingsRepository.setQuickFixEnabled(enabled) } }
+            onSetQuickFixEnabled = { enabled -> scope.launch { settingsRepository.setQuickFixEnabled(enabled) } },
+            onSetAutoSendVoiceInput = { enabled -> scope.launch { settingsRepository.setAutoSendVoiceInput(enabled) } }
         )
 
         // Appearance & Diagnostics

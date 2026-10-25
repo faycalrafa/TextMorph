@@ -86,7 +86,7 @@ fun ProminentDisclosureDialog(
 
                 FlowRow(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     OutlinedButton(
@@ -95,7 +95,6 @@ fun ProminentDisclosureDialog(
                     ) {
                         Text("Not Now")
                     }
-                    Spacer(modifier = Modifier.width(8.dp))
                     Button(
                         onClick = onAcceptAndContinue,
                         shape = RoundedCornerShape(10.dp)

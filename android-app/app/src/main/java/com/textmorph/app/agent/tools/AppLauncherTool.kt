@@ -13,6 +13,30 @@ class AppLauncherTool(private val context: Context) {
 
     private val TAG = "AppLauncherTool"
 
+    companion object {
+        val COMMON_PACKAGE_ALIASES = mapOf(
+            "youtube" to "com.google.android.youtube",
+            "chrome" to "com.android.chrome",
+            "browser" to "com.android.chrome",
+            "whatsapp" to "com.whatsapp",
+            "settings" to "com.android.settings",
+            "camera" to "com.google.android.GoogleCamera",
+            "maps" to "com.google.android.apps.maps",
+            "gmail" to "com.google.android.gm",
+            "play store" to "com.android.vending",
+            "playstore" to "com.android.vending",
+            "photos" to "com.google.android.apps.photos",
+            "spotify" to "com.spotify.music",
+            "calculator" to "com.google.android.calculator",
+            "clock" to "com.google.android.deskclock",
+            "calendar" to "com.google.android.calendar",
+            "files" to "com.google.android.documentsui",
+            "telegram" to "org.telegram.messenger",
+            "messages" to "com.google.android.apps.messaging",
+            "phone" to "com.google.android.dialer"
+        )
+    }
+
     fun openApp(appName: String): Result<String> {
         val cleanName = appName.trim()
         if (cleanName.isBlank()) {
@@ -21,7 +45,20 @@ class AppLauncherTool(private val context: Context) {
 
         try {
             val pm = context.packageManager
-            // 1. Direct package match
+
+            // 1. Check common package aliases first
+            val aliasPkg = COMMON_PACKAGE_ALIASES[cleanName.lowercase()]
+            if (aliasPkg != null) {
+                val aliasIntent = pm.getLaunchIntentForPackage(aliasPkg)
+                if (aliasIntent != null) {
+                    aliasIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    context.startActivity(aliasIntent)
+                    AppLogger.i(TAG, "Launched app via alias: $cleanName -> $aliasPkg")
+                    return Result.success("Opened $cleanName")
+                }
+            }
+
+            // 2. Direct package match
             val directIntent = pm.getLaunchIntentForPackage(cleanName)
             if (directIntent != null) {
                 directIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -30,39 +67,60 @@ class AppLauncherTool(private val context: Context) {
                 return Result.success("Opened $cleanName")
             }
 
-            // 2. Scan installed apps for label or package substring
-            val installed = pm.getInstalledApplications(0)
-            var bestMatch: ApplicationInfo? = null
-
-            // Check exact label match first
-            for (app in installed) {
-                val label = pm.getApplicationLabel(app).toString()
-                if (label.equals(cleanName, ignoreCase = true)) {
-                    bestMatch = app
-                    break
-                }
+            // 3. Query launcher resolve activities (standard Android launcher way)
+            val launcherIntent = Intent(Intent.ACTION_MAIN, null).apply {
+                addCategory(Intent.CATEGORY_LAUNCHER)
             }
-
-            // Fallback: substring match on label or package
-            if (bestMatch == null) {
-                for (app in installed) {
-                    val label = pm.getApplicationLabel(app).toString()
-                    if (label.contains(cleanName, ignoreCase = true) || app.packageName.contains(cleanName, ignoreCase = true)) {
-                        bestMatch = app
-                        break
+            val resolveInfos = pm.queryIntentActivities(launcherIntent, 0)
+            for (ri in resolveInfos) {
+                val label = ri.loadLabel(pm).toString()
+                val pkg = ri.activityInfo.packageName
+                if (label.equals(cleanName, ignoreCase = true) || pkg.equals(cleanName, ignoreCase = true)) {
+                    val intent = pm.getLaunchIntentForPackage(pkg)
+                    if (intent != null) {
+                        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        context.startActivity(intent)
+                        AppLogger.i(TAG, "Opened app via launcher query exact match: $label ($pkg)")
+                        return Result.success("Opened $label")
                     }
                 }
             }
 
-            if (bestMatch != null) {
-                val launchIntent = pm.getLaunchIntentForPackage(bestMatch.packageName)
-                if (launchIntent != null) {
-                    launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    context.startActivity(launchIntent)
-                    val label = pm.getApplicationLabel(bestMatch).toString()
-                    AppLogger.i(TAG, "Opened app: $label (${bestMatch.packageName})")
-                    return Result.success("Opened $label")
+            // Substring match on launcher resolve activities
+            for (ri in resolveInfos) {
+                val label = ri.loadLabel(pm).toString()
+                val pkg = ri.activityInfo.packageName
+                if (label.contains(cleanName, ignoreCase = true) || pkg.contains(cleanName, ignoreCase = true)) {
+                    val intent = pm.getLaunchIntentForPackage(pkg)
+                    if (intent != null) {
+                        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        context.startActivity(intent)
+                        AppLogger.i(TAG, "Opened app via launcher query substring match: $label ($pkg)")
+                        return Result.success("Opened $label")
+                    }
                 }
+            }
+
+            // 4. Fallback: scan installed apps
+            val installed = pm.getInstalledApplications(0)
+            for (app in installed) {
+                val label = pm.getApplicationLabel(app).toString()
+                if (label.contains(cleanName, ignoreCase = true) || app.packageName.contains(cleanName, ignoreCase = true)) {
+                    val intent = pm.getLaunchIntentForPackage(app.packageName)
+                    if (intent != null) {
+                        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        context.startActivity(intent)
+                        AppLogger.i(TAG, "Opened app via installed list: $label (${app.packageName})")
+                        return Result.success("Opened $label")
+                    }
+                }
+            }
+
+            // 5. Web fallback for media/search services
+            if (cleanName.contains("youtube", ignoreCase = true)) {
+                return openUrl("https://youtube.com")
+            } else if (cleanName.contains("map", ignoreCase = true)) {
+                return openUrl("https://maps.google.com")
             }
 
             AppLogger.w(TAG, "Could not find installed app matching '$cleanName'")

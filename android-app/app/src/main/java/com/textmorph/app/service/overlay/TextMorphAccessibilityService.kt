@@ -56,6 +56,7 @@ class TextMorphAccessibilityService : AccessibilityService() {
 
     override fun onServiceConnected() {
         super.onServiceConnected()
+        instance = this
         AppLogger.i(TAG, "TextMorph Accessibility Service connected.")
 
         promptRepository = PromptRepository.getInstance(applicationContext)
@@ -446,5 +447,20 @@ class TextMorphAccessibilityService : AccessibilityService() {
         }
         overlayManager?.destroy()
         overlayManager = null
+        if (instance === this) {
+            instance = null
+        }
+    }
+
+    companion object {
+        @Volatile
+        private var instance: TextMorphAccessibilityService? = null
+
+        fun getInstance(): TextMorphAccessibilityService? = instance
+
+        fun getScreenAutomationController(): ScreenAutomationController? {
+            val service = instance ?: return null
+            return ScreenAutomationController(service)
+        }
     }
 }

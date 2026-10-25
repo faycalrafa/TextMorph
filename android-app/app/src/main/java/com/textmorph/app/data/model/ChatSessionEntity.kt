@@ -18,5 +18,5 @@ data class ChatSessionEntity(
     val isAgentMode: Boolean = false,
     val summary: String? = null,
     val sessionState: String? = null,
-    val maxContextTokens: Int = 2048
+    val maxContextTokens: Int = 8192
 )

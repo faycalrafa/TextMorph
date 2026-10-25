@@ -357,7 +357,11 @@ fun AiChatContent(
                     voiceHelper.stopListening()
                 } else {
                     voiceHelper.startListening { transcript ->
-                        inputText = if (inputText.isBlank()) transcript else "$inputText $transcript"
+                        val newText = if (inputText.isBlank()) transcript else "$inputText $transcript"
+                        inputText = newText
+                        if (settings.autoSendVoiceInput && newText.isNotBlank()) {
+                            handleSend()
+                        }
                     }
                 }
             },

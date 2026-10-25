@@ -10,7 +10,7 @@ data class ContextUsageMetrics(
     val compressedHistoryTokens: Int = 0,
     val recentMessagesTokens: Int = 0,
     val currentInputTokens: Int = 0,
-    val maxContextTokens: Int = 2048
+    val maxContextTokens: Int = 8192
 ) {
     val totalUsedTokens: Int
         get() = systemPromptTokens + compressedHistoryTokens + recentMessagesTokens + currentInputTokens

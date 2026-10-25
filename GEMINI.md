@@ -7,6 +7,7 @@
 > **Primary Rule 2 (Near Logging & Robust Error Capture - No Silent Bugs)**: ALWAYS write immediate ("near") logging and robust error capture at every failure-prone site, boundary, repository method, and coroutine. NEVER swallow exceptions silently (`catch (e: Exception) {}` is strictly forbidden). Always log rich contextual metadata and stack traces using `AppLogger` (`com.textmorph.app.util.AppLogger`) or `android.util.Log` so that every failure is immediately detectable, traceable, and visible in Dev Logs.
 > **Primary Rule 3 (Architectural Contracts)**: Read and strictly adhere to these architectural contracts before proposing or implementing changes.
 > **Primary Rule 4 (Strict 500-Line Limit & Modular Architecture)**: Every source file (`.kt`) in the project must strictly stay **under 500 lines of code**. Monolithic files are strictly forbidden. Any file approaching 500 lines must be decomposed into dedicated sub-components, repository delegates, or state handlers.
+> **Primary Rule 5 (Strict Responsive UI & Anti-Squish Contract)**: All UI layouts, action rows, button clusters, and status cards MUST be fully responsive and tested against narrow mobile viewports (~360dp). Never constrain action buttons with hardcoded fractional widths (e.g. `fillMaxWidth(0.48f)`) inside horizontal rows or `FlowRow`. Always allow buttons to jump lanes (`FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp))` or full-width `Column`) rather than compressing or squishing text into vertical character columns. Do not place horizontal `Spacer` inside `FlowRow`; rely on `Arrangement.spacedBy(...)`.
 
 ---
 
@@ -97,6 +98,11 @@ flowchart TD
 - **Proximity Logging ("Near Logging")**: Log errors, state transitions, and warnings immediately at the callsite. Never postpone logging to distant callers.
 - **Zero Silent Swallowing**: Catch blocks MUST NEVER be empty (`catch (e: Exception) {}`). Always log full stack traces and contextual metadata.
 - **Global Error Interception**: Uncaught exceptions must be routed to `AppErrorBus.postError()` to surface interactive diagnostic dialogs.
+
+### F. Mobile Agent Tap Automation Architecture (Semantic Tree First)
+- **Primary Tier (Accessibility Tree First - Default)**: Query `AccessibilityNodeInfo` bounds, visible text labels, and content descriptions. Perform clicks via semantic action or bounding box center `(cx, cy)`. Sub-200ms latency, zero vision token overhead, 100% deterministic accuracy.
+- **Fallback Tier (VLM On-Demand Only)**: Only resort to full screenshot capture when the accessibility tree is empty (e.g. raw Canvas, uninstrumented Flutter/Unity games).
+- **Cleartext HTTP for Local Inference**: Allow cleartext HTTP traffic to local network IPs (`192.168.x.x`, `10.x.x.x`, `127.0.0.1`, custom ports) so users can freely connect to Ollama, LM Studio, or local servers without transport errors.
 
 ---
 

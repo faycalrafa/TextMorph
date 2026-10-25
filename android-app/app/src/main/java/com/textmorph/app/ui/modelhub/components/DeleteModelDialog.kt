@@ -100,7 +100,7 @@ fun DeleteModelDialog(
 
                 FlowRow(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     OutlinedButton(
@@ -109,8 +109,6 @@ fun DeleteModelDialog(
                     ) {
                         Text("Cancel")
                     }
-
-                    Spacer(modifier = Modifier.width(8.dp))
 
                     Button(
                         onClick = { onConfirm(deleteFilePermanently) },

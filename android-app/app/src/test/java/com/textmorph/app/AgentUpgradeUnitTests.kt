@@ -109,4 +109,38 @@ class AgentUpgradeUnitTests {
         // Strict no forced think tag for simple inputs
         assertFalse(agentPrompt.contains("Always enclose your thought process in <think>"))
     }
+
+    @Test
+    fun testCommonPackageAliasesMapping() {
+        val aliases = com.textmorph.app.agent.tools.AppLauncherTool.COMMON_PACKAGE_ALIASES
+        assertEquals("com.google.android.youtube", aliases["youtube"])
+        assertEquals("com.android.chrome", aliases["chrome"])
+        assertEquals("com.whatsapp", aliases["whatsapp"])
+        assertEquals("com.android.settings", aliases["settings"])
+    }
+
+    @Test
+    fun testGetStringParamWithAliasesResolution() {
+        val action = AgentAction(
+            action = "open_app",
+            params = mapOf("name" to kotlinx.serialization.json.JsonPrimitive("YouTube"))
+        )
+        val resolved = action.getStringParamWithAliases("app_name", "name", "app", "target")
+        assertEquals("YouTube", resolved)
+    }
+
+    @Test
+    fun testDefaultMaxContextTokensIs8192() {
+        val defaultSession = com.textmorph.app.data.model.ChatSessionEntity()
+        assertEquals(8192, defaultSession.maxContextTokens)
+
+        val metrics = com.textmorph.app.data.model.ContextUsageMetrics()
+        assertEquals(8192, metrics.maxContextTokens)
+    }
+
+    @Test
+    fun testAutoSendVoiceInputDefault() {
+        val settings = com.textmorph.app.data.model.AppSettings()
+        assertTrue(settings.autoSendVoiceInput)
+    }
 }

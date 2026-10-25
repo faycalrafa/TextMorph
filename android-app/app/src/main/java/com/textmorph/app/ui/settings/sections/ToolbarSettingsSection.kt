@@ -33,6 +33,7 @@ fun ToolbarSettingsSection(
     onSetCompactChipsMode: (Boolean) -> Unit,
     onSetQuickFixEnabled: (Boolean) -> Unit,
     onSetGuessNextWordEnabled: (Boolean) -> Unit = {},
+    onSetAutoSendVoiceInput: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Card(
@@ -133,6 +134,23 @@ fun ToolbarSettingsSection(
                     checked = settings.quickFixEnabled,
                     enabled = settings.floatingToolbarEnabled,
                     onCheckedChange = onSetQuickFixEnabled
+                )
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Auto-Send Voice Dictation", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                    Text("Automatically transmit the prompt immediately when microphone speech recognition completes", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Switch(
+                    checked = settings.autoSendVoiceInput,
+                    onCheckedChange = onSetAutoSendVoiceInput
                 )
             }
         }

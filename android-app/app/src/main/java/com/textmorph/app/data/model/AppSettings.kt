@@ -38,6 +38,7 @@ data class AppSettings(
     val quickFixEnabled: Boolean = false,
     @Deprecated("Feature removed")
     val guessNextWordEnabled: Boolean = false,
+    val autoSendVoiceInput: Boolean = true,
     val maxTokens: Int = 1024,
     val temperature: Float = 0.7f,
     val topK: Int = 40,

@@ -18,6 +18,14 @@ data class AgentAction(
         return params[key]?.toString()?.removeSurrounding("\"")?.trim() ?: default
     }
 
+    fun getStringParamWithAliases(vararg keys: String, default: String = ""): String {
+        for (k in keys) {
+            val v = getStringParam(k, "")
+            if (v.isNotBlank()) return v
+        }
+        return default
+    }
+
     fun getIntParam(key: String, default: Int = 0): Int {
         val raw = getStringParam(key, "")
         return raw.toIntOrNull() ?: default

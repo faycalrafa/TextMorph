@@ -87,7 +87,10 @@ class ChatSessionRepository private constructor(private val context: Context) {
                 }
                 val content = indexFile.readText()
                 val parsed = json.decodeFromString<List<ChatSessionEntity>>(content)
-                val sorted = parsed.sortedByDescending { it.updatedAt }
+                val migrated = parsed.map { session ->
+                    if (session.maxContextTokens <= 2048) session.copy(maxContextTokens = 8192) else session
+                }
+                val sorted = migrated.sortedByDescending { it.updatedAt }
                 if (sorted.isEmpty()) {
                     val defaultSession = ChatSessionEntity(title = "Default Chat")
                     _sessionsState.value = listOf(defaultSession)
@@ -374,7 +377,7 @@ class ChatSessionRepository private constructor(private val context: Context) {
             recentMessages = messages,
             currentInput = currentInput,
             currentImageCount = currentImageCount,
-            maxContextTokens = active?.maxContextTokens ?: 2048
+            maxContextTokens = active?.maxContextTokens ?: 8192
         )
     }
 

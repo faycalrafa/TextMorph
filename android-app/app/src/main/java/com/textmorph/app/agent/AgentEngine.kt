@@ -20,8 +20,12 @@ import kotlinx.coroutines.withContext
  */
 class AgentEngine(
     private val context: Context,
-    private val controllerProvider: () -> ScreenAutomationController? = { null },
-    private val serviceProvider: () -> AccessibilityService? = { null },
+    private val controllerProvider: () -> ScreenAutomationController? = {
+        com.textmorph.app.service.overlay.TextMorphAccessibilityService.getScreenAutomationController()
+    },
+    private val serviceProvider: () -> AccessibilityService? = {
+        com.textmorph.app.service.overlay.TextMorphAccessibilityService.getInstance()
+    },
     private val engineProvider: () -> LlmEngine = { com.textmorph.app.llm.LiteRtLmEngineManager.getInstance(context) }
 ) {
 
@@ -42,7 +46,7 @@ class AgentEngine(
         try {
             when (action.action) {
                 AgentAction.ACTION_OPEN_APP -> {
-                    val appName = action.getStringParam("app_name")
+                    val appName = action.getStringParamWithAliases("app_name", "name", "app", "target")
                     val res = appLauncher.openApp(appName)
                     AgentActionResult(action.action, res.isSuccess, res.getOrElse { it.message ?: "Failed opening $appName" })
                 }
@@ -121,7 +125,7 @@ class AgentEngine(
                 }
 
                 AgentAction.ACTION_CLICK_TEXT -> {
-                    val text = action.getStringParam("text")
+                    val text = action.getStringParamWithAliases("text", "label", "target", "element")
                     val ok = screenAutomation.clickText(text)
                     AgentActionResult(action.action, ok, if (ok) "Clicked \"$text\"" else "Could not find \"$text\" to click")
                 }
@@ -134,8 +138,8 @@ class AgentEngine(
                 }
 
                 AgentAction.ACTION_TYPE_TEXT -> {
-                    val text = action.getStringParam("text")
-                    val hint = action.getStringParam("field_hint").ifEmpty { null }
+                    val text = action.getStringParamWithAliases("text", "content", "value")
+                    val hint = action.getStringParamWithAliases("field_hint", "hint").ifEmpty { null }
                     val ok = screenAutomation.typeText(text, hint)
                     AgentActionResult(action.action, ok, if (ok) "Typed \"$text\"" else "Could not type into field")
                 }

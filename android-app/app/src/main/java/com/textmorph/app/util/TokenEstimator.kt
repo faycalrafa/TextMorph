@@ -78,7 +78,7 @@ object TokenEstimator {
         recentMessages: List<ChatMessageEntity>,
         currentInput: String?,
         currentImageCount: Int = 0,
-        maxContextTokens: Int = 2048
+        maxContextTokens: Int = 8192
     ): ContextUsageMetrics {
         val sysTokens = estimateTextTokens(systemPrompt) +
                 (if (!sessionState.isNullOrBlank()) estimateTextTokens(sessionState) + 8 else 0)

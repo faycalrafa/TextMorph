@@ -279,8 +279,6 @@ fun AiModelConfigDialog(
                         Text("Reset")
                     }
 
-                    Spacer(modifier = Modifier.weight(1f))
-
                     OutlinedButton(
                         onClick = onDismiss,
                         shape = RoundedCornerShape(10.dp)

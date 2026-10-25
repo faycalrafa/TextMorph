@@ -36,7 +36,15 @@ class OpenAiCloudEngine(
         this.baseUrl = baseUrl.trimEnd('/')
         this.apiKey = apiKey.trim()
         this.modelId = modelId.trim()
-        this.isReady = this.apiKey.isNotEmpty() || this.baseUrl.contains("localhost") || this.baseUrl.contains("127.0.0.1")
+        this.isReady = this.baseUrl.isNotBlank() && (
+            this.apiKey.isNotEmpty() ||
+            this.baseUrl.startsWith("http://", ignoreCase = true) ||
+            this.baseUrl.contains("localhost") ||
+            this.baseUrl.contains("127.0.0.1") ||
+            this.baseUrl.contains("192.168.") ||
+            this.baseUrl.contains("10.") ||
+            this.baseUrl.contains("172.")
+        )
         AppLogger.i(TAG, "Cloud config updated: url=$baseUrl, model=$modelId, ready=$isReady")
     }
 
@@ -89,7 +97,15 @@ class OpenAiCloudEngine(
     }
 
     override suspend fun initialize(modelPath: String?): Boolean = withContext(Dispatchers.IO) {
-        isReady = apiKey.isNotEmpty() || baseUrl.contains("localhost") || baseUrl.contains("127.0.0.1")
+        isReady = baseUrl.isNotBlank() && (
+            apiKey.isNotEmpty() ||
+            baseUrl.startsWith("http://", ignoreCase = true) ||
+            baseUrl.contains("localhost") ||
+            baseUrl.contains("127.0.0.1") ||
+            baseUrl.contains("192.168.") ||
+            baseUrl.contains("10.") ||
+            baseUrl.contains("172.")
+        )
         isReady
     }
 
