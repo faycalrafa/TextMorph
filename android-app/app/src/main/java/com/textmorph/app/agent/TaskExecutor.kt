@@ -80,10 +80,15 @@ class TaskExecutor(
                     return@withContext "Task stopped by user."
                 }
 
-                TaskExecutionCoordinator.setThinking(true)
-                onProgress(step, "Analyzing screen (Step $step/$maxSteps)…")
+                TaskExecutionCoordinator.beginStep(step, AgentAction.ACTION_READ_SCREEN, "Viewing screen…", "Inspecting visible UI elements")
+                onStepsUpdated?.invoke(TaskExecutionCoordinator.state.value.stepsHistory)
+                onProgress(step, "Viewing screen (Step $step/$maxSteps)…")
 
                 val dump = screenTool.readScreen(goal)
+
+                TaskExecutionCoordinator.setThinking(true)
+                onProgress(step, "Planning next action (Step $step/$maxSteps)…")
+
                 val prompt = buildStepPrompt(goal, step, maxSteps, dump)
 
                 val rawOutput = queryLlm(prompt)
@@ -97,10 +102,10 @@ class TaskExecutor(
                 if (action == null) {
                     AppLogger.w(TAG, "Failed parsing action JSON at step $step: $rawOutput")
                     if (++consecutiveFailures >= 3) {
-                        val stopMsg = "Stopped: Model did not return valid actions."
-                        TaskExecutionCoordinator.finishTask(stopMsg, success = false)
+                        val failMsg = "Task Failed: Model did not return valid actions."
+                        TaskExecutionCoordinator.finishTask(failMsg, success = false)
                         onStepsUpdated?.invoke(TaskExecutionCoordinator.state.value.stepsHistory)
-                        return@withContext stopMsg
+                        return@withContext failMsg
                     }
                     delay(1200)
                     continue
@@ -154,10 +159,16 @@ class TaskExecutor(
                 delay(stepDelay)
             }
 
-            val maxStepMsg = "Reached maximum allowed steps ($maxSteps). Task may be partially completed."
-            TaskExecutionCoordinator.finishTask(maxStepMsg, success = true)
+            val maxStepMsg = "Task Incomplete: Reached maximum allowed steps ($maxSteps) without completing goal."
+            TaskExecutionCoordinator.finishTask(maxStepMsg, success = false)
             onStepsUpdated?.invoke(TaskExecutionCoordinator.state.value.stepsHistory)
             maxStepMsg
+        } catch (e: Exception) {
+            AppLogger.e(TAG, "Task execution error: ${e.message}", e)
+            val failReason = "Task Failed: ${e.localizedMessage ?: "Unexpected error during execution"}"
+            TaskExecutionCoordinator.finishTask(failReason, success = false)
+            onStepsUpdated?.invoke(TaskExecutionCoordinator.state.value.stepsHistory)
+            failReason
         } finally {
             TaskExecutionCoordinator.removeInterruptListener(interruptListener)
         }

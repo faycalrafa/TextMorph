@@ -194,15 +194,44 @@ fun AgentTaskTimelineCard(
                 }
             }
 
-            // Summary description
+            // Summary or failure explanation
             if (message.content.isNotBlank()) {
                 Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = message.content,
-                    color = Color(0xFFD1D5DB),
-                    fontSize = 12.5.sp,
-                    lineHeight = 17.sp
-                )
+                if (isFailed) {
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = Color(0xFF450A0A),
+                        border = BorderStroke(1.dp, DangerRed.copy(alpha = 0.6f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ErrorOutline,
+                                contentDescription = "Failure Reason",
+                                tint = DangerRed,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = message.content,
+                                color = Color(0xFFFCA5A5),
+                                fontSize = 12.sp,
+                                lineHeight = 16.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+                } else {
+                    Text(
+                        text = message.content,
+                        color = Color(0xFFD1D5DB),
+                        fontSize = 12.5.sp,
+                        lineHeight = 17.sp
+                    )
+                }
             }
 
             // Expandable Step Timeline

@@ -19,6 +19,8 @@ data class TaskExecutionState(
     val currentStep: AgentTaskStep? = null,
     val stepsHistory: List<AgentTaskStep> = emptyList(),
     val isInterrupted: Boolean = false,
+    val isFailed: Boolean = false,
+    val failureReason: String? = null,
     val summary: String? = null
 )
 
@@ -53,6 +55,8 @@ object TaskExecutionCoordinator {
             currentStep = null,
             stepsHistory = emptyList(),
             isInterrupted = false,
+            isFailed = false,
+            failureReason = null,
             summary = null
         )
     }
@@ -128,6 +132,8 @@ object TaskExecutionCoordinator {
             isRunning = false,
             isThinking = false,
             isInterrupted = true,
+            isFailed = false,
+            failureReason = null,
             currentStep = cur.currentStep?.copy(status = AgentStepStatus.INTERRUPTED, detail = "Interrupted by user"),
             stepsHistory = updatedHistory,
             summary = "Task stopped by user."
@@ -156,13 +162,15 @@ object TaskExecutionCoordinator {
 
         val updatedHistory = cur.stepsHistory.map { step ->
             if (step.status == AgentStepStatus.RUNNING) {
-                step.copy(status = finalStatus)
+                step.copy(status = finalStatus, detail = if (!success) summary else step.detail)
             } else step
         }
 
         _state.value = cur.copy(
             isRunning = false,
             isThinking = false,
+            isFailed = !success && !cur.isInterrupted,
+            failureReason = if (!success && !cur.isInterrupted) summary else null,
             stepsHistory = updatedHistory,
             summary = summary
         )

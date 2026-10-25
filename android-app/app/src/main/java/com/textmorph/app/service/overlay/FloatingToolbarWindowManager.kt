@@ -2,6 +2,7 @@ package com.textmorph.app.service.overlay
 
 import android.content.Context
 import android.content.res.Configuration
+import android.os.SystemClock
 import android.view.HapticFeedbackConstants
 import android.view.WindowManager
 import androidx.compose.animation.Crossfade
@@ -83,10 +84,13 @@ class FloatingToolbarWindowManager(
     private var startDragWinX = 0
     private var startDragWinY = 0
     private var wasShownForTask = false
+    private var automatingStateTimestamp = 0L
 
     // Automation Controller & Coordinate Animator
     private val coordinateAnimator = OverlayCoordinateAnimator(windowManager, { overlayContainer }, { windowParams })
-    private val automationController = ScreenAutomationController(service)
+    private val automationController = ScreenAutomationController(service).apply {
+        onTapDispatched = { x, y -> service.getInteractionOverlayManager()?.showTap(x, y) }
+    }
     val actionExecutor = DeviceActionExecutor(service, automationController, liteRtEngine, llamaCppEngine, cloudEngine)
 
     init {
@@ -199,6 +203,7 @@ class FloatingToolbarWindowManager(
                         service.onRibbonManuallyOpened()
                     }
                     OverlayDisplayState.AUTOMATING_ACTION -> {
+                        automatingStateTimestamp = SystemClock.uptimeMillis()
                         OverlayLayoutParamsHelper.applyAutomatingAction(params, bounds, bubbleAnchorX ?: bounds.maxX, bubbleAnchorY ?: (bounds.screenHeight / 2))
                         setChatInputFocused(false)
                     }
@@ -276,8 +281,13 @@ class FloatingToolbarWindowManager(
                         OverlayDisplayState.EXPANDED_TOOLBAR -> singleTapHandler?.invoke() ?: transitionTo(OverlayDisplayState.COLLAPSED_BUBBLE)
                         OverlayDisplayState.EXPANDED_CHAT -> transitionTo(OverlayDisplayState.COLLAPSED_BUBBLE)
                         OverlayDisplayState.AUTOMATING_ACTION -> {
-                            com.textmorph.app.agent.coordinator.TaskExecutionCoordinator.interrupt()
-                            actionExecutor.stopExecution()
+                            val elapsed = SystemClock.uptimeMillis() - automatingStateTimestamp
+                            if (elapsed >= 450L) {
+                                com.textmorph.app.agent.coordinator.TaskExecutionCoordinator.interrupt()
+                                actionExecutor.stopExecution()
+                            } else {
+                                AppLogger.d(TAG, "Ignoring premature tap on AUTOMATING_ACTION within debounce window (${elapsed}ms < 450ms)")
+                            }
                         }
                     }
                 },

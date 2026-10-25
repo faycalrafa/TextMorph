@@ -7,11 +7,13 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.os.Binder
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
 import androidx.core.app.NotificationCompat
+import androidx.core.app.ServiceCompat
 import com.textmorph.app.MainActivity
 import com.textmorph.app.R
 import com.textmorph.app.data.model.EngineType
@@ -59,7 +61,7 @@ class LlmForegroundService : Service() {
 
         acquireWakeLock()
         createNotificationChannel()
-        startForeground(NOTIFICATION_ID, buildNotification("Initializing TextMorph AI Engine..."))
+        safeStartForeground("Initializing TextMorph AI Engine...")
 
         // Observe settings for model changes and local server toggle
         settingsRepository.settingsState.onEach { settings ->
@@ -186,6 +188,31 @@ class LlmForegroundService : Service() {
             .build()
     }
 
+    private fun safeStartForeground(statusText: String) {
+        try {
+            val notification = buildNotification(statusText)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val fgsType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+                } else {
+                    0
+                }
+                ServiceCompat.startForeground(this, NOTIFICATION_ID, notification, fgsType)
+            } else {
+                startForeground(NOTIFICATION_ID, notification)
+            }
+            AppLogger.i(TAG, "Foreground service started successfully with specialUse type.")
+        } catch (e: Exception) {
+            AppLogger.e(TAG, "Failed starting foreground service: ${e.message}", e)
+        }
+    }
+
+    override fun onTimeout(startId: Int, fgsType: Int) {
+        super.onTimeout(startId, fgsType)
+        AppLogger.w(TAG, "Foreground service timeout received for type $fgsType (startId=$startId). Stopping gracefully.")
+        stopSelf(startId)
+    }
+
     private fun updateNotification(statusText: String) {
         val manager = getSystemService(NotificationManager::class.java)
         manager.notify(NOTIFICATION_ID, buildNotification(statusText))
@@ -196,11 +223,15 @@ class LlmForegroundService : Service() {
         const val NOTIFICATION_ID = 2001
 
         fun startService(context: Context) {
-            val intent = Intent(context, LlmForegroundService::class.java)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(intent)
-            } else {
-                context.startService(intent)
+            try {
+                val intent = Intent(context, LlmForegroundService::class.java)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    context.startForegroundService(intent)
+                } else {
+                    context.startService(intent)
+                }
+            } catch (e: Exception) {
+                AppLogger.e("LlmForegroundService", "startService invocation failed: ${e.message}", e)
             }
         }
 

@@ -58,18 +58,6 @@ fun TaskExecutionBubble(
 
     val infiniteTransition = rememberInfiniteTransition(label = "TaskBubbleAnimations")
 
-    // Vertical oscillation for the edge blue pulse glider
-    val pulseGliderOffsetY by infiniteTransition.animateFloat(
-        initialValue = -26f,
-        targetValue = 26f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1400, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "PulseGliderOffset"
-    )
-
-    // Subtle breathing pulse for the thinking emoji
     val emojiPulseScale by infiniteTransition.animateFloat(
         initialValue = 0.92f,
         targetValue = 1.08f,
@@ -81,33 +69,14 @@ fun TaskExecutionBubble(
     )
 
     Box(
-        modifier = modifier.size(64.dp),
+        modifier = modifier.size(54.dp),
         contentAlignment = Alignment.Center
     ) {
-        // Edge Blue Pulse Glider: glowing beam traveling up and down along the side
-        Box(
-            modifier = Modifier
-                .align(Alignment.CenterStart)
-                .offset { IntOffset(x = (-4).dp.roundToPx(), y = pulseGliderOffsetY.dp.roundToPx()) }
-                .size(width = 4.dp, height = 28.dp)
-                .clip(RoundedCornerShape(2.dp))
-                .background(
-                    Brush.verticalGradient(
-                        listOf(
-                            Color(0x003B82F6),
-                            Color(0xFF60A5FA),
-                            Color(0xFF3B82F6),
-                            Color(0x003B82F6)
-                        )
-                    )
-                )
-        )
-
         // Outer Thinking Ring: smooth progress sweep
         CircularProgressIndicator(
-            modifier = Modifier.size(54.dp),
+            modifier = Modifier.size(52.dp),
             color = Color(0xFF3B82F6),
-            strokeWidth = 3.5.dp
+            strokeWidth = 3.dp
         )
 
         // Inner Charcoal Slate Pill with Electric Blue border

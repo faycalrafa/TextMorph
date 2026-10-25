@@ -65,11 +65,12 @@ object AgentVisualCues {
                 color = Color(0xFF3B82F6),
                 contentDescription = "Open URL"
             )
-            AgentAction.ACTION_READ_SCREEN -> ActionVisualCue(
-                icon = Icons.Default.Visibility,
+            AgentAction.ACTION_READ_SCREEN, "view_screen", "inspect_screen", "inspect", "screen_context" -> ActionVisualCue(
+                icon = null,
+                emoji = "👀",
                 label = "Viewing Screen",
                 color = Color(0xFF60A5FA),
-                contentDescription = "Read Screen"
+                contentDescription = "Viewing Screen"
             )
             AgentAction.ACTION_CLICK_TEXT, AgentAction.ACTION_CLICK_AT -> ActionVisualCue(
                 icon = Icons.Default.TouchApp,

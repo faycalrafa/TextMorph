@@ -73,6 +73,16 @@ class AgentVisualCuesAndOverlayUnitTests {
     }
 
     @Test
+    fun testReadScreenVisualCueUsesEyesEmoji() {
+        val readScreenCue = AgentVisualCues.resolve(AgentAction.ACTION_READ_SCREEN)
+        assertEquals("👀", readScreenCue.emoji)
+        assertEquals("Viewing Screen", readScreenCue.label)
+
+        val viewScreenCue = AgentVisualCues.resolve("view_screen")
+        assertEquals("👀", viewScreenCue.emoji)
+    }
+
+    @Test
     fun testAgentTaskStepSerialization() {
         val step1 = AgentTaskStep(
             stepIndex = 1,
@@ -151,6 +161,22 @@ class AgentVisualCuesAndOverlayUnitTests {
         assertTrue(listenerCalled)
 
         TaskExecutionCoordinator.removeInterruptListener(listener)
+    }
+
+    @Test
+    fun testTaskExecutionCoordinatorFailureState() {
+        TaskExecutionCoordinator.startTask("Automate navigation")
+        TaskExecutionCoordinator.beginStep(1, AgentAction.ACTION_READ_SCREEN, "Viewing screen")
+        TaskExecutionCoordinator.completeCurrentStep(success = false, detail = "Element not found")
+
+        TaskExecutionCoordinator.finishTask("Task Failed: Element not found", success = false)
+
+        val failedState = TaskExecutionCoordinator.state.value
+        assertFalse(failedState.isRunning)
+        assertFalse(failedState.isInterrupted)
+        assertTrue(failedState.isFailed)
+        assertEquals("Task Failed: Element not found", failedState.failureReason)
+        assertEquals(AgentStepStatus.FAILED, failedState.stepsHistory[0].status)
     }
 
     @Test

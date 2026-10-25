@@ -196,7 +196,10 @@ class AgentEngine(
                         onProgress = { step, msg -> onProgress?.invoke("Step $step: $msg") },
                         onStepsUpdated = onStepsUpdated
                     )
-                    AgentActionResult(action.action, true, summary)
+                    val taskState = com.textmorph.app.agent.coordinator.TaskExecutionCoordinator.state.value
+                    val isSuccess = !taskState.isInterrupted && !taskState.isFailed &&
+                            !summary.startsWith("Task Failed") && !summary.startsWith("Task Incomplete")
+                    AgentActionResult(action.action, isSuccess, summary)
                 }
 
                 else -> {

@@ -37,6 +37,7 @@ class ScreenAutomationController(private val service: AccessibilityService) {
 
     private val TAG = "ScreenAutomationCtrl"
     private val ownPackage = "com.textmorph.app"
+    var onTapDispatched: ((Float, Float) -> Unit)? = null
 
     fun dumpScreenHierarchy(): List<UiElementNode> {
         val result = mutableListOf<UiElementNode>()
@@ -160,6 +161,7 @@ class ScreenAutomationController(private val service: AccessibilityService) {
 
     fun clickAtCoordinates(x: Float, y: Float): Boolean {
         return try {
+            onTapDispatched?.invoke(x, y)
             val path = Path().apply { moveTo(x, y) }
             val stroke = GestureDescription.StrokeDescription(path, 0, 100)
             val gesture = GestureDescription.Builder().addStroke(stroke).build()
@@ -204,6 +206,11 @@ class ScreenAutomationController(private val service: AccessibilityService) {
                 target = target.parent
             }
             if (target?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true) {
+                val rect = Rect()
+                node.getBoundsInScreen(rect)
+                if (!rect.isEmpty) {
+                    onTapDispatched?.invoke(rect.centerX().toFloat(), rect.centerY().toFloat())
+                }
                 return true
             }
             val rect = Rect()

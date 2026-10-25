@@ -153,17 +153,19 @@ object AiChatInferenceExecutor {
                                     }
                                 )
                                 val finalSteps = com.textmorph.app.agent.coordinator.TaskExecutionCoordinator.state.value.stepsHistory
-                                val isInterrupted = com.textmorph.app.agent.coordinator.TaskExecutionCoordinator.state.value.isInterrupted
+                                val taskState = com.textmorph.app.agent.coordinator.TaskExecutionCoordinator.state.value
+                                val isInterrupted = taskState.isInterrupted
+                                val isSuccess = result.success && !isInterrupted && !taskState.isFailed
+                                val finalContent = when {
+                                    isInterrupted -> "Task stopped by user."
+                                    isSuccess -> parsedAction.response.ifEmpty { result.details }
+                                    result.details.startsWith("Task Failed:") || result.details.startsWith("Error:") -> result.details
+                                    else -> "Task Failed: ${result.details}"
+                                }
                                 chatRepository.updateLastAssistantMessage(
                                     sessionId = sessionId,
-                                    content = if (isInterrupted) {
-                                        "Task stopped by user."
-                                    } else if (result.success) {
-                                        parsedAction.response.ifEmpty { result.details }
-                                    } else {
-                                        "Error executing ${parsedAction.action}: ${result.details}"
-                                    },
-                                    actionStatus = if (isInterrupted) "interrupted" else if (result.success) "success" else "failed",
+                                    content = finalContent,
+                                    actionStatus = if (isInterrupted) "interrupted" else if (isSuccess) "success" else "failed",
                                     actionStepsJson = if (finalSteps.isNotEmpty()) com.textmorph.app.agent.model.AgentTaskStep.serializeList(finalSteps) else null
                                 )
                             } catch (actEx: Exception) {

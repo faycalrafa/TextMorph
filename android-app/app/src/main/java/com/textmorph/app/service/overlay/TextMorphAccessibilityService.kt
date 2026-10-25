@@ -25,6 +25,7 @@ class TextMorphAccessibilityService : AccessibilityService() {
 
     private val TAG = "TextMorphAccessService"
     private var overlayManager: FloatingToolbarWindowManager? = null
+    private var interactionOverlayManager: AgentInteractionOverlayManager? = null
     private val screenshotExecutor = Executors.newSingleThreadExecutor()
     val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
     private lateinit var promptRepository: PromptRepository
@@ -71,6 +72,7 @@ class TextMorphAccessibilityService : AccessibilityService() {
             liteRtEngine = liteRtEngine,
             cloudEngine = cloudEngine
         )
+        interactionOverlayManager = AgentInteractionOverlayManager(this)
 
         try {
             val cm = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
@@ -447,10 +449,14 @@ class TextMorphAccessibilityService : AccessibilityService() {
         }
         overlayManager?.destroy()
         overlayManager = null
+        interactionOverlayManager?.onDestroy()
+        interactionOverlayManager = null
         if (instance === this) {
             instance = null
         }
     }
+
+    fun getInteractionOverlayManager(): AgentInteractionOverlayManager? = interactionOverlayManager
 
     companion object {
         @Volatile
@@ -460,9 +466,13 @@ class TextMorphAccessibilityService : AccessibilityService() {
 
         fun getOverlayManager(): FloatingToolbarWindowManager? = instance?.overlayManager
 
+        fun getInteractionOverlayManager(): AgentInteractionOverlayManager? = instance?.interactionOverlayManager
+
         fun getScreenAutomationController(): ScreenAutomationController? {
             val service = instance ?: return null
-            return ScreenAutomationController(service)
+            return ScreenAutomationController(service).apply {
+                onTapDispatched = { x, y -> instance?.interactionOverlayManager?.showTap(x, y) }
+            }
         }
     }
 }
