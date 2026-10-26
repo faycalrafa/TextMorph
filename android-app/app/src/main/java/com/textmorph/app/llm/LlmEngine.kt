@@ -34,6 +34,12 @@ interface LlmEngine {
     fun isLoaded(): Boolean
 
     /**
+     * Whether the active model session supports multimodal/visual image inputs.
+     */
+    val isVisionCapable: Boolean
+        get() = false
+
+    /**
      * The hardware or API context window capacity in tokens (e.g. 4096 for on-device SLMs, 128000 for cloud).
      */
     val maxContextTokens: Int

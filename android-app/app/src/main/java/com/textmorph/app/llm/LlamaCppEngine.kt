@@ -36,6 +36,9 @@ class LlamaCppEngine(private val context: Context) : LlmEngine {
             SettingsRepository.getInstance(context).settingsState.value.contextWindowTokens
         }.getOrNull() ?: 4096
 
+    override val isVisionCapable: Boolean
+        get() = isModelVisionCapable
+
     private var nativeContext: LlamaContext? = null
     private var nativeHandle: Long = 0L
     private var createdSymlinkFile: File? = null

@@ -53,6 +53,9 @@ class LiteRtLmEngine(private val context: Context) : LlmEngine {
     override val maxContextTokens: Int
         get() = currentEngineContextTokens
 
+    override val isVisionCapable: Boolean
+        get() = isModelVisionCapable
+
     private var nativeEngine: Engine? = null
     private var activePfd: ParcelFileDescriptor? = null
     private var createdSymlinkFile: File? = null

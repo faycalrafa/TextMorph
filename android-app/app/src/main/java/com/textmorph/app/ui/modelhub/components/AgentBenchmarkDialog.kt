@@ -1,5 +1,7 @@
 package com.textmorph.app.ui.modelhub.components
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,6 +23,7 @@ import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -51,13 +54,24 @@ import androidx.compose.ui.window.DialogProperties
 import com.textmorph.app.agent.benchmark.AgentBenchmarkEngine
 import com.textmorph.app.agent.benchmark.BenchmarkProgressState
 import com.textmorph.app.agent.benchmark.BenchmarkSummaryReport
+import com.textmorph.app.agent.benchmark.VisualAgentBenchmarkEngine
+import com.textmorph.app.agent.benchmark.VisualBenchmarkProgressState
+import com.textmorph.app.agent.benchmark.VisualBenchmarkReport
 import com.textmorph.app.llm.LlmEngine
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 /**
+ * Benchmark execution mode paradigms.
+ */
+enum class BenchmarkMode(val title: String) {
+    STANDARD_TEXT("Standard (Text)"),
+    VISUAL_AGENT("Visual (Vision LLM)")
+}
+
+/**
  * Responsive dialog executing LLM agentic benchmark comparing Code-as-Action vs JSON,
- * evaluating RAM, CPU/battery heat, latency, and tokens/sec speed.
+ * as well as Visual Agentic Benchmarking for multimodal vision LLMs.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -70,8 +84,15 @@ fun AgentBenchmarkDialog(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var benchmarkJob by remember { mutableStateOf<Job?>(null) }
+    var selectedMode by remember {
+        mutableStateOf(if (engine.isVisionCapable) BenchmarkMode.VISUAL_AGENT else BenchmarkMode.STANDARD_TEXT)
+    }
+
     var progressState by remember { mutableStateOf(BenchmarkProgressState()) }
     var summaryReport by remember { mutableStateOf<BenchmarkSummaryReport?>(null) }
+
+    var visualProgressState by remember { mutableStateOf(VisualBenchmarkProgressState()) }
+    var visualReport by remember { mutableStateOf<VisualBenchmarkReport?>(null) }
 
     fun startBenchmark() {
         benchmarkJob?.cancel()
@@ -89,6 +110,26 @@ fun AgentBenchmarkDialog(
                 progressState = progressState.copy(isRunning = false)
             } catch (e: Exception) {
                 progressState = progressState.copy(isRunning = false, error = e.message)
+            }
+        }
+    }
+
+    fun startVisualBenchmark() {
+        benchmarkJob?.cancel()
+        visualReport = null
+        benchmarkJob = scope.launch {
+            try {
+                val report = VisualAgentBenchmarkEngine.runVisualBenchmark(
+                    engine = engine,
+                    modelName = modelName,
+                    backend = backend,
+                    context = context,
+                    onProgress = { state -> visualProgressState = state }
+                )
+                visualReport = report
+                visualProgressState = visualProgressState.copy(isRunning = false)
+            } catch (e: Exception) {
+                visualProgressState = visualProgressState.copy(isRunning = false, error = e.message)
             }
         }
     }
@@ -159,49 +200,150 @@ fun AgentBenchmarkDialog(
                     }
                 }
 
-                // Initial State: Explanatory Card
-                if (!progressState.isRunning && summaryReport == null) {
-                    BenchmarkIntroCard(
-                        testCount = AgentBenchmarkEngine.TEST_CASES.size,
-                        onStart = { startBenchmark() }
-                    )
-                }
-
-                // Running State: Progress Bar & Streaming Token Console
-                if (progressState.isRunning) {
-                    BenchmarkRunningCard(
-                        state = progressState,
-                        onCancel = {
-                            benchmarkJob?.cancel()
-                            progressState = progressState.copy(isRunning = false)
-                        }
-                    )
-                }
-
-                // Completed State: Summary Report & Side-by-Side Breakdown
-                if (summaryReport != null) {
-                    BenchmarkResultsView(
-                        report = summaryReport!!,
-                        context = context,
-                        onRunAgain = { startBenchmark() }
-                    )
-                }
-
-                // Error Banner
-                if (progressState.error != null) {
+                // Mode Switcher Tabs
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFF1E293B), RoundedCornerShape(8.dp))
+                        .padding(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
                     Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = MaterialTheme.colorScheme.errorContainer,
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable(enabled = !progressState.isRunning && !visualProgressState.isRunning) {
+                                selectedMode = BenchmarkMode.STANDARD_TEXT
+                            },
+                        shape = RoundedCornerShape(6.dp),
+                        color = if (selectedMode == BenchmarkMode.STANDARD_TEXT) MaterialTheme.colorScheme.primary else Color.Transparent
                     ) {
-                        Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Error, contentDescription = null, tint = MaterialTheme.colorScheme.error)
-                            Spacer(modifier = Modifier.width(8.dp))
+                        Box(modifier = Modifier.padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
                             Text(
-                                text = "Benchmark error: ${progressState.error}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onErrorContainer
+                                text = "Standard (Text)",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (selectedMode == BenchmarkMode.STANDARD_TEXT) Color.White else Color(0xFF94A3B8)
                             )
+                        }
+                    }
+
+                    Surface(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable(enabled = !progressState.isRunning && !visualProgressState.isRunning) {
+                                selectedMode = BenchmarkMode.VISUAL_AGENT
+                            },
+                        shape = RoundedCornerShape(6.dp),
+                        color = if (selectedMode == BenchmarkMode.VISUAL_AGENT) MaterialTheme.colorScheme.primary else Color.Transparent
+                    ) {
+                        Box(modifier = Modifier.padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    Icons.Default.Visibility,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(14.dp),
+                                    tint = if (selectedMode == BenchmarkMode.VISUAL_AGENT) Color.White else Color(0xFF94A3B8)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "Visual (Vision LLM)",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (selectedMode == BenchmarkMode.VISUAL_AGENT) Color.White else Color(0xFF94A3B8)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Mode 1: Standard Text Benchmark Content
+                if (selectedMode == BenchmarkMode.STANDARD_TEXT) {
+                    if (!progressState.isRunning && summaryReport == null) {
+                        BenchmarkIntroCard(
+                            testCount = AgentBenchmarkEngine.TEST_CASES.size,
+                            onStart = { startBenchmark() }
+                        )
+                    }
+
+                    if (progressState.isRunning) {
+                        BenchmarkRunningCard(
+                            state = progressState,
+                            onCancel = {
+                                benchmarkJob?.cancel()
+                                progressState = progressState.copy(isRunning = false)
+                            }
+                        )
+                    }
+
+                    if (summaryReport != null) {
+                        BenchmarkResultsView(
+                            report = summaryReport!!,
+                            context = context,
+                            onRunAgain = { startBenchmark() }
+                        )
+                    }
+
+                    if (progressState.error != null) {
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = MaterialTheme.colorScheme.errorContainer,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Error, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Benchmark error: ${progressState.error}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onErrorContainer
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Mode 2: Visual Agentic Benchmark Content
+                if (selectedMode == BenchmarkMode.VISUAL_AGENT) {
+                    if (!visualProgressState.isRunning && visualReport == null) {
+                        VisualBenchmarkIntroCard(
+                            isVisionCapable = engine.isVisionCapable,
+                            onStart = { startVisualBenchmark() }
+                        )
+                    }
+
+                    if (visualProgressState.isRunning) {
+                        VisualBenchmarkRunningCard(
+                            state = visualProgressState,
+                            onCancel = {
+                                benchmarkJob?.cancel()
+                                visualProgressState = visualProgressState.copy(isRunning = false)
+                            }
+                        )
+                    }
+
+                    if (visualReport != null) {
+                        VisualBenchmarkResultsView(
+                            report = visualReport!!,
+                            context = context,
+                            onRunAgain = { startVisualBenchmark() }
+                        )
+                    }
+
+                    if (visualProgressState.error != null) {
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = MaterialTheme.colorScheme.errorContainer,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Error, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Visual benchmark error: ${visualProgressState.error}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onErrorContainer
+                                )
+                            }
                         }
                     }
                 }

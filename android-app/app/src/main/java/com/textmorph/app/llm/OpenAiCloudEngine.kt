@@ -35,6 +35,9 @@ class OpenAiCloudEngine(
     override val maxContextTokens: Int
         get() = 128000
 
+    override val isVisionCapable: Boolean
+        get() = isReady
+
     fun updateConfig(baseUrl: String, apiKey: String, modelId: String) {
         this.baseUrl = baseUrl.trimEnd('/')
         this.apiKey = apiKey.trim()
