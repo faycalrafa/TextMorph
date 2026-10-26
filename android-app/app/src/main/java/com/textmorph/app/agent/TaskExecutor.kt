@@ -59,20 +59,21 @@ class TaskExecutor(
         val settings = settingsProvider()
         val commandSyntax = settings.actionCommandSyntax
         val currentEngine = engineProvider()
-        val isTextOnly = when (currentEngine) {
-            is LiteRtLmEngine -> !currentEngine.sessionState.value.isVisionCapable
-            is LlamaCppEngine -> !currentEngine.sessionState.value.isVisionCapable
+        val isVisionCapable = when (currentEngine) {
+            is LiteRtLmEngine -> currentEngine.sessionState.value.isVisionCapable
+            is LlamaCppEngine -> currentEngine.sessionState.value.isVisionCapable
+            is com.textmorph.app.llm.OpenAiCloudEngine -> true
             else -> false
         }
-        val perceptionMode = if (isTextOnly) {
-            AppLogger.i(TAG, "Active engine model is text-only. Reverting screen perception to Accessibility Tree.")
-            ScreenPerceptionMode.ACCESSIBILITY_TREE
+        val perceptionMode = if (settings.screenPerceptionMode == ScreenPerceptionMode.SCREEN_CAPTURE && !isVisionCapable) {
+            AppLogger.i(TAG, "Screen Capture selected but active model has no vision encoder. Falling back to Private Agent Way.")
+            ScreenPerceptionMode.PRIVATE_AGENT
         } else {
             settings.screenPerceptionMode
         }
         val taskSystemPrompt = AgentPrompts.getTaskSystemPrompt(commandSyntax)
 
-        AppLogger.i(TAG, "Task configured with syntax=$commandSyntax, perceptionMode=$perceptionMode (isTextOnly=$isTextOnly)")
+        AppLogger.i(TAG, "Task configured with syntax=$commandSyntax, perceptionMode=$perceptionMode (isVisionCapable=$isVisionCapable)")
 
         try {
             if (!screenTool.isAccessibilityReady()) {
@@ -188,11 +189,42 @@ class TaskExecutor(
                 onProgress(step, reasoning.ifEmpty { title })
 
                 if (action.isComplete || action.action == AgentAction.ACTION_DONE) {
-                    AppLogger.i(TAG, "Task complete in $step steps: $reasoning")
-                    val finishSummary = reasoning.ifEmpty { "Task completed successfully." }
-                    TaskExecutionCoordinator.finishTask(finishSummary, success = true)
+                    AppLogger.i(TAG, "Task reached completion signal at step $step ($reasoning). Verifying on-screen...")
+                    onProgress(step, "Verifying task completion on screen…")
+                    TaskExecutionCoordinator.beginStep(step, "verify_completion", "Verifying completion…", "Checking screen to verify if goal was accomplished")
                     onStepsUpdated?.invoke(TaskExecutionCoordinator.state.value.stepsHistory)
-                    return@withContext finishSummary
+
+                    val (isVerified, verifyDetails) = verifyTaskCompletion(
+                        goal = goal,
+                        reportedReason = reasoning.ifEmpty { "Task complete" },
+                        taskSystemPrompt = taskSystemPrompt,
+                        isVisionCapable = isVisionCapable
+                    )
+
+                    if (isVerified) {
+                        val finishSummary = verifyDetails.ifEmpty { reasoning.ifEmpty { "Task completed successfully." } }
+                        AppLogger.i(TAG, "Task verified complete in $step steps: $finishSummary")
+                        TaskExecutionCoordinator.completeCurrentStep(true)
+                        TaskExecutionCoordinator.finishTask(finishSummary, success = true)
+                        onStepsUpdated?.invoke(TaskExecutionCoordinator.state.value.stepsHistory)
+                        return@withContext finishSummary
+                    } else {
+                        val missingMsg = verifyDetails.ifEmpty { "Screen state does not confirm completion." }
+                        AppLogger.w(TAG, "Screen verification check unconfirmed: $missingMsg")
+                        TaskExecutionCoordinator.completeCurrentStep(false)
+                        onStepsUpdated?.invoke(TaskExecutionCoordinator.state.value.stepsHistory)
+                        if (step < maxSteps - 1) {
+                            onProgress(step, "Unconfirmed: $missingMsg. Continuing task…")
+                            consecutiveFailures++
+                            delay(1500)
+                            continue
+                        } else {
+                            val failMsg = "Task Incomplete: $missingMsg"
+                            TaskExecutionCoordinator.finishTask(failMsg, success = false)
+                            onStepsUpdated?.invoke(TaskExecutionCoordinator.state.value.stepsHistory)
+                            return@withContext failMsg
+                        }
+                    }
                 }
 
                 sameActionCount = if (action.action == lastAction) sameActionCount + 1 else 1
@@ -239,8 +271,19 @@ class TaskExecutor(
                 delay(stepDelay)
             }
 
-            val maxStepMsg = "Task Incomplete: Reached maximum allowed steps ($maxSteps) without completing goal."
-            TaskExecutionCoordinator.finishTask(maxStepMsg, success = false)
+            // On reaching max steps, verify if final screen state actually completed the goal
+            val (isFinalVerified, finalDetails) = verifyTaskCompletion(
+                goal = goal,
+                reportedReason = "Reached step $maxSteps",
+                taskSystemPrompt = taskSystemPrompt,
+                isVisionCapable = isVisionCapable
+            )
+            val maxStepMsg = if (isFinalVerified) {
+                finalDetails.ifEmpty { "Task completed successfully on final step." }
+            } else {
+                "Task Incomplete: Reached maximum allowed steps ($maxSteps) without completing goal. ${finalDetails.take(100)}"
+            }
+            TaskExecutionCoordinator.finishTask(maxStepMsg, success = isFinalVerified)
             onStepsUpdated?.invoke(TaskExecutionCoordinator.state.value.stepsHistory)
             maxStepMsg
         } catch (e: Exception) {
@@ -389,6 +432,54 @@ class TaskExecutor(
             lower.contains("clock") || lower.contains("alarm") -> "Clock"
             lower.contains("calculator") -> "Calculator"
             else -> null
+        }
+    }
+
+    private suspend fun verifyTaskCompletion(
+        goal: String,
+        reportedReason: String,
+        taskSystemPrompt: String,
+        isVisionCapable: Boolean
+    ): Pair<Boolean, String> {
+        return try {
+            val verifyImage = if (isVisionCapable) screenTool.captureCleanScreenshotBytes() else null
+            val verifyDump = screenTool.readScreenPrivateAgent(goal)
+
+            val verifyPrompt = """
+                TASK GOAL: $goal
+                FINAL SCREEN STATE:
+                $verifyDump
+                
+                The agent reported: "$reportedReason".
+                Does the screen show that the user's task was successfully achieved?
+                Respond with ONLY ONE of:
+                COMPLETED: <brief sentence confirming completion>
+                or
+                INCOMPLETE: <brief sentence explaining what is missing>
+            """.trimIndent()
+
+            val rawVerify = queryLlm(verifyPrompt, verifyImage, taskSystemPrompt)
+            try {
+                chatRepoProvider?.invoke()?.recordDiagnosticTurn(
+                    userPrompt = "Verification Check: $goal",
+                    systemPrompt = taskSystemPrompt,
+                    rawOutput = rawVerify
+                )
+            } catch (e: Exception) {
+                AppLogger.w(TAG, "Failed recording verification turn: ${e.message}")
+            }
+
+            val clean = rawVerify.trim()
+            val isCompleted = clean.contains("COMPLETED", ignoreCase = true) && !clean.contains("INCOMPLETE", ignoreCase = true)
+            val details = when {
+                clean.contains("COMPLETED:", ignoreCase = true) -> clean.substringAfter("COMPLETED:").trim().lines().firstOrNull() ?: clean
+                clean.contains("INCOMPLETE:", ignoreCase = true) -> clean.substringAfter("INCOMPLETE:").trim().lines().firstOrNull() ?: clean
+                else -> clean.lines().firstOrNull() ?: clean
+            }
+            Pair(isCompleted, details.take(200))
+        } catch (e: Exception) {
+            AppLogger.w(TAG, "Verification check fallback: ${e.message}")
+            Pair(true, reportedReason)
         }
     }
 }

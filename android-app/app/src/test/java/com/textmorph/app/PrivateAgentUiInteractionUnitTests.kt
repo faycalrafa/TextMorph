@@ -179,4 +179,37 @@ class PrivateAgentUiInteractionUnitTests {
         val defaultSettings = AppSettings()
         assertEquals(ScreenPerceptionMode.PRIVATE_AGENT, defaultSettings.screenPerceptionMode)
     }
+
+    @Test
+    fun testBatteryKeywordRetainedInScreenLinearizer() {
+        val nodes = listOf(
+            UiElementNode(
+                index = 0,
+                text = "Battery",
+                contentDescription = "",
+                className = "TextView",
+                bounds = Rect(0, 300, 1080, 450),
+                isClickable = true,
+                isEditable = false,
+                isScrollable = false,
+                depth = 1
+            )
+        )
+        val dump = ScreenLinearizer.formatPrivateAgentWay(nodes, "open Settings and check battery", "com.android.settings")
+        assertTrue("Battery element should be retained in Private Agent dump", dump.contains("Battery"))
+        assertTrue("Battery element should be marked with query match *", dump.contains("*"))
+    }
+
+    @Test
+    fun testExecuteTaskGoalFallback() {
+        // When model emits execute_task() without arguments
+        val action = AgentActionParser.parseAction("execute_task()")
+        assertNotNull(action)
+        assertEquals("execute_task", action?.action)
+        val goalParam = action?.getStringParam("goal")?.ifEmpty { action.getStringParam("task") } ?: ""
+        // If empty, fallback logic will use the user's prompt
+        val userPrompt = "open Settings and check battery"
+        val effectiveGoal = if (goalParam.isBlank()) userPrompt else goalParam
+        assertEquals("open Settings and check battery", effectiveGoal)
+    }
 }

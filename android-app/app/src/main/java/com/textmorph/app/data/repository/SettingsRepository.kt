@@ -149,7 +149,10 @@ class SettingsRepository(private val context: Context) {
     }
 
     suspend fun setActionCommandSyntax(syntax: ActionCommandSyntax) = updateSettings {
-        it.copy(actionCommandSyntax = syntax)
+        it.copy(
+            actionCommandSyntax = syntax,
+            agentSystemPrompt = com.textmorph.app.agent.prompts.AgentPrompts.getAgentSystemPrompt(syntax)
+        )
     }
 
     suspend fun setScreenPerceptionMode(mode: ScreenPerceptionMode) = updateSettings {
@@ -164,11 +167,17 @@ class SettingsRepository(private val context: Context) {
         enableThinking: Boolean,
         speculativeDecoding: Boolean,
         defaultSystemPrompt: String,
-        agentSystemPrompt: String = com.textmorph.app.agent.prompts.AgentPrompts.AGENT_SYSTEM_PROMPT_CODE_ACTION,
+        agentSystemPrompt: String? = null,
         actionCommandSyntax: ActionCommandSyntax? = null,
         screenPerceptionMode: ScreenPerceptionMode? = null,
         contextWindowTokens: Int? = null
     ) = updateSettings {
+        val targetSyntax = actionCommandSyntax ?: it.actionCommandSyntax
+        val resolvedAgentPrompt = if (actionCommandSyntax != null && actionCommandSyntax != it.actionCommandSyntax) {
+            com.textmorph.app.agent.prompts.AgentPrompts.getAgentSystemPrompt(actionCommandSyntax)
+        } else {
+            agentSystemPrompt ?: it.agentSystemPrompt
+        }
         it.copy(
             maxTokens = maxTokens,
             temperature = temperature,
@@ -177,8 +186,8 @@ class SettingsRepository(private val context: Context) {
             enableThinking = enableThinking,
             speculativeDecoding = speculativeDecoding,
             defaultSystemPrompt = defaultSystemPrompt,
-            agentSystemPrompt = agentSystemPrompt,
-            actionCommandSyntax = actionCommandSyntax ?: it.actionCommandSyntax,
+            agentSystemPrompt = resolvedAgentPrompt,
+            actionCommandSyntax = targetSyntax,
             screenPerceptionMode = screenPerceptionMode ?: it.screenPerceptionMode,
             contextWindowTokens = contextWindowTokens ?: it.contextWindowTokens
         )

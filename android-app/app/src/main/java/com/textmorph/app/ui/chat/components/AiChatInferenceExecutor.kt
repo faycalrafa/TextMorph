@@ -31,14 +31,22 @@ object AiChatInferenceExecutor {
         onComplete: () -> Unit,
         setJob: (Job) -> Unit,
         agentEngine: com.textmorph.app.agent.AgentEngine? = null,
-        attachments: List<com.textmorph.app.data.model.ChatAttachment> = emptyList()
+        attachments: List<com.textmorph.app.data.model.ChatAttachment> = emptyList(),
+        settings: com.textmorph.app.data.model.AppSettings? = null
     ) {
         onStart()
 
         val activeSession = chatRepository.getActiveSession()
         val priorMessages = chatRepository.currentMessages.value
         val isAgent = activeSession?.isAgentMode == true
-        val systemPrompt = if (isAgent) ChatCompactor.AGENT_SYSTEM_PROMPT else ChatCompactor.DEFAULT_SYSTEM_PROMPT
+        val systemPrompt = if (isAgent) {
+            settings?.agentSystemPrompt?.takeIf { it.isNotBlank() }
+                ?: settings?.let { com.textmorph.app.agent.prompts.AgentPrompts.getAgentSystemPrompt(it.actionCommandSyntax) }
+                ?: ChatCompactor.AGENT_SYSTEM_PROMPT
+        } else {
+            settings?.defaultSystemPrompt?.takeIf { it.isNotBlank() }
+                ?: ChatCompactor.DEFAULT_SYSTEM_PROMPT
+        }
 
         // Assemble sliding-window multi-turn inference prompt with compressed history & session state
         val assembledPrompt = ChatCompactor.assembleInferencePrompt(
@@ -131,23 +139,40 @@ object AiChatInferenceExecutor {
                 if (isAgent && agentEngine != null) {
                     val parsedAction = com.textmorph.app.agent.parser.AgentActionParser.parseAction(effectiveFinalContent)
                     if (parsedAction != null) {
-                        AppLogger.i(TAG, "Executing autonomous agent action: ${parsedAction.action}")
+                        val effectiveAction = if (parsedAction.action == com.textmorph.app.agent.model.AgentAction.ACTION_EXECUTE_TASK) {
+                            val existingGoal = parsedAction.getStringParam("goal")
+                                .ifEmpty { parsedAction.getStringParam("task") }
+                                .ifEmpty { parsedAction.getStringParam("prompt") }
+                            val effectiveGoal = if (existingGoal.isBlank() || existingGoal == "Executing execute_task" || existingGoal == "execute_task") {
+                                prompt
+                            } else {
+                                existingGoal
+                            }
+                            parsedAction.copy(
+                                params = parsedAction.params + ("goal" to kotlinx.serialization.json.JsonPrimitive(effectiveGoal)),
+                                response = "Executing multi-step task: $effectiveGoal"
+                            )
+                        } else {
+                            parsedAction
+                        }
+
+                        AppLogger.i(TAG, "Executing autonomous agent action: ${effectiveAction.action}")
                         // Standalone actions must not inherit stale failure state from previous multi-step tasks
-                        if (parsedAction.action != com.textmorph.app.agent.model.AgentAction.ACTION_EXECUTE_TASK) {
+                        if (effectiveAction.action != com.textmorph.app.agent.model.AgentAction.ACTION_EXECUTE_TASK) {
                             com.textmorph.app.agent.coordinator.TaskExecutionCoordinator.reset()
                         }
                         chatRepository.updateLastAssistantMessage(
                             sessionId = sessionId,
-                            content = parsedAction.response.ifEmpty { "Executing ${parsedAction.action}…" },
+                            content = effectiveAction.response.ifEmpty { "Executing ${effectiveAction.action}…" },
                             thoughtContent = thought,
                             rawNakedOutput = finalOutput,
                             systemPrompt = systemPrompt,
-                            actionPayloadJson = parsedAction.action,
+                            actionPayloadJson = effectiveAction.action,
                             actionStatus = "running"
                         )
                         try {
                             val result = agentEngine.execute(
-                                action = parsedAction,
+                                action = effectiveAction,
                                 onProgress = { statusUpdate ->
                                     chatRepository.setGenerationStatus(statusUpdate)
                                 },
@@ -162,18 +187,18 @@ object AiChatInferenceExecutor {
                                     scope.launch(Dispatchers.IO) {
                                         chatRepository.updateLastAssistantMessage(
                                             sessionId = sessionId,
-                                            content = parsedAction.response.ifEmpty { "Executing ${parsedAction.action}…" },
+                                            content = effectiveAction.response.ifEmpty { "Executing ${effectiveAction.action}…" },
                                             thoughtContent = thought,
                                             rawNakedOutput = finalOutput,
                                             systemPrompt = systemPrompt,
-                                            actionPayloadJson = parsedAction.action,
+                                            actionPayloadJson = effectiveAction.action,
                                             actionStatus = currentStatus,
                                             actionStepsJson = com.textmorph.app.agent.model.AgentTaskStep.serializeList(steps)
                                         )
                                     }
                                 }
                             )
-                            val isExecuteTask = parsedAction.action == com.textmorph.app.agent.model.AgentAction.ACTION_EXECUTE_TASK
+                            val isExecuteTask = effectiveAction.action == com.textmorph.app.agent.model.AgentAction.ACTION_EXECUTE_TASK
                             val taskState = com.textmorph.app.agent.coordinator.TaskExecutionCoordinator.state.value
                             val isInterrupted = if (isExecuteTask) taskState.isInterrupted else false
                             val isSuccess = if (isExecuteTask) {
@@ -183,7 +208,7 @@ object AiChatInferenceExecutor {
                             }
                             val finalContent = when {
                                 isInterrupted -> "Task stopped by user."
-                                isSuccess -> parsedAction.response.ifEmpty { result.details }
+                                isSuccess -> effectiveAction.response.ifEmpty { result.details }
                                 result.details.startsWith("Task Failed:") ||
                                     result.details.startsWith("Error:") ||
                                     result.details.startsWith("Action Failed:") -> result.details

@@ -222,7 +222,8 @@ fun AiChatContent(
                 onComplete = { isGenerating = false },
                 setJob = { currentJob = it },
                 agentEngine = agentEngine,
-                attachments = chatAttachments
+                attachments = chatAttachments,
+                settings = settings
             )
         }
     }

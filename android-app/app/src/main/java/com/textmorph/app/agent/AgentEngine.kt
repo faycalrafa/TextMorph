@@ -199,7 +199,15 @@ class AgentEngine(
                 }
 
                 AgentAction.ACTION_EXECUTE_TASK -> {
-                    val goal = action.getStringParam("goal").ifEmpty { action.response }
+                    val rawGoal = action.getStringParam("goal")
+                        .ifEmpty { action.getStringParam("task") }
+                        .ifEmpty { action.getStringParam("prompt") }
+                        .ifEmpty { action.response.removePrefix("Executing multi-step task:").removePrefix("Executing execute_task").trim() }
+                    val goal = if (rawGoal.isBlank() || rawGoal == "Executing execute_task" || rawGoal == "execute_task") {
+                        "Perform the requested device task"
+                    } else {
+                        rawGoal
+                    }
                     val summary = taskExecutor.executeTask(
                         goal = goal,
                         onProgress = { step, msg -> onProgress?.invoke("Step $step: $msg") },

@@ -396,6 +396,11 @@ fun ModelHubContent(
             settings = settings,
             onSave = { maxTokens, temp, k, p, thinking, speculative, syntax, perceptionMode, contextWindow ->
                 scope.launch {
+                    val targetAgentPrompt = if (syntax != settings.actionCommandSyntax) {
+                        com.textmorph.app.agent.prompts.AgentPrompts.getAgentSystemPrompt(syntax)
+                    } else {
+                        settings.agentSystemPrompt
+                    }
                     settingsRepository.updateAiModelConfig(
                         maxTokens = maxTokens,
                         temperature = temp,
@@ -404,7 +409,7 @@ fun ModelHubContent(
                         enableThinking = thinking,
                         speculativeDecoding = speculative,
                         defaultSystemPrompt = settings.defaultSystemPrompt,
-                        agentSystemPrompt = settings.agentSystemPrompt,
+                        agentSystemPrompt = targetAgentPrompt,
                         actionCommandSyntax = syntax,
                         screenPerceptionMode = perceptionMode,
                         contextWindowTokens = contextWindow
