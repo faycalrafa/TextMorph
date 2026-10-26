@@ -33,6 +33,14 @@ class TaskExecutor(
 
     private val TAG = "TaskExecutor"
 
+    private val verifier by lazy {
+        TaskCompletionVerifier(
+            screenTool = screenTool,
+            queryLlm = ::queryLlm,
+            chatRepoProvider = chatRepoProvider
+        )
+    }
+
     @Volatile
     private var isCancelled = false
 
@@ -440,46 +448,5 @@ class TaskExecutor(
         reportedReason: String,
         taskSystemPrompt: String,
         isVisionCapable: Boolean
-    ): Pair<Boolean, String> {
-        return try {
-            val verifyImage = if (isVisionCapable) screenTool.captureCleanScreenshotBytes() else null
-            val verifyDump = screenTool.readScreenPrivateAgent(goal)
-
-            val verifyPrompt = """
-                TASK GOAL: $goal
-                FINAL SCREEN STATE:
-                $verifyDump
-                
-                The agent reported: "$reportedReason".
-                Does the screen show that the user's task was successfully achieved?
-                Respond with ONLY ONE of:
-                COMPLETED: <brief sentence confirming completion>
-                or
-                INCOMPLETE: <brief sentence explaining what is missing>
-            """.trimIndent()
-
-            val rawVerify = queryLlm(verifyPrompt, verifyImage, taskSystemPrompt)
-            try {
-                chatRepoProvider?.invoke()?.recordDiagnosticTurn(
-                    userPrompt = "Verification Check: $goal",
-                    systemPrompt = taskSystemPrompt,
-                    rawOutput = rawVerify
-                )
-            } catch (e: Exception) {
-                AppLogger.w(TAG, "Failed recording verification turn: ${e.message}")
-            }
-
-            val clean = rawVerify.trim()
-            val isCompleted = clean.contains("COMPLETED", ignoreCase = true) && !clean.contains("INCOMPLETE", ignoreCase = true)
-            val details = when {
-                clean.contains("COMPLETED:", ignoreCase = true) -> clean.substringAfter("COMPLETED:").trim().lines().firstOrNull() ?: clean
-                clean.contains("INCOMPLETE:", ignoreCase = true) -> clean.substringAfter("INCOMPLETE:").trim().lines().firstOrNull() ?: clean
-                else -> clean.lines().firstOrNull() ?: clean
-            }
-            Pair(isCompleted, details.take(200))
-        } catch (e: Exception) {
-            AppLogger.w(TAG, "Verification check fallback: ${e.message}")
-            Pair(true, reportedReason)
-        }
-    }
+    ): Pair<Boolean, String> = verifier.verify(goal, reportedReason, taskSystemPrompt, isVisionCapable)
 }
