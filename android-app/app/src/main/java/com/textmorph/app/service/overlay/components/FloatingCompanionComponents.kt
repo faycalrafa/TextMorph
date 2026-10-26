@@ -9,6 +9,8 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -35,14 +37,17 @@ import androidx.compose.ui.unit.sp
 import com.textmorph.app.service.overlay.FloatingButtonState
 
 /**
- * Neat 30x30dp square icon button for the floating companion toolbar.
+ * Neat square/rectangular icon button for the floating companion toolbar.
+ * Supports short click and optional long click.
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun CompanionSquareIconButton(
     icon: ImageVector,
     contentDescription: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    onLongClick: (() -> Unit)? = null,
     enabled: Boolean = true,
     tint: Color = Color(0xFFE5E7EB),
     backgroundColor: Color = Color(0x331F2937),
@@ -52,11 +57,19 @@ fun CompanionSquareIconButton(
         shape = RoundedCornerShape(8.dp),
         color = backgroundColor,
         border = BorderStroke(1.dp, borderColor),
-        enabled = enabled,
-        onClick = onClick,
-        modifier = modifier.size(30.dp)
+        modifier = modifier
+            .height(30.dp)
+            .defaultMinSize(minWidth = 30.dp)
+            .combinedClickable(
+                enabled = enabled,
+                onClick = onClick,
+                onLongClick = onLongClick
+            )
     ) {
-        Box(contentAlignment = Alignment.Center) {
+        Box(
+            modifier = Modifier.padding(horizontal = 4.dp),
+            contentAlignment = Alignment.Center
+        ) {
             Icon(
                 imageVector = icon,
                 contentDescription = contentDescription,
