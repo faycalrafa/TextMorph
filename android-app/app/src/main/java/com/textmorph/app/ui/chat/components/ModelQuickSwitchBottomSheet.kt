@@ -279,11 +279,13 @@ fun ModelQuickSwitchBottomSheet(
                     Column {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text("Max Tokens", color = Color(0xFFE5E7EB), fontSize = 13.sp)
+                            Text("Max Output Tokens", color = Color(0xFFE5E7EB), fontSize = 13.sp)
                             Text("$maxTokens", color = Color(0xFF3B82F6), fontSize = 13.sp, fontWeight = FontWeight.Bold)
                         }
+                        Text("Response generation limit (On-device context: 4,096 tokens)", color = Color(0xFF9CA3AF), fontSize = 11.sp)
                         Slider(
                             value = maxTokens.toFloat(),
                             onValueChange = { maxTokens = it.toInt() },

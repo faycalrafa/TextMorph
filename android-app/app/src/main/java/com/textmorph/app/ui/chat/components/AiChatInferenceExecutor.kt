@@ -47,7 +47,8 @@ object AiChatInferenceExecutor {
             sessionState = activeSession?.sessionState,
             historyMessages = priorMessages,
             currentPrompt = prompt,
-            documentText = documentText
+            documentText = documentText,
+            maxContextTokens = engine.maxContextTokens
         )
 
         val userEntity = ChatMessageEntity(

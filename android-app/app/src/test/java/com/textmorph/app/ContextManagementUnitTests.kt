@@ -183,4 +183,19 @@ class ContextManagementUnitTests {
         assertEquals("<!DOCTYPE html><html><body><h1>App</h1></body></html>", completed.htmlContent)
         assertEquals("Let me know if you need tweaks!", completed.postText)
     }
+
+    @Test
+    fun testAssembleInferencePrompt_clampsOversizedPromptToContextLimit() {
+        val massivePrompt = "This is a very long log line repeated many times. ".repeat(600) // ~30,000 chars, ~7800 tokens
+        val assembled = ChatCompactor.assembleInferencePrompt(
+            systemPrompt = "System instruction",
+            historyMessages = emptyList(),
+            currentPrompt = massivePrompt,
+            maxContextTokens = 4096,
+            maxOutputTokens = 1024
+        )
+        val tokenEstimate = TokenEstimator.estimateTextTokens(assembled)
+        assertTrue("Assembled prompt should be clamped under 4096 tokens (was $tokenEstimate)", tokenEstimate < 4096)
+        assertTrue("Assembled prompt should contain truncation notice", assembled.contains("Notice: Input truncated to fit model's 4096 hardware context capacity"))
+    }
 }

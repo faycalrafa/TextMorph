@@ -32,6 +32,9 @@ class OpenAiCloudEngine(
     private val json = Json { ignoreUnknownKeys = true }
     private var isReady = false
 
+    override val maxContextTokens: Int
+        get() = 128000
+
     fun updateConfig(baseUrl: String, apiKey: String, modelId: String) {
         this.baseUrl = baseUrl.trimEnd('/')
         this.apiKey = apiKey.trim()

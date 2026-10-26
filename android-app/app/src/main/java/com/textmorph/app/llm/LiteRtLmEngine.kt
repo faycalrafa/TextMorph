@@ -48,6 +48,9 @@ class LiteRtLmEngine(private val context: Context) : LlmEngine {
     private val TAG = "LiteRtLmEngine"
     private val inferenceMutex = Mutex()
 
+    override val maxContextTokens: Int
+        get() = 4096
+
     private var nativeEngine: Engine? = null
     private var activePfd: ParcelFileDescriptor? = null
     private var createdSymlinkFile: File? = null
@@ -245,10 +248,18 @@ class LiteRtLmEngine(private val context: Context) : LlmEngine {
                         }
                     }
 
-                    val userText = if (systemInstruction.isNullOrBlank()) {
+                    val rawUserText = if (systemInstruction.isNullOrBlank()) {
                         prompt
                     } else {
                         "$cleanInstruction\n\n$prompt"
+                    }
+                    val userText = if (com.textmorph.app.util.TokenEstimator.estimateTextTokens(rawUserText) > 3800) {
+                        AppLogger.w(TAG, "Prompt tokens exceed LiteRT-LM hardware capacity. Clamping safely.")
+                        val notice = "\n\n[Warning: Input truncated to fit 4096 hardware context window]\n\n"
+                        val maxChars = 3800 * 3
+                        if (rawUserText.length > maxChars) rawUserText.take(500) + notice + rawUserText.takeLast(maxChars - 500 - notice.length) else rawUserText
+                    } else {
+                        rawUserText
                     }
                     contents.add(Content.Text(userText))
 
@@ -257,6 +268,7 @@ class LiteRtLmEngine(private val context: Context) : LlmEngine {
                     var usedConversation = false
                     try {
                         val settings = runCatching { SettingsRepository.getInstance(context).settingsState.value }.getOrNull()
+                        val maxOutTokens = (settings?.maxTokens ?: 1024).coerceIn(64, 4096)
                         val convConfig = ConversationConfig(
                             samplerConfig = if (activeBackend.contains("GPU") || activeBackend.contains("CPU")) {
                                 SamplerConfig(
@@ -265,6 +277,7 @@ class LiteRtLmEngine(private val context: Context) : LlmEngine {
                                     temperature = (settings?.temperature ?: 0.7f).toDouble()
                                 )
                             } else null,
+                            maxOutputToken = maxOutTokens,
                             thinkingConfig = ThinkingConfig(enableThinking = settings?.enableThinking ?: false)
                         )
                         conversation = eng.createConversation(convConfig)

@@ -43,6 +43,7 @@ object ChatCompactor {
     /**
      * Assembles the complete conversational prompt for the LLM inference engine,
      * seamlessly integrating session state, compressed history, and recent sliding window.
+     * Enforces strict token budget limits against the model's max context capacity.
      */
     fun assembleInferencePrompt(
         systemPrompt: String = DEFAULT_SYSTEM_PROMPT,
@@ -51,7 +52,75 @@ object ChatCompactor {
         historyMessages: List<ChatMessageEntity>,
         currentPrompt: String,
         documentText: String? = null,
-        recentTurnCount: Int = DEFAULT_SLIDING_WINDOW_TURNS
+        recentTurnCount: Int = DEFAULT_SLIDING_WINDOW_TURNS,
+        maxContextTokens: Int = 4096,
+        maxOutputTokens: Int = 1024
+    ): String {
+        val safetyBuffer = 150
+        val maxPromptBudget = (maxContextTokens - maxOutputTokens.coerceAtMost(maxContextTokens / 2) - safetyBuffer).coerceAtLeast(1024)
+
+        var turns = recentTurnCount
+        var candidate = buildPromptString(
+            systemPrompt = systemPrompt,
+            sessionSummary = sessionSummary,
+            sessionState = sessionState,
+            historyMessages = historyMessages,
+            currentPrompt = currentPrompt,
+            documentText = documentText,
+            recentTurnCount = turns
+        )
+
+        var estimated = com.textmorph.app.util.TokenEstimator.estimateTextTokens(candidate)
+
+        // If candidate exceeds prompt budget, progressively prune turns down to 0
+        while (estimated > maxPromptBudget && turns > 0) {
+            turns--
+            candidate = buildPromptString(
+                systemPrompt = systemPrompt,
+                sessionSummary = sessionSummary,
+                sessionState = sessionState,
+                historyMessages = historyMessages,
+                currentPrompt = currentPrompt,
+                documentText = documentText,
+                recentTurnCount = turns
+            )
+            estimated = com.textmorph.app.util.TokenEstimator.estimateTextTokens(candidate)
+        }
+
+        // If candidate still exceeds prompt budget even with 0 history turns (e.g. massive input or document):
+        if (estimated > maxPromptBudget) {
+            AppLogger.w(TAG, "Input exceeds prompt budget ($estimated > $maxPromptBudget). Clamping to avoid JNI crash.")
+            val notice = "\n\n[Notice: Input truncated to fit model's $maxContextTokens hardware context capacity]\n"
+            val maxDocOrPromptChars = maxPromptBudget * 3
+            val truncatedDoc = documentText?.take(maxDocOrPromptChars / 2)
+            val truncatedPrompt = if (currentPrompt.length > maxDocOrPromptChars) {
+                currentPrompt.take(maxDocOrPromptChars) + notice
+            } else {
+                currentPrompt
+            }
+
+            candidate = buildPromptString(
+                systemPrompt = systemPrompt,
+                sessionSummary = null,
+                sessionState = sessionState,
+                historyMessages = emptyList(),
+                currentPrompt = truncatedPrompt,
+                documentText = truncatedDoc,
+                recentTurnCount = 0
+            )
+        }
+
+        return candidate
+    }
+
+    private fun buildPromptString(
+        systemPrompt: String,
+        sessionSummary: String?,
+        sessionState: String?,
+        historyMessages: List<ChatMessageEntity>,
+        currentPrompt: String,
+        documentText: String?,
+        recentTurnCount: Int
     ): String {
         val sb = StringBuilder()
 
@@ -72,14 +141,16 @@ object ChatCompactor {
         }
 
         // 3. Sliding Window of Recent Messages (Payloads Pruned)
-        val (_, recent) = partitionWindow(historyMessages, recentTurnCount)
-        for (msg in recent) {
-            val role = if (msg.role == "action") "assistant" else msg.role
-            val prunedContent = ContextPruner.pruneForInferenceContext(msg)
-            if (prunedContent.isNotBlank()) {
-                sb.append("<|im_start|>").append(role).append("\n")
-                sb.append(prunedContent)
-                sb.append("\n<|im_end|>\n")
+        if (recentTurnCount > 0) {
+            val (_, recent) = partitionWindow(historyMessages, recentTurnCount)
+            for (msg in recent) {
+                val role = if (msg.role == "action") "assistant" else msg.role
+                val prunedContent = ContextPruner.pruneForInferenceContext(msg)
+                if (prunedContent.isNotBlank()) {
+                    sb.append("<|im_start|>").append(role).append("\n")
+                    sb.append(prunedContent)
+                    sb.append("\n<|im_end|>\n")
+                }
             }
         }
 

@@ -31,6 +31,9 @@ class LlamaCppEngine(private val context: Context) : LlmEngine {
     private val TAG = "LlamaCppEngine"
     private val inferenceMutex = Mutex()
 
+    override val maxContextTokens: Int
+        get() = 4096
+
     private var nativeContext: LlamaContext? = null
     private var nativeHandle: Long = 0L
     private var createdSymlinkFile: File? = null

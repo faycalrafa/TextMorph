@@ -9,11 +9,13 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Button
@@ -38,6 +40,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.textmorph.app.data.model.ActionCommandSyntax
@@ -102,12 +105,60 @@ fun AiModelConfigDialog(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // Max Tokens
+                // Context Window Capacity Info Card
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Info,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Model Context Window vs Generation Limit",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "• On-Device SLMs (LiteRT / llama.cpp): Hardware limit of 4,096 tokens total context (input + output combined).\n• Cloud Engine: Up to 128,000 tokens.\n• Max Output Tokens below sets how many tokens the AI can generate per response turn.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            lineHeight = 16.sp
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // Max Output Tokens
+                val tokensNum = maxTokensInput.toIntOrNull() ?: 1024
+                val isTokensExceedingOnDevice = tokensNum > 4096
+
                 OutlinedTextField(
                     value = maxTokensInput,
                     onValueChange = { if (it.all { c -> c.isDigit() } && it.length <= 6) maxTokensInput = it },
-                    label = { Text("Max Tokens") },
+                    label = { Text("Max Output Tokens (Generation Limit)") },
                     placeholder = { Text("1024") },
+                    supportingText = {
+                        if (isTokensExceedingOnDevice) {
+                            Text(
+                                "Warning: Exceeds 4,096 hardware context window. On-device generation will be clamped to 4,096.",
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        } else {
+                            Text("Maximum response generation length (recommended: 512–2048)")
+                        }
+                    },
+                    isError = isTokensExceedingOnDevice,
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(10.dp)
@@ -322,7 +373,7 @@ fun AiModelConfigDialog(
 
                     Button(
                         onClick = {
-                            val tokens = maxTokensInput.toIntOrNull() ?: 1024
+                            val tokens = (maxTokensInput.toIntOrNull() ?: 1024).coerceIn(64, 4096)
                             val k = topKInput.toIntOrNull() ?: 40
                             onSave(
                                 tokens,
