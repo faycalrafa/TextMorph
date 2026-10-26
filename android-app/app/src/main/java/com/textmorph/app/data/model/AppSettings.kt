@@ -54,6 +54,7 @@ data class AppSettings(
     @Deprecated("Feature removed")
     val guessNextWordEnabled: Boolean = false,
     val autoSendVoiceInput: Boolean = true,
+    val contextWindowTokens: Int = 131072,
     val maxTokens: Int = 1024,
     val temperature: Float = 0.7f,
     val topK: Int = 40,

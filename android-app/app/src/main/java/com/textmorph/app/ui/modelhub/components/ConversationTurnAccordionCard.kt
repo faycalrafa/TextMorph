@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
@@ -48,9 +49,11 @@ import java.util.Locale
 fun ConversationTurnAccordion(
     turn: ConversationDumpTurn,
     isLatest: Boolean,
+    showSystemInstruction: Boolean = false,
     onCopy: (String, String) -> Unit
 ) {
     var expanded by remember { mutableStateOf(isLatest) }
+    var localExpandSystem by remember { mutableStateOf(false) }
     val timeFormatted = remember(turn.timestamp) {
         SimpleDateFormat("HH:mm:ss", Locale.US).format(Date(turn.timestamp))
     }
@@ -138,10 +141,13 @@ fun ConversationTurnAccordion(
                 ) {
                     // 1. 🟣 System Instruction Box (Purple/Indigo)
                     if (!turn.systemPrompt.isNullOrBlank()) {
+                        val isSystemVisible = showSystemInstruction || localExpandSystem
                         Surface(
                             shape = RoundedCornerShape(8.dp),
                             color = Color(0xFF1E1B4B),
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { localExpandSystem = !localExpandSystem }
                         ) {
                             Column(modifier = Modifier.padding(10.dp)) {
                                 Row(
@@ -149,27 +155,39 @@ fun ConversationTurnAccordion(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
-                                    Text(
-                                        text = "🟣 SYSTEM INSTRUCTION",
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color(0xFFA5B4FC)
-                                    )
-                                    IconButton(
-                                        onClick = { onCopy("System Instruction", turn.systemPrompt) },
-                                        modifier = Modifier.size(20.dp)
-                                    ) {
-                                        Icon(Icons.Default.ContentCopy, contentDescription = "Copy", tint = Color(0xFFA5B4FC), modifier = Modifier.size(12.dp))
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            text = "🟣 SYSTEM INSTRUCTION",
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFFA5B4FC)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = if (isSystemVisible) "(tap to hide)" else "(hidden • tap to show)",
+                                            fontSize = 9.sp,
+                                            color = Color(0xFF818CF8)
+                                        )
+                                    }
+                                    if (isSystemVisible) {
+                                        IconButton(
+                                            onClick = { onCopy("System Instruction", turn.systemPrompt) },
+                                            modifier = Modifier.size(20.dp)
+                                        ) {
+                                            Icon(Icons.Default.ContentCopy, contentDescription = "Copy", tint = Color(0xFFA5B4FC), modifier = Modifier.size(12.dp))
+                                        }
                                     }
                                 }
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = turn.systemPrompt,
-                                    fontFamily = FontFamily.Monospace,
-                                    fontSize = 11.sp,
-                                    color = Color(0xFFC7D2FE),
-                                    lineHeight = 15.sp
-                                )
+                                if (isSystemVisible) {
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Text(
+                                        text = turn.systemPrompt,
+                                        fontFamily = FontFamily.Monospace,
+                                        fontSize = 11.sp,
+                                        color = Color(0xFFC7D2FE),
+                                        lineHeight = 15.sp
+                                    )
+                                }
                             }
                         }
                     }

@@ -33,7 +33,8 @@ object LiteRtLmSessionDelegate {
     data class EngineProbeResult(
         val engine: Engine?,
         val backend: String,
-        val isVisionCapable: Boolean
+        val isVisionCapable: Boolean,
+        val configuredContextTokens: Int = 131072
     )
 
     fun resolveModelPathAndSymlink(
@@ -143,15 +144,17 @@ object LiteRtLmSessionDelegate {
         preferredAccelerator: String,
         hasVisionEncoder: Boolean,
         effectiveTimeout: Long,
+        maxContextTokens: Int = 131072,
         onProgress: (String, Float?, String?) -> Unit
     ): EngineProbeResult {
         val wantsGpu = preferredAccelerator.equals("GPU", ignoreCase = true) || preferredAccelerator.equals("AUTO", ignoreCase = true)
         var activeEng: Engine? = null
         var resolvedBackend = ""
         var actualVisionCapable = false
+        var resolvedContextTokens = maxContextTokens
 
         if (wantsGpu) {
-            onProgress("Probing GPU backend (Vulkan/OpenCL) for hardware acceleration...", 0.45f, "Compiling GPU shaders & weights...")
+            onProgress("Probing GPU backend (Vulkan/OpenCL, capacity: $maxContextTokens tokens)...", 0.45f, "Compiling GPU shaders & weights...")
             try {
                 val (gpuEng, isVision) = tryCreateAndInitEngine(
                     context = context,
@@ -160,6 +163,7 @@ object LiteRtLmSessionDelegate {
                     enableVision = hasVisionEncoder,
                     backendLabel = "GPU",
                     timeoutMs = effectiveTimeout,
+                    maxNumTokens = maxContextTokens,
                     onProgress = onProgress
                 )
                 if (gpuEng != null) {
@@ -182,7 +186,7 @@ object LiteRtLmSessionDelegate {
         }
 
         if (activeEng == null && !preferredAccelerator.equals("GPU", ignoreCase = true)) {
-            onProgress("Initializing native CPU backend (multi-threaded XNNPACK)...", 0.75f, "Compiling CPU tensors...")
+            onProgress("Initializing native CPU backend (multi-threaded XNNPACK, capacity: $maxContextTokens tokens)...", 0.75f, "Compiling CPU tensors...")
             try {
                 val (cpuEng, isVision) = tryCreateAndInitEngine(
                     context = context,
@@ -191,6 +195,7 @@ object LiteRtLmSessionDelegate {
                     enableVision = hasVisionEncoder,
                     backendLabel = "CPU",
                     timeoutMs = effectiveTimeout,
+                    maxNumTokens = maxContextTokens,
                     onProgress = onProgress
                 )
                 if (cpuEng != null) {
@@ -206,7 +211,7 @@ object LiteRtLmSessionDelegate {
             }
         }
 
-        return EngineProbeResult(activeEng, resolvedBackend, actualVisionCapable)
+        return EngineProbeResult(activeEng, resolvedBackend, actualVisionCapable, resolvedContextTokens)
     }
 
     private suspend fun tryCreateAndInitEngine(
@@ -216,6 +221,7 @@ object LiteRtLmSessionDelegate {
         enableVision: Boolean,
         backendLabel: String,
         timeoutMs: Long,
+        maxNumTokens: Int? = 131072,
         onProgress: (String, Float?, String?) -> Unit
     ): Pair<Engine?, Boolean> {
         val initialVisionBackend = if (enableVision) backend else null
@@ -223,12 +229,13 @@ object LiteRtLmSessionDelegate {
             modelPath = modelPath,
             backend = backend,
             visionBackend = initialVisionBackend,
+            maxNumTokens = maxNumTokens,
             cacheDir = context.cacheDir.absolutePath
         )
         val eng = Engine(config)
         return try {
             eng.initialize()
-            onProgress("Native $backendLabel compilation succeeded. Running liveliness probe (Timeout: ${timeoutMs}ms)...", 0.65f, "Testing $backendLabel session...")
+            onProgress("Native $backendLabel compilation succeeded ($maxNumTokens tokens). Probing liveliness (${timeoutMs}ms)...", 0.65f, "Testing $backendLabel session...")
             val isAlive = testEngineLiveliness(eng, backendLabel, timeoutMs, onProgress)
             if (isAlive) {
                 Pair(eng, enableVision)
@@ -240,11 +247,12 @@ object LiteRtLmSessionDelegate {
             eng.close()
             val msg = initEx.message ?: ""
             if (enableVision && (msg.contains("tf_lite_vision_encoder", ignoreCase = true) || msg.contains("NOT_FOUND", ignoreCase = true))) {
-                onProgress("[INFO] Model has no vision encoder ($msg). Retrying in pure Text-Only mode on $backendLabel...", 0.6f, "Falling back to text-only...")
+                onProgress("[INFO] Model has no vision encoder ($msg). Retrying pure Text-Only mode on $backendLabel...", 0.6f, "Falling back to text-only...")
                 val textConfig = EngineConfig(
                     modelPath = modelPath,
                     backend = backend,
                     visionBackend = null,
+                    maxNumTokens = maxNumTokens,
                     cacheDir = context.cacheDir.absolutePath
                 )
                 val textEng = Engine(textConfig)

@@ -285,12 +285,12 @@ fun ModelQuickSwitchBottomSheet(
                             Text("Max Output Tokens", color = Color(0xFFE5E7EB), fontSize = 13.sp)
                             Text("$maxTokens", color = Color(0xFF3B82F6), fontSize = 13.sp, fontWeight = FontWeight.Bold)
                         }
-                        Text("Response generation limit (On-device context: 4,096 tokens)", color = Color(0xFF9CA3AF), fontSize = 11.sp)
+                        Text("Response generation limit per turn", color = Color(0xFF9CA3AF), fontSize = 11.sp)
                         Slider(
                             value = maxTokens.toFloat(),
                             onValueChange = { maxTokens = it.toInt() },
-                            valueRange = 128f..4096f,
-                            steps = 31,
+                            valueRange = 128f..8192f,
+                            steps = 63,
                             colors = SliderDefaults.colors(
                                 thumbColor = Color(0xFF3B82F6),
                                 activeTrackColor = Color(0xFF3B82F6),

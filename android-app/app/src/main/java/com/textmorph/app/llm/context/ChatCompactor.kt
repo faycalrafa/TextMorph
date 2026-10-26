@@ -53,7 +53,7 @@ object ChatCompactor {
         currentPrompt: String,
         documentText: String? = null,
         recentTurnCount: Int = DEFAULT_SLIDING_WINDOW_TURNS,
-        maxContextTokens: Int = 4096,
+        maxContextTokens: Int = 131072,
         maxOutputTokens: Int = 1024
     ): String {
         val safetyBuffer = 150

@@ -69,15 +69,20 @@ object ScreenLinearizer {
             var displayText = node.displayText.trim()
             val lowerText = displayText.lowercase()
 
-            // Filter out status bar items and stop macro controls
-            if (lowerText.contains("battery") ||
-                lowerText.contains("percent") ||
-                lowerText.contains("do not disturb") ||
-                lowerText.contains("three bars") ||
-                lowerText == "stop macro" ||
+            // Check if node matches query keywords (attentional anchoring)
+            val isQueryRelevant = keywords.any { kw -> lowerText.contains(kw) }
+
+            // Filter out system noise / status bar items, but NEVER filter query-relevant or clickable items
+            val isSystemNoiseText = lowerText == "stop macro" ||
                 lowerText == "🛑 stop macro" ||
-                SYSTEM_NOISE_REGEX.matches(lowerText)
-            ) {
+                SYSTEM_NOISE_REGEX.matches(lowerText) ||
+                lowerText.contains("do not disturb") ||
+                lowerText.contains("three bars")
+
+            val isStatusBarBatteryOrClock = (node.bounds.top <= 120 || currentPackage == "com.android.systemui") &&
+                (lowerText.contains("percent") || (lowerText.contains("battery") && !isQueryRelevant))
+
+            if (!isQueryRelevant && !node.isClickable && (isSystemNoiseText || isStatusBarBatteryOrClock)) {
                 continue
             }
 

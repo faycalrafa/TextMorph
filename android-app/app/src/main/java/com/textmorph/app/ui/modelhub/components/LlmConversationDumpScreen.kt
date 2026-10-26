@@ -27,11 +27,14 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Terminal
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -44,8 +47,10 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -76,6 +81,7 @@ fun LlmConversationDumpScreen(
     val messages by chatRepository.currentMessages.collectAsState()
     val activeSessionId by chatRepository.activeSessionId.collectAsState()
     val activeSession = chatRepository.getActiveSession()
+    var showSystemInstructions by remember { mutableStateOf(false) }
 
     BackHandler {
         onNavigateBack()
@@ -120,6 +126,30 @@ fun LlmConversationDumpScreen(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "Back",
                             tint = Color.White
+                        )
+                    }
+                },
+                actions = {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(end = 10.dp)
+                    ) {
+                        FilterChip(
+                            selected = showSystemInstructions,
+                            onClick = { showSystemInstructions = !showSystemInstructions },
+                            label = {
+                                Text(
+                                    text = if (showSystemInstructions) "Sys Prompt: Visible" else "Sys Prompt: Hidden",
+                                    fontSize = 11.sp
+                                )
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = if (showSystemInstructions) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                            }
                         )
                     }
                 },
@@ -191,7 +221,9 @@ fun LlmConversationDumpScreen(
                                             turns.forEach { turn ->
                                                 val timeStr = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date(turn.timestamp))
                                                 appendLine("## Turn #${turn.turnNumber} ($timeStr)")
-                                                appendLine("### System Instruction\n```\n${turn.systemPrompt ?: ""}\n```\n")
+                                                if (showSystemInstructions && !turn.systemPrompt.isNullOrBlank()) {
+                                                    appendLine("### System Instruction\n```\n${turn.systemPrompt}\n```\n")
+                                                }
                                                 appendLine("### User Request\n${turn.userPrompt}\n")
                                                 appendLine("### Naked LLM Output\n```\n${turn.rawNakedOutput}\n```\n")
                                                 if (turn.actionPayloadJson != null) {
@@ -274,6 +306,7 @@ fun LlmConversationDumpScreen(
                 ConversationTurnAccordion(
                     turn = turn,
                     isLatest = index == 0,
+                    showSystemInstruction = showSystemInstructions,
                     onCopy = { label, text -> copyToClipboard(label, text) }
                 )
             }

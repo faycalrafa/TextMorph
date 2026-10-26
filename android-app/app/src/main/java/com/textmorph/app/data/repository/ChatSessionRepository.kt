@@ -437,7 +437,7 @@ class ChatSessionRepository private constructor(private val context: Context) {
             recentMessages = messages,
             currentInput = currentInput,
             currentImageCount = currentImageCount,
-            maxContextTokens = active?.maxContextTokens ?: 4096
+            maxContextTokens = active?.maxContextTokens ?: 131072
         )
     }
 

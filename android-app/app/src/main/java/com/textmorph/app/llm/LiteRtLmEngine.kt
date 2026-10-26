@@ -48,8 +48,10 @@ class LiteRtLmEngine(private val context: Context) : LlmEngine {
     private val TAG = "LiteRtLmEngine"
     private val inferenceMutex = Mutex()
 
+    private var currentEngineContextTokens: Int = 131072
+
     override val maxContextTokens: Int
-        get() = 4096
+        get() = currentEngineContextTokens
 
     private var nativeEngine: Engine? = null
     private var activePfd: ParcelFileDescriptor? = null
@@ -135,17 +137,23 @@ class LiteRtLmEngine(private val context: Context) : LlmEngine {
                         0.4f
                     )
 
+                    val targetContextTokens = runCatching {
+                        SettingsRepository.getInstance(context).settingsState.value.contextWindowTokens
+                    }.getOrNull() ?: 131072
+
                     val probeResult = LiteRtLmSessionDelegate.probeAndSelectEngine(
                         context = context,
                         modelPath = effectivePath,
                         preferredAccelerator = preferredAccelerator,
                         hasVisionEncoder = hasVisionEncoder,
                         effectiveTimeout = effectiveTimeout,
+                        maxContextTokens = targetContextTokens,
                         onProgress = ::addProgressLog
                     )
                     val activeEng = probeResult.engine
                     val resolvedBackend = probeResult.backend
                     val actualVisionCapable = probeResult.isVisionCapable
+                    currentEngineContextTokens = probeResult.configuredContextTokens
 
                     if (activeEng != null) {
                         nativeEngine = activeEng
@@ -253,10 +261,12 @@ class LiteRtLmEngine(private val context: Context) : LlmEngine {
                     } else {
                         "$cleanInstruction\n\n$prompt"
                     }
-                    val userText = if (com.textmorph.app.util.TokenEstimator.estimateTextTokens(rawUserText) > 3800) {
-                        AppLogger.w(TAG, "Prompt tokens exceed LiteRT-LM hardware capacity. Clamping safely.")
-                        val notice = "\n\n[Warning: Input truncated to fit 4096 hardware context window]\n\n"
-                        val maxChars = 3800 * 3
+                    val tokenCapacity = maxContextTokens
+                    val safePromptTokens = (tokenCapacity - 512).coerceAtLeast(1024)
+                    val userText = if (com.textmorph.app.util.TokenEstimator.estimateTextTokens(rawUserText) > safePromptTokens) {
+                        AppLogger.w(TAG, "Prompt tokens exceed LiteRT-LM hardware capacity ($tokenCapacity). Clamping safely.")
+                        val notice = "\n\n[Warning: Input truncated to fit $tokenCapacity hardware context window]\n\n"
+                        val maxChars = safePromptTokens * 3
                         if (rawUserText.length > maxChars) rawUserText.take(500) + notice + rawUserText.takeLast(maxChars - 500 - notice.length) else rawUserText
                     } else {
                         rawUserText
@@ -268,7 +278,7 @@ class LiteRtLmEngine(private val context: Context) : LlmEngine {
                     var usedConversation = false
                     try {
                         val settings = runCatching { SettingsRepository.getInstance(context).settingsState.value }.getOrNull()
-                        val maxOutTokens = (settings?.maxTokens ?: 1024).coerceIn(64, 4096)
+                        val maxOutTokens = (settings?.maxTokens ?: 1024).coerceIn(64, tokenCapacity)
                         val convConfig = ConversationConfig(
                             samplerConfig = if (activeBackend.contains("GPU") || activeBackend.contains("CPU")) {
                                 SamplerConfig(

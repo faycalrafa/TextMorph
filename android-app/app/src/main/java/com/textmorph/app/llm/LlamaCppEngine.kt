@@ -32,7 +32,9 @@ class LlamaCppEngine(private val context: Context) : LlmEngine {
     private val inferenceMutex = Mutex()
 
     override val maxContextTokens: Int
-        get() = 4096
+        get() = runCatching {
+            SettingsRepository.getInstance(context).settingsState.value.contextWindowTokens
+        }.getOrNull() ?: 4096
 
     private var nativeContext: LlamaContext? = null
     private var nativeHandle: Long = 0L

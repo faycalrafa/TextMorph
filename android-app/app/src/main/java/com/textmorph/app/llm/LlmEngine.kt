@@ -37,7 +37,7 @@ interface LlmEngine {
      * The hardware or API context window capacity in tokens (e.g. 4096 for on-device SLMs, 128000 for cloud).
      */
     val maxContextTokens: Int
-        get() = 4096
+        get() = 131072
 
     /**
      * Releases any GPU or native model resources.

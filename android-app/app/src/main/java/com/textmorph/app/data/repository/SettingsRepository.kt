@@ -166,7 +166,8 @@ class SettingsRepository(private val context: Context) {
         defaultSystemPrompt: String,
         agentSystemPrompt: String = com.textmorph.app.agent.prompts.AgentPrompts.AGENT_SYSTEM_PROMPT_CODE_ACTION,
         actionCommandSyntax: ActionCommandSyntax? = null,
-        screenPerceptionMode: ScreenPerceptionMode? = null
+        screenPerceptionMode: ScreenPerceptionMode? = null,
+        contextWindowTokens: Int? = null
     ) = updateSettings {
         it.copy(
             maxTokens = maxTokens,
@@ -178,7 +179,8 @@ class SettingsRepository(private val context: Context) {
             defaultSystemPrompt = defaultSystemPrompt,
             agentSystemPrompt = agentSystemPrompt,
             actionCommandSyntax = actionCommandSyntax ?: it.actionCommandSyntax,
-            screenPerceptionMode = screenPerceptionMode ?: it.screenPerceptionMode
+            screenPerceptionMode = screenPerceptionMode ?: it.screenPerceptionMode,
+            contextWindowTokens = contextWindowTokens ?: it.contextWindowTokens
         )
     }
 

@@ -60,10 +60,12 @@ fun AiModelConfigDialog(
         enableThinking: Boolean,
         speculativeDecoding: Boolean,
         actionCommandSyntax: ActionCommandSyntax,
-        screenPerceptionMode: ScreenPerceptionMode
+        screenPerceptionMode: ScreenPerceptionMode,
+        contextWindowTokens: Int
     ) -> Unit,
     onDismiss: () -> Unit
 ) {
+    var contextWindowInput by remember { mutableStateOf(settings.contextWindowTokens.toString()) }
     var maxTokensInput by remember { mutableStateOf(settings.maxTokens.toString()) }
     var temperature by remember { mutableFloatStateOf(settings.temperature) }
     var topKInput by remember { mutableStateOf(settings.topK.toString()) }
@@ -129,7 +131,7 @@ fun AiModelConfigDialog(
                         }
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "• On-Device SLMs (LiteRT / llama.cpp): Hardware limit of 4,096 tokens total context (input + output combined).\n• Cloud Engine: Up to 128,000 tokens.\n• Max Output Tokens below sets how many tokens the AI can generate per response turn.",
+                            text = "• On-Device SLMs (Gemma 4 E2B): Supports up to 128K context (131,072 tokens total input + output combined).\n• Cloud Engine: Up to 128,000+ tokens.\n• Context Window: Hardware buffer allocated for input prompts + conversation history.\n• Max Output Tokens: Limits how many tokens the AI can generate per response turn.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             lineHeight = 16.sp
@@ -139,9 +141,47 @@ fun AiModelConfigDialog(
 
                 Spacer(modifier = Modifier.height(14.dp))
 
+                // Context Window Capacity (Hardware Context Limit)
+                val currentContextCap = contextWindowInput.toIntOrNull() ?: 131072
+                Text(
+                    text = "Context Window Capacity (Tokens)",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                OutlinedTextField(
+                    value = contextWindowInput,
+                    onValueChange = { if (it.all { c -> c.isDigit() } && it.length <= 7) contextWindowInput = it },
+                    label = { Text("Total Context Window (e.g. 131072 for 128K)") },
+                    placeholder = { Text("131072") },
+                    supportingText = {
+                        Text("Native capacity for Gemma 4 E2B is 131,072 (128K)")
+                    },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp)
+                )
+
+                // Quick preset chips for Context Window
+                Spacer(modifier = Modifier.height(4.dp))
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    listOf("8192" to "8K", "32768" to "32K", "65536" to "64K", "120000" to "120K", "131072" to "128K (Gemma 4)").forEach { (presetVal, label) ->
+                        FilterChip(
+                            selected = contextWindowInput == presetVal,
+                            onClick = { contextWindowInput = presetVal },
+                            label = { Text(label, fontSize = 11.sp) }
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
                 // Max Output Tokens
                 val tokensNum = maxTokensInput.toIntOrNull() ?: 1024
-                val isTokensExceedingOnDevice = tokensNum > 4096
+                val isTokensExceedingContext = tokensNum > currentContextCap
 
                 OutlinedTextField(
                     value = maxTokensInput,
@@ -149,16 +189,16 @@ fun AiModelConfigDialog(
                     label = { Text("Max Output Tokens (Generation Limit)") },
                     placeholder = { Text("1024") },
                     supportingText = {
-                        if (isTokensExceedingOnDevice) {
+                        if (isTokensExceedingContext) {
                             Text(
-                                "Warning: Exceeds 4,096 hardware context window. On-device generation will be clamped to 4,096.",
+                                "Warning: Exceeds context window ($currentContextCap tokens). Generation will be clamped.",
                                 color = MaterialTheme.colorScheme.error
                             )
                         } else {
-                            Text("Maximum response generation length (recommended: 512–2048)")
+                            Text("Maximum response generation length per turn (recommended: 512–4096)")
                         }
                     },
-                    isError = isTokensExceedingOnDevice,
+                    isError = isTokensExceedingContext,
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(10.dp)
@@ -348,6 +388,7 @@ fun AiModelConfigDialog(
                 ) {
                     OutlinedButton(
                         onClick = {
+                            contextWindowInput = "131072"
                             maxTokensInput = "1024"
                             temperature = 0.7f
                             topKInput = "40"
@@ -373,7 +414,8 @@ fun AiModelConfigDialog(
 
                     Button(
                         onClick = {
-                            val tokens = (maxTokensInput.toIntOrNull() ?: 1024).coerceIn(64, 4096)
+                            val contextTokens = (contextWindowInput.toIntOrNull() ?: 131072).coerceIn(2048, 131072)
+                            val tokens = (maxTokensInput.toIntOrNull() ?: 1024).coerceIn(64, contextTokens)
                             val k = topKInput.toIntOrNull() ?: 40
                             onSave(
                                 tokens,
@@ -383,7 +425,8 @@ fun AiModelConfigDialog(
                                 enableThinking,
                                 speculativeDecoding,
                                 actionCommandSyntax,
-                                screenPerceptionMode
+                                screenPerceptionMode,
+                                contextTokens
                             )
                         },
                         shape = RoundedCornerShape(10.dp)
