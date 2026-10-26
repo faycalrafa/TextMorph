@@ -10,6 +10,8 @@ import com.textmorph.app.agent.tools.ScreenAutomationTool
 import com.textmorph.app.data.model.ActionCommandSyntax
 import com.textmorph.app.data.model.AppSettings
 import com.textmorph.app.data.model.ScreenPerceptionMode
+import com.textmorph.app.llm.LiteRtLmEngine
+import com.textmorph.app.llm.LlamaCppEngine
 import com.textmorph.app.llm.LlmEngine
 import com.textmorph.app.util.AppLogger
 import kotlinx.coroutines.Dispatchers
@@ -25,7 +27,8 @@ class TaskExecutor(
     private val appLauncher: AppLauncherTool,
     private val screenTool: ScreenAutomationTool,
     private val engineProvider: () -> LlmEngine,
-    private val settingsProvider: () -> AppSettings = { AppSettings() }
+    private val settingsProvider: () -> AppSettings = { AppSettings() },
+    private val chatRepoProvider: (() -> com.textmorph.app.data.repository.ChatSessionRepository)? = null
 ) {
 
     private val TAG = "TaskExecutor"
@@ -55,10 +58,21 @@ class TaskExecutor(
 
         val settings = settingsProvider()
         val commandSyntax = settings.actionCommandSyntax
-        val perceptionMode = settings.screenPerceptionMode
+        val currentEngine = engineProvider()
+        val isTextOnly = when (currentEngine) {
+            is LiteRtLmEngine -> !currentEngine.sessionState.value.isVisionCapable
+            is LlamaCppEngine -> !currentEngine.sessionState.value.isVisionCapable
+            else -> false
+        }
+        val perceptionMode = if (isTextOnly) {
+            AppLogger.i(TAG, "Active engine model is text-only. Reverting screen perception to Accessibility Tree.")
+            ScreenPerceptionMode.ACCESSIBILITY_TREE
+        } else {
+            settings.screenPerceptionMode
+        }
         val taskSystemPrompt = AgentPrompts.getTaskSystemPrompt(commandSyntax)
 
-        AppLogger.i(TAG, "Task configured with syntax=$commandSyntax, perceptionMode=$perceptionMode")
+        AppLogger.i(TAG, "Task configured with syntax=$commandSyntax, perceptionMode=$perceptionMode (isTextOnly=$isTextOnly)")
 
         try {
             if (!screenTool.isAccessibilityReady()) {
@@ -139,6 +153,15 @@ class TaskExecutor(
                 val prompt = buildStepPrompt(goal, step, maxSteps, screenDump, commandSyntax, consecutiveFailures >= 2)
 
                 val rawOutput = queryLlm(prompt, imageBytes, taskSystemPrompt)
+                try {
+                    chatRepoProvider?.invoke()?.recordDiagnosticTurn(
+                        userPrompt = "Step $step ($goal)",
+                        systemPrompt = taskSystemPrompt,
+                        rawOutput = rawOutput
+                    )
+                } catch (e: Exception) {
+                    AppLogger.w(TAG, "Failed recording step diagnostic turn: ${e.message}")
+                }
                 if (isCancelled || TaskExecutionCoordinator.state.value.isInterrupted) {
                     TaskExecutionCoordinator.interrupt()
                     onStepsUpdated?.invoke(TaskExecutionCoordinator.state.value.stepsHistory)

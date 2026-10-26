@@ -170,6 +170,14 @@ fun AppNavigationDrawerSheet(
                     isSelected = currentDestination == AppDestination.MODEL_HUB,
                     onClick = { onSelectDestination(AppDestination.MODEL_HUB) }
                 )
+
+                DrawerNavItem(
+                    icon = Icons.Default.Terminal,
+                    title = "Raw LLM Dump",
+                    subtitle = "Unfiltered generations & diagnostics",
+                    isSelected = currentDestination == AppDestination.RAW_LLM_DUMP,
+                    onClick = { onSelectDestination(AppDestination.RAW_LLM_DUMP) }
+                )
             }
 
             HorizontalDivider()

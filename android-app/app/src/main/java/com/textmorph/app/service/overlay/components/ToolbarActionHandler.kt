@@ -175,7 +175,8 @@ class ToolbarActionHandler(
                     }
                 }
 
-                val finalOutput = LiteRtLmSessionDelegate.sanitizeNoThinking(sb.toString().trim())
+                val rawNaked = sb.toString()
+                val finalOutput = LiteRtLmSessionDelegate.sanitizeNoThinking(rawNaked.trim())
                 if (finalOutput.isNotEmpty()) {
                     onInsertText(finalOutput, false)
                     try {
@@ -184,6 +185,15 @@ class ToolbarActionHandler(
                         Toast.makeText(context, "Response generated & copied to clipboard", Toast.LENGTH_SHORT).show()
                     } catch (clipEx: Exception) {
                         AppLogger.w(TAG, "Failed writing vision response to clipboard: ${clipEx.message}")
+                    }
+                    try {
+                        com.textmorph.app.data.repository.ChatSessionRepository.getInstance(context).recordDiagnosticTurn(
+                            userPrompt = rawInput,
+                            systemPrompt = instruction,
+                            rawOutput = rawNaked
+                        )
+                    } catch (logEx: Exception) {
+                        AppLogger.w(TAG, "Failed recording vision diagnostic turn: ${logEx.message}")
                     }
                     onStateChanged(FloatingButtonState.REVERT_WINDOW)
                 } else {
@@ -228,7 +238,8 @@ class ToolbarActionHandler(
                     }
                 }
 
-                val finalOutput = LiteRtLmSessionDelegate.sanitizeNoThinking(sb.toString().trim())
+                val rawNaked = sb.toString()
+                val finalOutput = LiteRtLmSessionDelegate.sanitizeNoThinking(rawNaked.trim())
                 if (finalOutput.startsWith("Error:") || finalOutput.startsWith("Error (")) {
                     AppLogger.w(TAG, "Generation returned error: $finalOutput")
                     Toast.makeText(context, finalOutput, Toast.LENGTH_LONG).show()
@@ -243,6 +254,15 @@ class ToolbarActionHandler(
                         cm?.setPrimaryClip(ClipData.newPlainText("TextMorph Output", finalOutput))
                     } catch (e: Exception) {
                         AppLogger.d(TAG, "Secondary clipboard cache: ${e.message}")
+                    }
+                    try {
+                        com.textmorph.app.data.repository.ChatSessionRepository.getInstance(context).recordDiagnosticTurn(
+                            userPrompt = input,
+                            systemPrompt = effectiveInstruction,
+                            rawOutput = rawNaked
+                        )
+                    } catch (logEx: Exception) {
+                        AppLogger.w(TAG, "Failed recording toolbar diagnostic turn: ${logEx.message}")
                     }
                     onStateChanged(FloatingButtonState.REVERT_WINDOW)
                 } else {

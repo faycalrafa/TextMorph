@@ -161,7 +161,8 @@ fun AiChatContent(
         scope.launch {
             for (uri in uris) {
                 AttachmentPickerHelper.resolveMediaItem(context, uri)?.let { item ->
-                    attachments.add(item)
+                    val persisted = AttachmentPickerHelper.persistAttachmentLocally(context, item)
+                    attachments.add(persisted)
                 }
             }
         }
@@ -173,9 +174,10 @@ fun AiChatContent(
         }
     }
 
-    fun handleSend() {
-        if ((inputText.isNotBlank() || attachments.isNotEmpty()) && !isGenerating) {
-            val prompt = inputText.trim()
+    fun handleSend(overridePrompt: String? = null) {
+        val effectiveText = overridePrompt ?: inputText
+        if ((effectiveText.isNotBlank() || attachments.isNotEmpty()) && !isGenerating) {
+            val prompt = effectiveText.trim()
 
             // Validate attachments against model vision capabilities
             val (validatedAttachments, warning) = AttachmentPickerHelper.validateAttachments(
@@ -192,6 +194,15 @@ fun AiChatContent(
                 baos.toByteArray()
             }
             val docText = validatedAttachments.firstOrNull { !it.isImage }?.textContent
+
+            val chatAttachments = validatedAttachments.map { item ->
+                com.textmorph.app.data.model.ChatAttachment(
+                    name = item.name,
+                    mimeType = item.mimeType,
+                    contentSnippet = item.textContent,
+                    localUri = item.uri.toString()
+                )
+            }
 
             inputText = ""
             attachments.clear()
@@ -210,7 +221,8 @@ fun AiChatContent(
                 onStart = { isGenerating = true },
                 onComplete = { isGenerating = false },
                 setJob = { currentJob = it },
-                agentEngine = agentEngine
+                agentEngine = agentEngine,
+                attachments = chatAttachments
             )
         }
     }
@@ -266,14 +278,13 @@ fun AiChatContent(
                 .fillMaxWidth()
         ) {
             if (messages.isEmpty()) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(
-                        text = "Interactive AI Playground & Chat\nStart typing below to converse with $activeModelName",
-                        color = Color(0xFF9CA3AF),
-                        fontSize = 14.sp,
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                    )
-                }
+                com.textmorph.app.ui.chat.components.ChatEmptyStateStarters(
+                    isAgentMode = isAgentMode,
+                    activeModelName = activeModelName,
+                    onSelectStarter = { starter ->
+                        handleSend(starter)
+                    }
+                )
             } else {
                 LazyColumn(
                     state = listState,
@@ -289,16 +300,27 @@ fun AiChatContent(
                             onEditPrompt = { userMsg ->
                                 val targetId = activeSessionId ?: return@ChatMessageItemView
                                 inputText = userMsg.content
+                                attachments.clear()
+                                userMsg.getAttachments().forEach { att ->
+                                    AttachmentPickerHelper.restoreAttachedMediaItem(context, att)?.let { restored ->
+                                        attachments.add(restored)
+                                    }
+                                }
                                 scope.launch {
                                     chatRepository.truncateMessages(targetId, userMsg.id, inclusive = true)
                                 }
                             },
                             onRetryPrompt = { userMsg ->
                                 val targetId = activeSessionId ?: return@ChatMessageItemView
+                                attachments.clear()
+                                userMsg.getAttachments().forEach { att ->
+                                    AttachmentPickerHelper.restoreAttachedMediaItem(context, att)?.let { restored ->
+                                        attachments.add(restored)
+                                    }
+                                }
                                 scope.launch {
                                     chatRepository.truncateMessages(targetId, userMsg.id, inclusive = true)
-                                    inputText = userMsg.content
-                                    handleSend()
+                                    handleSend(userMsg.content)
                                 }
                             },
                             onInterruptAction = {
@@ -325,8 +347,7 @@ fun AiChatContent(
         com.textmorph.app.ui.chat.components.ChatAgentModeToggleRow(
             isAgentMode = isAgentMode,
             onModeChanged = { newAgentMode ->
-                val targetId = activeSessionId ?: return@ChatAgentModeToggleRow
-                scope.launch { chatRepository.setAgentMode(targetId, newAgentMode) }
+                scope.launch { chatRepository.switchMode(newAgentMode) }
             }
         )
 

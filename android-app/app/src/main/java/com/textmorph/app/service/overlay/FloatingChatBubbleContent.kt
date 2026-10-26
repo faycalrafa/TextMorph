@@ -205,8 +205,7 @@ fun FloatingChatBubbleContent(
                 isAgentMode = isAgentMode,
                 contextMetrics = contextMetrics,
                 onToggleAgentMode = {
-                    val currentId = currentSessionId ?: return@FloatingChatBubbleHeader
-                    scope.launch { chatSessionRepository.setAgentMode(currentId, !isAgentMode) }
+                    scope.launch { chatSessionRepository.switchMode(!isAgentMode) }
                 },
                 onContextClick = {
                     val activeId = currentSessionId ?: return@FloatingChatBubbleHeader

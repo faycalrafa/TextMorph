@@ -5,11 +5,15 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.provider.OpenableColumns
+import com.textmorph.app.data.model.ChatAttachment
 import com.textmorph.app.util.AppLogger
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.BufferedReader
+import java.io.File
+import java.io.FileOutputStream
 import java.io.InputStreamReader
+import java.util.UUID
 
 /**
  * Data representation of an attached image or text/code document.
@@ -121,5 +125,70 @@ object AttachmentPickerHelper {
         }
 
         return Pair(items, null)
+    }
+
+    /**
+     * Persists an attachment to internal app storage (filesDir/chat_attachments)
+     * so that it survives app reboots without losing SAF uri access permissions.
+     */
+    suspend fun persistAttachmentLocally(context: Context, item: AttachedMediaItem): AttachedMediaItem = withContext(Dispatchers.IO) {
+        try {
+            val attachmentsDir = File(context.filesDir, "chat_attachments").apply { if (!exists()) mkdirs() }
+            if (item.isImage && item.bitmap != null) {
+                val targetFile = File(attachmentsDir, "attach_${System.currentTimeMillis()}_${UUID.randomUUID().toString().take(8)}.png")
+                FileOutputStream(targetFile).use { out ->
+                    item.bitmap.compress(Bitmap.CompressFormat.PNG, 95, out)
+                }
+                val localUri = Uri.fromFile(targetFile)
+                AppLogger.d(TAG, "Cached chat image to internal storage: ${targetFile.absolutePath}")
+                return@withContext item.copy(uri = localUri)
+            } else if (!item.isImage && !item.textContent.isNullOrBlank()) {
+                val safeName = item.name.replace(Regex("[^a-zA-Z0-9._-]"), "_")
+                val targetFile = File(attachmentsDir, "doc_${System.currentTimeMillis()}_$safeName")
+                targetFile.writeText(item.textContent)
+                val localUri = Uri.fromFile(targetFile)
+                return@withContext item.copy(uri = localUri)
+            }
+        } catch (e: Exception) {
+            AppLogger.e(TAG, "Failed caching attachment to local storage: ${e.message}", e)
+        }
+        item
+    }
+
+    /**
+     * Restores an AttachedMediaItem from a persisted ChatAttachment entity.
+     */
+    fun restoreAttachedMediaItem(context: Context, attachment: ChatAttachment): AttachedMediaItem? {
+        val uriStr = attachment.localUri ?: return null
+        val uri = Uri.parse(uriStr)
+        val isImage = attachment.mimeType.startsWith("image/")
+
+        return if (isImage) {
+            val bmp = try {
+                if (uri.scheme == "file") {
+                    BitmapFactory.decodeFile(uri.path)
+                } else {
+                    context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it) }
+                }
+            } catch (e: Exception) {
+                AppLogger.w(TAG, "Failed loading restored image bitmap from $uri: ${e.message}")
+                null
+            }
+            AttachedMediaItem(
+                uri = uri,
+                name = attachment.name,
+                mimeType = attachment.mimeType,
+                isImage = true,
+                bitmap = bmp
+            )
+        } else {
+            AttachedMediaItem(
+                uri = uri,
+                name = attachment.name,
+                mimeType = attachment.mimeType,
+                isImage = false,
+                textContent = attachment.contentSnippet
+            )
+        }
     }
 }

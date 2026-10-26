@@ -30,7 +30,8 @@ object AiChatInferenceExecutor {
         onStart: () -> Unit,
         onComplete: () -> Unit,
         setJob: (Job) -> Unit,
-        agentEngine: com.textmorph.app.agent.AgentEngine? = null
+        agentEngine: com.textmorph.app.agent.AgentEngine? = null,
+        attachments: List<com.textmorph.app.data.model.ChatAttachment> = emptyList()
     ) {
         onStart()
 
@@ -52,7 +53,8 @@ object AiChatInferenceExecutor {
         val userEntity = ChatMessageEntity(
             sessionId = sessionId,
             role = "user",
-            content = prompt
+            content = prompt,
+            attachmentsJson = ChatMessageEntity.serializeAttachments(attachments)
         )
 
         val aiPlaceholder = ChatMessageEntity(

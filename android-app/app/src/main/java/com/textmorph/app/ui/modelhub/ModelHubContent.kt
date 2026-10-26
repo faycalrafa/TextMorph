@@ -60,6 +60,7 @@ import com.textmorph.app.data.model.ModelInfo
 import com.textmorph.app.ui.modelhub.components.AgentBenchmarkDialog
 import com.textmorph.app.ui.modelhub.components.AiModelConfigDialog
 import com.textmorph.app.ui.modelhub.components.DeleteModelDialog
+import com.textmorph.app.ui.modelhub.components.EditSystemPromptsDialog
 import com.textmorph.app.ui.modelhub.components.ModelItemCard
 import kotlinx.coroutines.launch
 
@@ -92,6 +93,7 @@ fun ModelHubContent(
     var pendingMmprojModelId by remember { mutableStateOf<String?>(null) }
     var modelToDelete by remember { mutableStateOf<ModelInfo?>(null) }
     var showAiConfigDialog by remember { mutableStateOf(false) }
+    var showEditPromptsDialog by remember { mutableStateOf(false) }
     var showBenchmarkDialog by remember { mutableStateOf(false) }
     var benchmarkModelName by remember { mutableStateOf("") }
 
@@ -263,7 +265,7 @@ fun ModelHubContent(
         item {
             com.textmorph.app.ui.modelhub.components.SystemPromptsInspectorCard(
                 settings = settings,
-                onOpenAiConfig = { showAiConfigDialog = true }
+                onOpenEditPrompts = { showEditPromptsDialog = true }
             )
         }
 
@@ -392,7 +394,7 @@ fun ModelHubContent(
     if (showAiConfigDialog) {
         AiModelConfigDialog(
             settings = settings,
-            onSave = { maxTokens, temp, k, p, thinking, speculative, prompt, agentPrompt, syntax, perceptionMode ->
+            onSave = { maxTokens, temp, k, p, thinking, speculative, syntax, perceptionMode ->
                 scope.launch {
                     settingsRepository.updateAiModelConfig(
                         maxTokens = maxTokens,
@@ -401,8 +403,8 @@ fun ModelHubContent(
                         topP = p,
                         enableThinking = thinking,
                         speculativeDecoding = speculative,
-                        defaultSystemPrompt = prompt,
-                        agentSystemPrompt = agentPrompt,
+                        defaultSystemPrompt = settings.defaultSystemPrompt,
+                        agentSystemPrompt = settings.agentSystemPrompt,
                         actionCommandSyntax = syntax,
                         screenPerceptionMode = perceptionMode
                     )
@@ -411,6 +413,21 @@ fun ModelHubContent(
                 }
             },
             onDismiss = { showAiConfigDialog = false }
+        )
+    }
+
+    // System Prompts Editor Dialog
+    if (showEditPromptsDialog) {
+        EditSystemPromptsDialog(
+            settings = settings,
+            onSave = { chatPrompt, agentPrompt ->
+                scope.launch {
+                    settingsRepository.updateSystemPrompts(chatPrompt, agentPrompt)
+                    showEditPromptsDialog = false
+                    Toast.makeText(context, "System prompts updated.", Toast.LENGTH_SHORT).show()
+                }
+            },
+            onDismiss = { showEditPromptsDialog = false }
         )
     }
 

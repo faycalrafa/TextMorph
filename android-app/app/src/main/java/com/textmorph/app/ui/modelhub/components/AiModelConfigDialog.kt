@@ -56,8 +56,6 @@ fun AiModelConfigDialog(
         topP: Float,
         enableThinking: Boolean,
         speculativeDecoding: Boolean,
-        defaultSystemPrompt: String,
-        agentSystemPrompt: String,
         actionCommandSyntax: ActionCommandSyntax,
         screenPerceptionMode: ScreenPerceptionMode
     ) -> Unit,
@@ -69,8 +67,6 @@ fun AiModelConfigDialog(
     var topP by remember { mutableFloatStateOf(settings.topP) }
     var enableThinking by remember { mutableStateOf(settings.enableThinking) }
     var speculativeDecoding by remember { mutableStateOf(settings.speculativeDecoding) }
-    var defaultSystemPrompt by remember { mutableStateOf(settings.defaultSystemPrompt) }
-    var agentSystemPrompt by remember { mutableStateOf(settings.agentSystemPrompt) }
     var actionCommandSyntax by remember { mutableStateOf(settings.actionCommandSyntax) }
     var screenPerceptionMode by remember { mutableStateOf(settings.screenPerceptionMode) }
 
@@ -226,24 +222,6 @@ fun AiModelConfigDialog(
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                // Chat Mode System Prompt
-                Text(
-                    text = "Chat Mode System Prompt",
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                OutlinedTextField(
-                    value = defaultSystemPrompt,
-                    onValueChange = { defaultSystemPrompt = it },
-                    minLines = 3,
-                    maxLines = 5,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(10.dp)
-                )
-
-                Spacer(modifier = Modifier.height(14.dp))
-
                 // Command Syntax Selector
                 Text(
                     text = "Agent Command Syntax",
@@ -263,18 +241,12 @@ fun AiModelConfigDialog(
                 ) {
                     FilterChip(
                         selected = actionCommandSyntax == ActionCommandSyntax.CODE_AS_ACTION,
-                        onClick = {
-                            actionCommandSyntax = ActionCommandSyntax.CODE_AS_ACTION
-                            agentSystemPrompt = com.textmorph.app.agent.prompts.AgentPrompts.AGENT_SYSTEM_PROMPT_CODE_ACTION
-                        },
+                        onClick = { actionCommandSyntax = ActionCommandSyntax.CODE_AS_ACTION },
                         label = { Text("Code-as-Action (Default)") }
                     )
                     FilterChip(
                         selected = actionCommandSyntax == ActionCommandSyntax.JSON_BASED,
-                        onClick = {
-                            actionCommandSyntax = ActionCommandSyntax.JSON_BASED
-                            agentSystemPrompt = com.textmorph.app.agent.prompts.AgentPrompts.AGENT_SYSTEM_PROMPT_JSON
-                        },
+                        onClick = { actionCommandSyntax = ActionCommandSyntax.JSON_BASED },
                         label = { Text("JSON-Based") }
                     )
                 }
@@ -299,39 +271,21 @@ fun AiModelConfigDialog(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     FilterChip(
+                        selected = screenPerceptionMode == ScreenPerceptionMode.PRIVATE_AGENT,
+                        onClick = { screenPerceptionMode = ScreenPerceptionMode.PRIVATE_AGENT },
+                        label = { Text("Private Agent Way (Default)") }
+                    )
+                    FilterChip(
                         selected = screenPerceptionMode == ScreenPerceptionMode.ACCESSIBILITY_TREE,
                         onClick = { screenPerceptionMode = ScreenPerceptionMode.ACCESSIBILITY_TREE },
-                        label = { Text("Accessibility Tree (Default)") }
+                        label = { Text("Accessibility Tree") }
                     )
                     FilterChip(
                         selected = screenPerceptionMode == ScreenPerceptionMode.SCREEN_CAPTURE,
                         onClick = { screenPerceptionMode = ScreenPerceptionMode.SCREEN_CAPTURE },
                         label = { Text("Screen Capture (Multimodal)") }
                     )
-                    FilterChip(
-                        selected = screenPerceptionMode == ScreenPerceptionMode.PRIVATE_AGENT,
-                        onClick = { screenPerceptionMode = ScreenPerceptionMode.PRIVATE_AGENT },
-                        label = { Text("Private Agent Way") }
-                    )
                 }
-
-                Spacer(modifier = Modifier.height(14.dp))
-
-                // Agent Mode System Prompt
-                Text(
-                    text = "Agent Mode System Prompt (Tools & Automation)",
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                OutlinedTextField(
-                    value = agentSystemPrompt,
-                    onValueChange = { agentSystemPrompt = it },
-                    minLines = 4,
-                    maxLines = 8,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(10.dp)
-                )
 
                 Spacer(modifier = Modifier.height(20.dp))
 
@@ -350,9 +304,7 @@ fun AiModelConfigDialog(
                             enableThinking = false
                             speculativeDecoding = false
                             actionCommandSyntax = ActionCommandSyntax.CODE_AS_ACTION
-                            screenPerceptionMode = ScreenPerceptionMode.ACCESSIBILITY_TREE
-                            defaultSystemPrompt = "You are a helpful, concise AI writing assistant. Transform or complete text according to user instructions. Return ONLY the final output without preamble or explanations."
-                            agentSystemPrompt = com.textmorph.app.agent.prompts.AgentPrompts.AGENT_SYSTEM_PROMPT_CODE_ACTION
+                            screenPerceptionMode = ScreenPerceptionMode.PRIVATE_AGENT
                         },
                         shape = RoundedCornerShape(10.dp)
                     ) {
@@ -379,8 +331,6 @@ fun AiModelConfigDialog(
                                 topP,
                                 enableThinking,
                                 speculativeDecoding,
-                                defaultSystemPrompt.trim(),
-                                agentSystemPrompt.trim(),
                                 actionCommandSyntax,
                                 screenPerceptionMode
                             )

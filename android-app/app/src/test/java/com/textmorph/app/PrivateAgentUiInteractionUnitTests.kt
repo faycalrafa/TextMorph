@@ -173,4 +173,10 @@ class PrivateAgentUiInteractionUnitTests {
         assertEquals("click_text", jsonAction?.action)
         assertEquals("Submit", jsonAction?.getStringParam("text"))
     }
+
+    @Test
+    fun testDefaultScreenPerceptionModeIsPrivateAgent() {
+        val defaultSettings = AppSettings()
+        assertEquals(ScreenPerceptionMode.PRIVATE_AGENT, defaultSettings.screenPerceptionMode)
+    }
 }

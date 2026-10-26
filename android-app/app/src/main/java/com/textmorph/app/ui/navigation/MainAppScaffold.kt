@@ -127,7 +127,6 @@ fun MainAppScaffold(
     var isCheckingUpdate by remember { mutableStateOf(false) }
     var activeReleaseInfo by remember { mutableStateOf<AppReleaseInfo?>(null) }
     var downloadState by remember { mutableStateOf<DownloadState?>(null) }
-    var showLlmDumpDialog by remember { mutableStateOf(false) }
 
     fun triggerUpdateCheck() {
         scope.launch {
@@ -228,6 +227,11 @@ fun MainAppScaffold(
                 currentVersionName = updateRepository.getCurrentVersionName(),
                 onNavigateBack = { currentDestination = AppDestination.ABOUT }
             )
+        } else if (currentDestination == AppDestination.RAW_LLM_DUMP) {
+            com.textmorph.app.ui.modelhub.components.LlmConversationDumpScreen(
+                chatRepository = chatRepository,
+                onNavigateBack = { currentDestination = AppDestination.MODEL_HUB }
+            )
         } else {
             Scaffold(
                 topBar = {
@@ -286,7 +290,7 @@ fun MainAppScaffold(
                                         }
                                     }
                                 } else if (currentDestination == AppDestination.MODEL_HUB) {
-                                    IconButton(onClick = { showLlmDumpDialog = true }) {
+                                    IconButton(onClick = { currentDestination = AppDestination.RAW_LLM_DUMP }) {
                                         Icon(
                                             imageVector = Icons.Default.Terminal,
                                             contentDescription = "Raw LLM Conversation Dump",
@@ -425,7 +429,8 @@ fun MainAppScaffold(
                         }
 
                         AppDestination.VERSION_HISTORY,
-                        AppDestination.DEV_LOGS -> {
+                        AppDestination.DEV_LOGS,
+                        AppDestination.RAW_LLM_DUMP -> {
                             // Handled in root Scaffold branch
                         }
                     }
@@ -455,10 +460,7 @@ fun MainAppScaffold(
                 showUpdateDialog = false
                 downloadState = null
             },
-            onDownloadStateChanged = { downloadState = it },
-            showLlmDumpDialog = showLlmDumpDialog,
-            onDismissLlmDumpDialog = { showLlmDumpDialog = false },
-            chatRepository = chatRepository
+            onDownloadStateChanged = { downloadState = it }
         )
     }
 }

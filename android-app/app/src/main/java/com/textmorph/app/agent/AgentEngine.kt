@@ -39,7 +39,13 @@ class AgentEngine(
     private val settingsProvider = {
         com.textmorph.app.data.repository.SettingsRepository.getInstance(context).settingsState.value
     }
-    val taskExecutor = TaskExecutor(appLauncher, screenAutomation, engineProvider, settingsProvider)
+    val taskExecutor = TaskExecutor(
+        appLauncher = appLauncher,
+        screenTool = screenAutomation,
+        engineProvider = engineProvider,
+        settingsProvider = settingsProvider,
+        chatRepoProvider = { com.textmorph.app.data.repository.ChatSessionRepository.getInstance(context) }
+    )
 
     suspend fun execute(
         action: AgentAction,

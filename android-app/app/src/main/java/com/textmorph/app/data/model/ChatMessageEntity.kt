@@ -2,6 +2,7 @@ package com.textmorph.app.data.model
 
 import com.textmorph.app.agent.model.AgentTaskStep
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
 
 /**
  * Represents a persistent message in a chat conversation thread with performance telemetry.
@@ -26,6 +27,28 @@ data class ChatMessageEntity(
 ) {
     fun getActionSteps(): List<AgentTaskStep> {
         return AgentTaskStep.deserializeList(actionStepsJson)
+    }
+
+    fun getAttachments(): List<ChatAttachment> {
+        if (attachmentsJson.isBlank() || attachmentsJson == "[]") return emptyList()
+        return try {
+            json.decodeFromString(attachmentsJson)
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    companion object {
+        private val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+
+        fun serializeAttachments(attachments: List<ChatAttachment>): String {
+            if (attachments.isEmpty()) return "[]"
+            return try {
+                json.encodeToString(attachments)
+            } catch (e: Exception) {
+                "[]"
+            }
+        }
     }
 }
 

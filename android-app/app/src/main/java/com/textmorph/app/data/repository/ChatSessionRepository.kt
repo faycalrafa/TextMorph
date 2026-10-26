@@ -287,6 +287,60 @@ class ChatSessionRepository private constructor(private val context: Context) {
         }
     }
 
+    suspend fun switchMode(isAgentMode: Boolean) = withContext(Dispatchers.IO) {
+        val targetSession = _sessionsState.value.firstOrNull { it.isAgentMode == isAgentMode }
+        if (targetSession != null) {
+            selectSession(targetSession.id)
+            AppLogger.d(TAG, "Switched to existing mode workspace: ${targetSession.id} (agent=$isAgentMode)")
+        } else {
+            val title = if (isAgentMode) "Agent Workspace" else "Chat Workspace"
+            val newSession = createSession(title = title)
+            setAgentMode(newSession.id, isAgentMode)
+            AppLogger.i(TAG, "Created dedicated mode workspace: ${newSession.id} (agent=$isAgentMode)")
+        }
+    }
+
+    suspend fun recordDiagnosticTurn(
+        userPrompt: String,
+        systemPrompt: String?,
+        rawOutput: String,
+        thoughtContent: String? = null,
+        actionPayloadJson: String? = null,
+        actionStatus: String? = null,
+        tokensPerSecond: Float? = null,
+        totalTokens: Int? = null,
+        durationMs: Long? = null,
+        attachmentsJson: String = "[]"
+    ) = withContext(Dispatchers.IO) {
+        val activeId = _activeSessionId.value ?: _sessionsState.value.firstOrNull()?.id ?: run {
+            val created = createSession("Diagnostics Workspace")
+            created.id
+        }
+        val userMsg = ChatMessageEntity(
+            sessionId = activeId,
+            role = "user",
+            content = userPrompt,
+            attachmentsJson = attachmentsJson,
+            systemPrompt = systemPrompt
+        )
+        val assistantMsg = ChatMessageEntity(
+            sessionId = activeId,
+            role = "assistant",
+            content = rawOutput,
+            thoughtContent = thoughtContent,
+            rawNakedOutput = rawOutput,
+            systemPrompt = systemPrompt,
+            actionPayloadJson = actionPayloadJson,
+            actionStatus = actionStatus,
+            tokensPerSecond = tokensPerSecond,
+            totalTokens = totalTokens,
+            durationMs = durationMs
+        )
+        appendMessage(userMsg)
+        appendMessage(assistantMsg)
+        AppLogger.i(TAG, "Recorded diagnostic turn for session $activeId: prompt='${userPrompt.take(40)}...'")
+    }
+
     suspend fun truncateMessages(sessionId: String, messageId: String, inclusive: Boolean) = withContext(Dispatchers.IO) {
         mutex.withLock {
             val existing = _currentMessages.value.toMutableList()

@@ -3,9 +3,12 @@ package com.textmorph.app.ui.chat.components
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.graphics.BitmapFactory
+import android.net.Uri
 import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -17,10 +20,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Speed
@@ -37,13 +42,17 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.textmorph.app.data.model.ChatAttachment
 import com.textmorph.app.data.model.ChatMessageEntity
 import java.util.Locale
 
@@ -76,6 +85,21 @@ fun ChatMessageItemView(
         horizontalAlignment = align
     ) {
         if (isUser) {
+            val attachments = remember(message.attachmentsJson) { message.getAttachments() }
+            if (attachments.isNotEmpty()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth(0.85f)
+                        .padding(bottom = 6.dp),
+                    horizontalAlignment = Alignment.End,
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    attachments.forEach { item ->
+                        UserAttachmentItem(item)
+                    }
+                }
+            }
+
             Box {
                 Surface(
                     shape = RoundedCornerShape(16.dp, 4.dp, 16.dp, 16.dp),
@@ -295,6 +319,65 @@ private fun AssistantTextBubble(text: String) {
     ) {
         Box(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
             MarkdownText(markdown = sanitized)
+        }
+    }
+}
+
+@Composable
+private fun UserAttachmentItem(attachment: ChatAttachment) {
+    val context = LocalContext.current
+    val isImage = attachment.mimeType.startsWith("image/")
+
+    if (isImage) {
+        val bitmap = remember(attachment.localUri) {
+            try {
+                val uri = attachment.localUri?.let { Uri.parse(it) }
+                if (uri != null) {
+                    if (uri.scheme == "file") {
+                        BitmapFactory.decodeFile(uri.path)
+                    } else {
+                        context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it) }
+                    }
+                } else null
+            } catch (e: Exception) {
+                null
+            }
+        }
+
+        if (bitmap != null) {
+            Image(
+                bitmap = bitmap.asImageBitmap(),
+                contentDescription = attachment.name,
+                modifier = Modifier
+                    .sizeIn(maxWidth = 200.dp, maxHeight = 160.dp)
+                    .clip(RoundedCornerShape(12.dp)),
+                contentScale = ContentScale.Crop
+            )
+        }
+    } else {
+        Surface(
+            shape = RoundedCornerShape(8.dp),
+            color = Color(0xFF1E293B),
+            border = BorderStroke(1.dp, Color(0xFF334155))
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Description,
+                    contentDescription = null,
+                    tint = Color(0xFF93C5FD),
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = attachment.name,
+                    color = Color.White,
+                    fontSize = 12.sp,
+                    maxLines = 1
+                )
+            }
         }
     }
 }

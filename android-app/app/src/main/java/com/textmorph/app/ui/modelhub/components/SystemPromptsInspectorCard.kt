@@ -49,7 +49,7 @@ import com.textmorph.app.data.model.AppSettings
 @Composable
 fun SystemPromptsInspectorCard(
     settings: AppSettings,
-    onOpenAiConfig: () -> Unit,
+    onOpenEditPrompts: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     var isExpanded by remember { mutableStateOf(false) }
@@ -164,11 +164,11 @@ fun SystemPromptsInspectorCard(
                     Spacer(modifier = Modifier.height(10.dp))
 
                     OutlinedButton(
-                        onClick = onOpenAiConfig,
+                        onClick = onOpenEditPrompts,
                         shape = RoundedCornerShape(10.dp),
                         modifier = Modifier.align(Alignment.End)
                     ) {
-                        Icon(Icons.Default.Tune, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Icon(Icons.Default.Psychology, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
                         Text("Edit System Prompts", fontSize = 12.sp)
                     }

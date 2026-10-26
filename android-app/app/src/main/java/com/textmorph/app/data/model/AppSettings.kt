@@ -27,7 +27,7 @@ data class AppSettings(
     val theme: ThemeMode = ThemeMode.DARK_SLATE,
     val selectedEngine: EngineType = EngineType.ON_DEVICE_LITERT,
     val actionCommandSyntax: ActionCommandSyntax = ActionCommandSyntax.CODE_AS_ACTION,
-    val screenPerceptionMode: ScreenPerceptionMode = ScreenPerceptionMode.ACCESSIBILITY_TREE,
+    val screenPerceptionMode: ScreenPerceptionMode = ScreenPerceptionMode.PRIVATE_AGENT,
     val activeModelPath: String? = null,
     val activeModelUri: String? = null,
     val activeModelName: String = "gemma-4-E2B-it.litertlm",

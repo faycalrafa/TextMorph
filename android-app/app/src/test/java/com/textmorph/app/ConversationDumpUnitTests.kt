@@ -124,4 +124,66 @@ class ConversationDumpUnitTests {
         assertEquals(1, turns.size)
         assertTrue(turns[0].isActionFailed)
     }
+
+    @Test
+    fun testAttachmentSerializationAndDeserialization() {
+        val attachments = listOf(
+            com.textmorph.app.data.model.ChatAttachment(
+                id = "att_1",
+                name = "photo.png",
+                mimeType = "image/png",
+                localUri = "file:///data/user/0/com.textmorph.app/files/chat_attachments/attach_1.png",
+                sizeBytes = 1024L
+            ),
+            com.textmorph.app.data.model.ChatAttachment(
+                id = "att_2",
+                name = "report.txt",
+                mimeType = "text/plain",
+                contentSnippet = "Document contents snippet",
+                localUri = "file:///data/user/0/com.textmorph.app/files/chat_attachments/doc_2.txt",
+                sizeBytes = 256L
+            )
+        )
+
+        val json = ChatMessageEntity.serializeAttachments(attachments)
+        val msg = ChatMessageEntity(
+            sessionId = "s1",
+            role = "user",
+            content = "Look at this",
+            attachmentsJson = json
+        )
+
+        val deserialized = msg.getAttachments()
+        assertEquals(2, deserialized.size)
+        assertEquals("photo.png", deserialized[0].name)
+        assertEquals("image/png", deserialized[0].mimeType)
+        assertEquals("file:///data/user/0/com.textmorph.app/files/chat_attachments/attach_1.png", deserialized[0].localUri)
+        assertEquals("report.txt", deserialized[1].name)
+        assertEquals("Document contents snippet", deserialized[1].contentSnippet)
+    }
+
+    @Test
+    fun testRawOutputPreservesJsonAndMarkdownByteForByte() {
+        val rawJson = "{\"action\": \"click_text\", \"text\": \"Submit\", \"reasoning\": \"user wants to submit\"}"
+        val rawMarkdown = "# Detailed Analysis\n* Point 1\n* Point 2\n```json\n{\"test\": 123}\n```"
+
+        val msgJson = ChatMessageEntity(
+            sessionId = "s1",
+            role = "assistant",
+            content = "Submitting form...",
+            rawNakedOutput = rawJson
+        )
+        val msgMd = ChatMessageEntity(
+            sessionId = "s1",
+            role = "assistant",
+            content = "Analyzed data",
+            rawNakedOutput = rawMarkdown
+        )
+
+        val turnsJson = ConversationDumpTurn.extractDumpTurns(listOf(msgJson))
+        val turnsMd = ConversationDumpTurn.extractDumpTurns(listOf(msgMd))
+
+        assertEquals(rawJson, turnsJson[0].rawNakedOutput)
+        assertEquals(rawMarkdown, turnsMd[0].rawNakedOutput)
+    }
 }

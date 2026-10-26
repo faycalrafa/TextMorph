@@ -9,5 +9,6 @@ enum class AppDestination(val title: String) {
     SETTINGS("Settings"),
     ABOUT("About TextMorph"),
     DEV_LOGS("Developer Diagnostics"),
-    VERSION_HISTORY("Version History")
+    VERSION_HISTORY("Version History"),
+    RAW_LLM_DUMP("Raw LLM Dump")
 }

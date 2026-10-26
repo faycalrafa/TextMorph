@@ -182,6 +182,13 @@ class SettingsRepository(private val context: Context) {
         )
     }
 
+    suspend fun updateSystemPrompts(chatPrompt: String, agentPrompt: String) = updateSettings {
+        it.copy(
+            defaultSystemPrompt = chatPrompt,
+            agentSystemPrompt = agentPrompt
+        )
+    }
+
     suspend fun setAutoSendVoiceInput(enabled: Boolean) = updateSettings { it.copy(autoSendVoiceInput = enabled) }
 
     private fun saveSettingsToDisk(settings: AppSettings) {
