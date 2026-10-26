@@ -4,9 +4,11 @@ import com.textmorph.app.agent.coordinator.TaskExecutionCoordinator
 import com.textmorph.app.agent.model.AgentAction
 import com.textmorph.app.agent.model.AgentTaskStep
 import com.textmorph.app.agent.parser.AgentActionParser
+import com.textmorph.app.agent.planner.TaskPlanDecomposer
 import com.textmorph.app.agent.prompts.AgentPrompts
 import com.textmorph.app.agent.tools.AppLauncherTool
 import com.textmorph.app.agent.tools.ScreenAutomationTool
+import com.textmorph.app.agent.ui.AgentToastNotifier
 import com.textmorph.app.data.model.ActionCommandSyntax
 import com.textmorph.app.data.model.AppSettings
 import com.textmorph.app.data.model.ScreenPerceptionMode
@@ -105,6 +107,12 @@ class TaskExecutor(
                 delay(3000)
             }
 
+            val milestones = TaskPlanDecomposer.decompose(goal)
+            var activeMilestoneIndex = 0
+            milestones.firstOrNull()?.let { firstM ->
+                AgentToastNotifier.showStepToast(appLauncher.context, firstM.index, milestones.size, firstM.description)
+            }
+
             var consecutiveFailures = 0
             var sameActionCount = 0
 
@@ -159,7 +167,12 @@ class TaskExecutor(
                 TaskExecutionCoordinator.setThinking(true)
                 onProgress(step, "Planning next action (Step $step/$maxSteps)…")
 
-                val prompt = buildStepPrompt(goal, step, maxSteps, screenDump, commandSyntax, consecutiveFailures >= 2)
+                val activeMilestone = milestones.getOrNull(activeMilestoneIndex)
+                val targetGoalText = if (activeMilestone != null && milestones.size > 1) {
+                    "OVERALL GOAL: $goal\nACTIVE STEP (${activeMilestone.index}/${milestones.size}): ${activeMilestone.description}"
+                } else goal
+
+                val prompt = buildStepPrompt(targetGoalText, step, maxSteps, screenDump, commandSyntax, consecutiveFailures >= 2)
 
                 val rawOutput = queryLlm(prompt, imageBytes, taskSystemPrompt)
                 try {
@@ -258,6 +271,20 @@ class TaskExecutor(
 
                 if (success) {
                     consecutiveFailures = 0
+                    if (activeMilestone != null && activeMilestoneIndex < milestones.size - 1) {
+                        val isConfirmed = TaskPlanDecomposer.isMilestoneConfirmed(
+                            milestone = activeMilestone,
+                            screenDump = screenDump,
+                            currentPackage = screenTool.getCurrentPackage()
+                        )
+                        if (isConfirmed) {
+                            AppLogger.i(TAG, "Step ${activeMilestone.index} verified complete: '${activeMilestone.description}'")
+                            activeMilestoneIndex++
+                            milestones.getOrNull(activeMilestoneIndex)?.let { nextM ->
+                                AgentToastNotifier.showStepToast(appLauncher.context, nextM.index, milestones.size, nextM.description)
+                            }
+                        }
+                    }
                 } else {
                     consecutiveFailures++
                     if (consecutiveFailures >= 4) {

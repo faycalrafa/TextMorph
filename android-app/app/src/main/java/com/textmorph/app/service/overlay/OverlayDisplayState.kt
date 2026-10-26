@@ -7,11 +7,11 @@ enum class OverlayDisplayState {
     /** Closed 56x56 dp draggable circular Messenger-style bubble head */
     COLLAPSED_BUBBLE,
 
-    /** Horizontal quick-transform prompt ribbon with the 'Open Chat' button */
+    /** Horizontal quick-transform prompt ribbon with the Quick Agent Request button */
     EXPANDED_TOOLBAR,
 
-    /** Floating interactive chat window over the active screen */
-    EXPANDED_CHAT,
+    /** Floating companion listening for user voice/agent instruction with ear 👂 icon */
+    LISTENING_REQUEST,
 
     /** Bubble head smoothly animating across the screen toward target element coordinates */
     AUTOMATING_ACTION

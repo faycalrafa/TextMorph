@@ -80,23 +80,14 @@ object OverlayLayoutParamsHelper {
         params.y = (userY ?: (bounds.screenHeight / 2)).coerceIn(bounds.minY, bounds.maxY)
     }
 
-    fun applyExpandedChat(
-        params: WindowManager.LayoutParams,
-        bounds: ScreenBounds,
-        isInputFocused: Boolean = true
-    ) {
-        val marginPx = (12 * bounds.density).roundToInt()
-        params.width = bounds.screenWidth - (marginPx * 2)
-        params.height = (bounds.screenHeight * 0.65f).roundToInt().coerceAtLeast((420 * bounds.density).roundToInt())
-        params.x = marginPx
-        params.y = (44 * bounds.density).roundToInt()
-
-        params.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
-
-        // Clear FLAG_NOT_FOCUSABLE so soft keyboard works when chat input is focused
-        params.flags = params.flags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE.inv()
-        params.flags = params.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
-        params.flags = params.flags or WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH
+    fun applyListeningRequest(params: WindowManager.LayoutParams, bounds: ScreenBounds, anchorX: Int, anchorY: Int) {
+        val bubbleSizePx = (56 * bounds.density).roundToInt()
+        params.width = bubbleSizePx
+        params.height = bubbleSizePx
+        params.flags = params.flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+        params.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_STATE_UNCHANGED
+        params.x = (anchorX - bubbleSizePx / 2).coerceIn(bounds.minX, bounds.maxX)
+        params.y = (anchorY - bubbleSizePx / 2).coerceIn(bounds.minY, bounds.maxY)
     }
 
     fun applyAutomatingAction(params: WindowManager.LayoutParams, bounds: ScreenBounds, targetX: Int, targetY: Int) {

@@ -38,6 +38,7 @@ class ScreenAutomationController(private val service: AccessibilityService) {
     private val TAG = "ScreenAutomationCtrl"
     private val ownPackage = "com.textmorph.app"
     var onTapDispatched: ((Float, Float) -> Unit)? = null
+    var onTargetFocused: ((Float, Float) -> Unit)? = null
 
     fun dumpScreenHierarchy(): List<UiElementNode> {
         val result = mutableListOf<UiElementNode>()
@@ -129,6 +130,7 @@ class ScreenAutomationController(private val service: AccessibilityService) {
 
     fun clickAtCoordinates(x: Float, y: Float): Boolean {
         return try {
+            onTargetFocused?.invoke(x, y)
             onTapDispatched?.invoke(x, y)
             val path = Path().apply { moveTo(x, y) }
             val stroke = GestureDescription.StrokeDescription(path, 0, 100)
@@ -209,6 +211,7 @@ class ScreenAutomationController(private val service: AccessibilityService) {
             val rect = Rect()
             node.getBoundsInScreen(rect)
             if (!rect.isEmpty) {
+                onTargetFocused?.invoke(rect.centerX().toFloat(), rect.centerY().toFloat())
                 onTapDispatched?.invoke(rect.centerX().toFloat(), rect.centerY().toFloat())
             }
             return true
@@ -231,6 +234,11 @@ class ScreenAutomationController(private val service: AccessibilityService) {
                     val editNode = findEditableNode(root, fieldHint) ?: findEditableNode(root, null)
                     if (editNode != null) {
                         try {
+                            val rect = Rect()
+                            editNode.getBoundsInScreen(rect)
+                            if (!rect.isEmpty) {
+                                onTargetFocused?.invoke(rect.centerX().toFloat(), rect.centerY().toFloat())
+                            }
                             editNode.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
                             val args = Bundle().apply {
                                 putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text)

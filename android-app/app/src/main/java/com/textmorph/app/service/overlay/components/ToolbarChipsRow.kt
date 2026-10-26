@@ -58,7 +58,7 @@ fun LazyListScope.buildToolbarChips(
                 )
             }
         }
-        FloatingButtonState.IDLE -> {
+        FloatingButtonState.IDLE, FloatingButtonState.LISTENING -> {
             // 1. Quick Fix in progress indicator
             if (isFixingInProgress) {
                 item {

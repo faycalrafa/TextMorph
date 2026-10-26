@@ -30,7 +30,7 @@ class ChatAndAutomationUpgradeUnitTests {
         assertEquals(4, states.size)
         assertTrue(states.contains(OverlayDisplayState.COLLAPSED_BUBBLE))
         assertTrue(states.contains(OverlayDisplayState.EXPANDED_TOOLBAR))
-        assertTrue(states.contains(OverlayDisplayState.EXPANDED_CHAT))
+        assertTrue(states.contains(OverlayDisplayState.LISTENING_REQUEST))
         assertTrue(states.contains(OverlayDisplayState.AUTOMATING_ACTION))
     }
 

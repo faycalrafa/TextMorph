@@ -6,18 +6,11 @@ import android.os.SystemClock
 import android.view.HapticFeedbackConstants
 import android.view.WindowManager
 import androidx.compose.animation.Crossfade
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.size
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.ComposeView
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.setViewTreeLifecycleOwner
 import androidx.lifecycle.setViewTreeViewModelStoreOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
@@ -32,6 +25,7 @@ import com.textmorph.app.llm.LlamaCppEngineManager
 import com.textmorph.app.llm.OpenAiCloudEngine
 import com.textmorph.app.service.overlay.components.FloatingEdgePill
 import com.textmorph.app.theme.TextMorphTheme
+import com.textmorph.app.ui.chat.components.VoiceInputHelper
 import com.textmorph.app.util.AppLogger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -43,9 +37,9 @@ import kotlin.math.roundToInt
 /**
  * Manages the unified window lifecycle, touch gestures, focus states, and transitions across:
  * - COLLAPSED_BUBBLE: Minimal draggable Messenger bubble head.
- * - EXPANDED_TOOLBAR: Ultra-low footprint companion ribbon.
- * - EXPANDED_CHAT: Floating full-featured chat bubble.
- * - AUTOMATING_ACTION: Target-seeking coordinate gliding with circular thinking animation.
+ * - EXPANDED_TOOLBAR: Ultra-low footprint companion ribbon with Quick Agent Request.
+ * - LISTENING_REQUEST: Companion bubble displaying ear 👂 icon while listening for agent requests.
+ * - AUTOMATING_ACTION: Living companion bubble smoothly gliding across coordinates during execution.
  */
 class FloatingToolbarWindowManager(
     private val service: TextMorphAccessibilityService,
@@ -74,7 +68,6 @@ class FloatingToolbarWindowManager(
         private set
     private val isDraggingState = mutableStateOf(false)
     private var isBusyState = false
-    private var isChatInputFocused = false
 
     private var singleTapHandler: (() -> Unit)? = null
     private var collapseHandler: (() -> Unit)? = null
@@ -86,12 +79,14 @@ class FloatingToolbarWindowManager(
     private var wasShownForTask = false
     private var automatingStateTimestamp = 0L
 
-    // Automation Controller & Coordinate Animator
+    // Coordinate Animator & Automation Controller
     private val coordinateAnimator = OverlayCoordinateAnimator(windowManager, { overlayContainer }, { windowParams })
     private val automationController = ScreenAutomationController(service).apply {
         onTapDispatched = { x, y -> service.getInteractionOverlayManager()?.showTap(x, y) }
+        onTargetFocused = { x, y -> coordinateAnimator.animateTo(x, y, durationMs = 380L) }
     }
     val actionExecutor = DeviceActionExecutor(service, automationController, liteRtEngine, llamaCppEngine, cloudEngine)
+    private val voiceInputHelper = VoiceInputHelper(service)
 
     init {
         windowScope.launch {
@@ -99,15 +94,10 @@ class FloatingToolbarWindowManager(
                 if (taskState.isRunning) {
                     if (!isShowingActive) {
                         wasShownForTask = true
-                        show(
-                            autoExpand = false,
-                            onTakeScreenshot = { callback -> service.captureScreenContext(callback) },
-                            onExtractTranscript = { service.extractConversationTranscript() }
-                        )
+                        show(autoExpand = false, onTakeScreenshot = { cb -> service.captureScreenContext(cb) }, onExtractTranscript = { service.extractConversationTranscript() })
                     }
-                    if (displayState != OverlayDisplayState.AUTOMATING_ACTION) {
-                        transitionTo(OverlayDisplayState.AUTOMATING_ACTION)
-                    }
+                    setOverlayVisible(true)
+                    if (displayState != OverlayDisplayState.AUTOMATING_ACTION) transitionTo(OverlayDisplayState.AUTOMATING_ACTION)
                 } else if (displayState == OverlayDisplayState.AUTOMATING_ACTION) {
                     val settings = settingsRepository.settingsState.value
                     if (wasShownForTask && !settings.alwaysShowFloatingToolbar) {
@@ -133,15 +123,7 @@ class FloatingToolbarWindowManager(
     }
 
     fun handleCollapsedBubbleClick() {
-        val settings = settingsRepository.settingsState.value
-        val isKeyboardOpen = service.isKeyboardVisible()
-        val hasInputText = service.getLiveInputText().isNotBlank()
-        if (settings.alwaysShowFloatingToolbar && !isKeyboardOpen && !hasInputText) {
-            AppLogger.d(TAG, "Direct to chat triggered (no keyboard, blank input)")
-            transitionTo(OverlayDisplayState.EXPANDED_CHAT)
-        } else {
-            transitionTo(OverlayDisplayState.EXPANDED_TOOLBAR)
-        }
+        transitionTo(OverlayDisplayState.EXPANDED_TOOLBAR)
     }
 
     fun collapse() {
@@ -150,7 +132,8 @@ class FloatingToolbarWindowManager(
                 userNavigatedBackHandler?.invoke()
                 if (displayState == OverlayDisplayState.EXPANDED_TOOLBAR) {
                     collapseHandler?.invoke() ?: transitionTo(OverlayDisplayState.COLLAPSED_BUBBLE)
-                } else if (displayState == OverlayDisplayState.EXPANDED_CHAT) {
+                } else if (displayState == OverlayDisplayState.LISTENING_REQUEST) {
+                    voiceInputHelper.stopListening()
                     transitionTo(OverlayDisplayState.COLLAPSED_BUBBLE)
                 }
             } catch (e: Exception) {
@@ -159,21 +142,65 @@ class FloatingToolbarWindowManager(
         }
     }
 
-    fun setChatInputFocused(focused: Boolean) {
-        if (isChatInputFocused == focused) return
-        isChatInputFocused = focused
-        val container = overlayContainer ?: return
-        val params = windowParams ?: return
-        try {
-            if (focused) {
-                params.flags = params.flags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE.inv()
-            } else {
-                params.flags = params.flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+    fun startQuickAgentListening() {
+        service.mainHandler.post {
+            try {
+                if (displayState == OverlayDisplayState.LISTENING_REQUEST) {
+                    voiceInputHelper.stopListening()
+                    transitionTo(OverlayDisplayState.COLLAPSED_BUBBLE)
+                    return@post
+                }
+                transitionTo(OverlayDisplayState.LISTENING_REQUEST)
+                voiceInputHelper.startListening { spokenText ->
+                    service.mainHandler.post {
+                        if (spokenText.isNotBlank()) {
+                            AppLogger.i(TAG, "Quick agent captured speech input: '$spokenText'")
+                            executeAgentGoal(spokenText)
+                        } else {
+                            transitionTo(OverlayDisplayState.COLLAPSED_BUBBLE)
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                AppLogger.e(TAG, "Error starting voice recognition: ${e.message}", e)
+                transitionTo(OverlayDisplayState.COLLAPSED_BUBBLE)
             }
-            windowManager.updateViewLayout(container, params)
-            AppLogger.d(TAG, "Overlay soft-keyboard focus updated to: $focused")
-        } catch (e: Exception) {
-            AppLogger.e(TAG, "Failed updating chat input focus: ${e.message}", e)
+        }
+    }
+
+    fun executeAgentGoal(goal: String) {
+        service.mainHandler.post {
+            try {
+                voiceInputHelper.stopListening()
+                transitionTo(OverlayDisplayState.AUTOMATING_ACTION)
+                windowScope.launch {
+                    try {
+                        val result = actionExecutor.executeGoal(
+                            goal = goal,
+                            onProgress = { _, _ -> },
+                            onTargetAnimate = { x, y -> coordinateAnimator.animateTo(x, y, durationMs = 380L) }
+                        )
+                        AppLogger.i(TAG, "Quick agent goal result: $result")
+                    } catch (e: Exception) {
+                        AppLogger.e(TAG, "Quick agent goal execution failed: ${e.message}", e)
+                    } finally {
+                        transitionTo(OverlayDisplayState.COLLAPSED_BUBBLE)
+                    }
+                }
+            } catch (e: Exception) {
+                AppLogger.e(TAG, "Failed executing quick agent goal: ${e.message}", e)
+            }
+        }
+    }
+
+    private fun applyLayoutForState(state: OverlayDisplayState, params: WindowManager.LayoutParams, bounds: OverlayLayoutParamsHelper.ScreenBounds) {
+        val anchorX = bubbleAnchorX ?: bounds.maxX
+        val anchorY = bubbleAnchorY ?: (bounds.screenHeight / 2)
+        when (state) {
+            OverlayDisplayState.COLLAPSED_BUBBLE -> OverlayLayoutParamsHelper.applyCollapsedBubble(params, anchorX, anchorY)
+            OverlayDisplayState.EXPANDED_TOOLBAR -> OverlayLayoutParamsHelper.applyExpandedToolbar(params, bounds, bubbleAnchorY)
+            OverlayDisplayState.LISTENING_REQUEST -> OverlayLayoutParamsHelper.applyListeningRequest(params, bounds, anchorX, anchorY)
+            OverlayDisplayState.AUTOMATING_ACTION -> OverlayLayoutParamsHelper.applyAutomatingAction(params, bounds, anchorX, anchorY)
         }
     }
 
@@ -186,28 +213,11 @@ class FloatingToolbarWindowManager(
                 val params = windowParams ?: return@post
                 val bounds = OverlayLayoutParamsHelper.calculateBounds(service.resources.displayMetrics)
 
-                when (newState) {
-                    OverlayDisplayState.COLLAPSED_BUBBLE -> {
-                        OverlayLayoutParamsHelper.applyCollapsedBubble(params, bubbleAnchorX ?: bounds.maxX, bubbleAnchorY ?: (bounds.screenHeight / 2))
-                        setChatInputFocused(false)
-                        service.onRibbonManuallyDismissed()
-                    }
-                    OverlayDisplayState.EXPANDED_TOOLBAR -> {
-                        OverlayLayoutParamsHelper.applyExpandedToolbar(params, bounds, bubbleAnchorY)
-                        setChatInputFocused(false)
-                        service.onRibbonManuallyOpened()
-                    }
-                    OverlayDisplayState.EXPANDED_CHAT -> {
-                        OverlayLayoutParamsHelper.applyExpandedChat(params, bounds)
-                        setChatInputFocused(true)
-                        service.onRibbonManuallyOpened()
-                    }
-                    OverlayDisplayState.AUTOMATING_ACTION -> {
-                        automatingStateTimestamp = SystemClock.uptimeMillis()
-                        OverlayLayoutParamsHelper.applyAutomatingAction(params, bounds, bubbleAnchorX ?: bounds.maxX, bubbleAnchorY ?: (bounds.screenHeight / 2))
-                        setChatInputFocused(false)
-                    }
-                }
+                applyLayoutForState(newState, params, bounds)
+                if (newState == OverlayDisplayState.EXPANDED_TOOLBAR) service.onRibbonManuallyOpened()
+                else if (newState == OverlayDisplayState.COLLAPSED_BUBBLE || newState == OverlayDisplayState.LISTENING_REQUEST) service.onRibbonManuallyDismissed()
+                else if (newState == OverlayDisplayState.AUTOMATING_ACTION) automatingStateTimestamp = SystemClock.uptimeMillis()
+
                 windowManager.updateViewLayout(container, params)
                 AppLogger.d(TAG, "Transitioned overlay state to: $newState")
             } catch (e: Exception) {
@@ -243,7 +253,7 @@ class FloatingToolbarWindowManager(
 
             overlayContainer = FloatingOverlayContainer(
                 context = service,
-                isExpandedProvider = { displayState != OverlayDisplayState.COLLAPSED_BUBBLE },
+                isExpandedProvider = { displayState != OverlayDisplayState.COLLAPSED_BUBBLE && displayState != OverlayDisplayState.LISTENING_REQUEST },
                 onDragStart = {
                     startDragWinX = params.x
                     startDragWinY = params.y
@@ -279,7 +289,10 @@ class FloatingToolbarWindowManager(
                     when (displayState) {
                         OverlayDisplayState.COLLAPSED_BUBBLE -> handleCollapsedBubbleClick()
                         OverlayDisplayState.EXPANDED_TOOLBAR -> singleTapHandler?.invoke() ?: transitionTo(OverlayDisplayState.COLLAPSED_BUBBLE)
-                        OverlayDisplayState.EXPANDED_CHAT -> transitionTo(OverlayDisplayState.COLLAPSED_BUBBLE)
+                        OverlayDisplayState.LISTENING_REQUEST -> {
+                            voiceInputHelper.stopListening()
+                            transitionTo(OverlayDisplayState.COLLAPSED_BUBBLE)
+                        }
                         OverlayDisplayState.AUTOMATING_ACTION -> {
                             val elapsed = SystemClock.uptimeMillis() - automatingStateTimestamp
                             if (elapsed >= 450L) {
@@ -293,7 +306,7 @@ class FloatingToolbarWindowManager(
                 },
                 onOutsideTap = {
                     AppLogger.d(TAG, "Outside tap intercepted in state $displayState")
-                    if (displayState == OverlayDisplayState.EXPANDED_CHAT || displayState == OverlayDisplayState.EXPANDED_TOOLBAR) {
+                    if (displayState == OverlayDisplayState.EXPANDED_TOOLBAR) {
                         collapse()
                     }
                 }
@@ -323,21 +336,30 @@ class FloatingToolbarWindowManager(
                                         onClick = { handleCollapsedBubbleClick() }
                                     )
                                 }
+                                OverlayDisplayState.LISTENING_REQUEST -> {
+                                    FloatingEdgePill(
+                                        state = FloatingButtonState.LISTENING,
+                                        isDragging = isDraggingState.value,
+                                        onClick = {
+                                            voiceInputHelper.stopListening()
+                                            transitionTo(OverlayDisplayState.COLLAPSED_BUBBLE)
+                                        }
+                                    )
+                                }
                                 OverlayDisplayState.EXPANDED_TOOLBAR -> {
                                     FloatingToolbarContent(
                                         getLiveInputText = { service.getLiveInputText() },
                                         getConversationTranscript = { service.extractConversationTranscript() },
                                         prompts = prompts,
                                         isVisionCapable = {
-                                            val s = settingsRepository.settingsState.value
-                                            when (s.selectedEngine) {
+                                            when (settingsRepository.settingsState.value.selectedEngine) {
                                                 EngineType.CLOUD_OPENAI -> true
                                                 EngineType.ON_DEVICE_LLAMA_CPP -> llamaCppEngine.sessionState.value.isVisionCapable
                                                 else -> sessionState.isVisionCapable
                                             }
                                         },
-                                        onInsertText = { result, _ -> service.replaceLiveInputText(result, recordHistory = false) },
-                                        onSnapshotOriginalText = { original -> service.pushInputHistory(original) },
+                                        onInsertText = { res, _ -> service.replaceLiveInputText(res, recordHistory = false) },
+                                        onSnapshotOriginalText = { orig -> service.pushInputHistory(orig) },
                                         onRevertText = { service.revertPreviousTransformation() },
                                         hasUndo = { service.hasPreviousTransformation() },
                                         getRecentClipboardText = { service.getRecentClipboardText() },
@@ -348,46 +370,19 @@ class FloatingToolbarWindowManager(
                                         onRegisterCollapseHandler = { collapseHandler = it },
                                         onRegisterUserTypedHandler = { userTypedHandler = it },
                                         onRegisterUserNavigatedBackHandler = { userNavigatedBackHandler = it },
-                                        onExpandedStateChanged = { expanded -> if (!expanded) transitionTo(OverlayDisplayState.COLLAPSED_BUBBLE) },
+                                        onExpandedStateChanged = { exp -> if (!exp) transitionTo(OverlayDisplayState.COLLAPSED_BUBBLE) },
                                         onBusyStateChanged = { busy -> isBusyState = busy },
                                         onTakeScreenshotContext = onTakeScreenshot,
                                         isConversationContext = { service.isConversationContext() },
                                         getScreenVisibleText = { service.extractScreenVisibleText() },
-                                        onQuickEditSave = { updated -> windowScope.launch(Dispatchers.IO) { promptRepository.updatePrompt(updated) } },
-                                        onQuickEditDelete = { promptId -> windowScope.launch(Dispatchers.IO) { promptRepository.deletePrompt(promptId) } },
-                                        onEditorFocusMode = { focused -> setChatInputFocused(focused) },
+                                        onQuickEditSave = { u -> windowScope.launch(Dispatchers.IO) { promptRepository.updatePrompt(u) } },
+                                        onQuickEditDelete = { id -> windowScope.launch(Dispatchers.IO) { promptRepository.deletePrompt(id) } },
                                         compactChipsMode = curSettings.compactChipsMode,
                                         quickFixEnabled = curSettings.quickFixEnabled,
-                                        onToggleQuickFix = { enabled -> windowScope.launch { settingsRepository.setQuickFixEnabled(enabled) } },
+                                        onToggleQuickFix = { en -> windowScope.launch { settingsRepository.setQuickFixEnabled(en) } },
                                         slashCommandRepository = slashCommandRepository,
                                         onDismiss = { hide() },
-                                        onOpenFloatingChat = { transitionTo(OverlayDisplayState.EXPANDED_CHAT) },
-                                        engineProvider = { getActiveEngine() }
-                                    )
-                                }
-                                OverlayDisplayState.EXPANDED_CHAT -> {
-                                    FloatingChatBubbleContent(
-                                        chatSessionRepository = chatSessionRepository,
-                                        liteRtEngine = liteRtEngine,
-                                        llamaCppEngine = llamaCppEngine,
-                                        cloudEngine = cloudEngine,
-                                        activeModelName = curSettings.activeModelName,
-                                        onMinimizeToBubble = { transitionTo(OverlayDisplayState.COLLAPSED_BUBBLE) },
-                                        onSwitchToToolbar = { transitionTo(OverlayDisplayState.EXPANDED_TOOLBAR) },
-                                        onAutomateAction = { goal ->
-                                            transitionTo(OverlayDisplayState.AUTOMATING_ACTION)
-                                            windowScope.launch {
-                                                actionExecutor.executeGoal(
-                                                    goal = goal,
-                                                    onProgress = { _, _ -> },
-                                                    onTargetAnimate = { x, y -> coordinateAnimator.animateTo(x, y) }
-                                                )
-                                                transitionTo(OverlayDisplayState.COLLAPSED_BUBBLE)
-                                            }
-                                        },
-                                        onFocusRequested = { isFocused -> setChatInputFocused(isFocused) },
-                                        autoSendVoiceInput = curSettings.autoSendVoiceInput,
-                                        onTakeScreenshotContext = { cb -> service.captureScreenContext(cb) },
+                                        onQuickAgentRequest = { startQuickAgentListening() },
                                         engineProvider = { getActiveEngine() }
                                     )
                                 }
@@ -439,12 +434,7 @@ class FloatingToolbarWindowManager(
             val container = overlayContainer ?: return
             val params = windowParams ?: return
 
-            when (displayState) {
-                OverlayDisplayState.COLLAPSED_BUBBLE -> OverlayLayoutParamsHelper.applyCollapsedBubble(params, bubbleAnchorX ?: bounds.maxX, bubbleAnchorY ?: (bounds.screenHeight / 2))
-                OverlayDisplayState.EXPANDED_TOOLBAR -> OverlayLayoutParamsHelper.applyExpandedToolbar(params, bounds, bubbleAnchorY)
-                OverlayDisplayState.EXPANDED_CHAT -> OverlayLayoutParamsHelper.applyExpandedChat(params, bounds, isChatInputFocused)
-                OverlayDisplayState.AUTOMATING_ACTION -> OverlayLayoutParamsHelper.applyAutomatingAction(params, bounds, bubbleAnchorX ?: bounds.maxX, bubbleAnchorY ?: (bounds.screenHeight / 2))
-            }
+            applyLayoutForState(displayState, params, bounds)
             windowManager.updateViewLayout(container, params)
             AppLogger.i(TAG, "Adapted layout to new orientation (${newConfig.orientation})")
         } catch (e: Exception) {
@@ -468,6 +458,7 @@ class FloatingToolbarWindowManager(
         if (!isShowing || overlayContainer == null) return
         try {
             userNavigatedBackHandler?.invoke()
+            voiceInputHelper.stopListening()
             isDraggingState.value = false
             displayState = OverlayDisplayState.COLLAPSED_BUBBLE
             singleTapHandler = null
@@ -486,6 +477,7 @@ class FloatingToolbarWindowManager(
     }
 
     fun destroy() {
+        voiceInputHelper.stopListening()
         hide()
         windowScope.cancel()
     }

@@ -2,6 +2,10 @@ package com.textmorph.app.service.overlay
 
 import android.content.Context
 import android.content.Intent
+import com.textmorph.app.agent.coordinator.TaskExecutionCoordinator
+import com.textmorph.app.agent.model.AgentAction
+import com.textmorph.app.agent.planner.TaskPlanDecomposer
+import com.textmorph.app.agent.ui.AgentToastNotifier
 import com.textmorph.app.llm.LiteRtLmEngine
 import com.textmorph.app.llm.LlamaCppEngine
 import com.textmorph.app.llm.OpenAiCloudEngine
@@ -36,6 +40,7 @@ class DeviceActionExecutor(
 
     fun cancel() {
         isCancelled = true
+        TaskExecutionCoordinator.interrupt()
         AppLogger.i(TAG, "Device action execution cancelled by user.")
     }
 
@@ -49,13 +54,22 @@ class DeviceActionExecutor(
     ): String = withContext(Dispatchers.IO) {
         isCancelled = false
         AppLogger.i(TAG, "Starting autonomous goal: '$goal' (maxSteps=$maxSteps)")
+        TaskExecutionCoordinator.startTask(goal)
         onProgress(0, "Initiating: $goal")
+
+        val milestones = TaskPlanDecomposer.decompose(goal)
+        var activeMilestoneIdx = 0
+        milestones.firstOrNull()?.let { firstM ->
+            AgentToastNotifier.showStepToast(context, firstM.index, milestones.size, firstM.description)
+        }
 
         // 1. Fast pre-launch shortcut if detected
         val shortcutApp = detectFastShortcutApp(goal)
         if (shortcutApp != null) {
+            TaskExecutionCoordinator.beginStep(1, AgentAction.ACTION_OPEN_APP, "Opening $shortcutApp…", "Fast shortcut launcher")
             onProgress(1, "Launching $shortcutApp…")
             launchApp(shortcutApp)
+            TaskExecutionCoordinator.completeCurrentStep(true)
             delay(2500)
         }
 
@@ -63,20 +77,39 @@ class DeviceActionExecutor(
         var lastAction = ""
 
         for (step in 1..maxSteps) {
-            if (isCancelled) return@withContext "Task cancelled by user."
+            if (isCancelled || TaskExecutionCoordinator.state.value.isInterrupted) {
+                TaskExecutionCoordinator.interrupt()
+                return@withContext "Task cancelled by user."
+            }
 
+            TaskExecutionCoordinator.beginStep(step, AgentAction.ACTION_READ_SCREEN, "Viewing screen…", "Inspecting current screen")
             val dump = screenController.getCompressedScreenDump(goal)
-            val prompt = buildActionPrompt(goal, step, maxSteps, dump)
+            
+            val activeMilestone = milestones.getOrNull(activeMilestoneIdx)
+            val milestoneHeadline = activeMilestone?.description ?: goal
+            AgentToastNotifier.showStepToast(context, activeMilestone?.index ?: step, milestones.size, milestoneHeadline)
+            
+            val targetGoalText = if (activeMilestone != null && milestones.size > 1) {
+                "OVERALL GOAL: $goal\nACTIVE STEP (${activeMilestone.index}/${milestones.size}): ${activeMilestone.description}"
+            } else goal
 
+            val prompt = buildActionPrompt(targetGoalText, step, maxSteps, dump)
+
+            TaskExecutionCoordinator.setThinking(true)
             onProgress(step, "Analyzing screen (Step $step/$maxSteps)…")
             val rawOutput = queryActiveEngine(prompt)
-            if (isCancelled) return@withContext "Task cancelled by user."
+            if (isCancelled || TaskExecutionCoordinator.state.value.isInterrupted) {
+                TaskExecutionCoordinator.interrupt()
+                return@withContext "Task cancelled by user."
+            }
 
             val actionPlan = parseActionJson(rawOutput)
             if (actionPlan == null) {
                 AppLogger.w(TAG, "Failed parsing action JSON from response: $rawOutput")
                 if (++consecutiveFailures >= 3) {
-                    return@withContext "Stopped: AI returned invalid actions repeatedly."
+                    val stopMsg = "Stopped: AI returned invalid actions repeatedly."
+                    TaskExecutionCoordinator.finishTask(stopMsg, success = false)
+                    return@withContext stopMsg
                 }
                 delay(1200)
                 continue
@@ -84,26 +117,46 @@ class DeviceActionExecutor(
 
             val actionName = actionPlan.action
             val reasoning = actionPlan.reasoning.ifEmpty { "Executing $actionName" }
+            TaskExecutionCoordinator.beginStep(step, actionName, reasoning, reasoning)
             onProgress(step, reasoning)
 
             if (actionPlan.isComplete || actionName == "done") {
                 AppLogger.i(TAG, "Goal accomplished in $step steps: $reasoning")
+                TaskExecutionCoordinator.completeCurrentStep(true)
+                TaskExecutionCoordinator.finishTask(reasoning, success = true)
+                AgentToastNotifier.showStatusToast(context, "Task Complete!")
                 return@withContext reasoning
             }
 
-            // Animate target coordinates if applicable
+            // Animate target coordinates smoothly if applicable
             actionPlan.targetX?.let { tx ->
                 actionPlan.targetY?.let { ty ->
                     withContext(Dispatchers.Main) {
                         onTargetAnimate(tx, ty)
                     }
-                    delay(350) // Wait for smooth fly animation
+                    delay(380) // Wait for smooth coordinate glide
                 }
             }
 
             val success = executePrimitiveAction(actionPlan)
+            TaskExecutionCoordinator.completeCurrentStep(success)
+
             if (success) {
                 consecutiveFailures = 0
+                if (activeMilestone != null && activeMilestoneIdx < milestones.size - 1) {
+                    val isConfirmed = TaskPlanDecomposer.isMilestoneConfirmed(
+                        milestone = activeMilestone,
+                        screenDump = dump,
+                        currentPackage = screenController.getCurrentPackage()
+                    )
+                    if (isConfirmed) {
+                        AppLogger.i(TAG, "Step ${activeMilestone.index} verified complete: '${activeMilestone.description}'")
+                        activeMilestoneIdx++
+                        milestones.getOrNull(activeMilestoneIdx)?.let { nextM ->
+                            AgentToastNotifier.showStepToast(context, nextM.index, milestones.size, nextM.description)
+                        }
+                    }
+                }
             } else {
                 consecutiveFailures++
                 if (consecutiveFailures >= 4) {

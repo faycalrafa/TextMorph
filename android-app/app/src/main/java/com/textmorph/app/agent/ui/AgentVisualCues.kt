@@ -10,6 +10,7 @@ import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.filled.Hearing
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.HourglassTop
 import androidx.compose.material.icons.filled.Keyboard
@@ -72,14 +73,23 @@ object AgentVisualCues {
                 color = Color(0xFF60A5FA),
                 contentDescription = "Viewing Screen"
             )
+            "listening", "listen", "voice_input" -> ActionVisualCue(
+                icon = Icons.Default.Hearing,
+                emoji = "👂",
+                label = "Listening...",
+                color = Color(0xFF38BDF8),
+                contentDescription = "Listening"
+            )
             AgentAction.ACTION_CLICK_TEXT, AgentAction.ACTION_CLICK_AT -> ActionVisualCue(
                 icon = Icons.Default.TouchApp,
+                emoji = "👆",
                 label = "Tapping Element",
                 color = Color(0xFF3B82F6),
                 contentDescription = "Tap Screen"
             )
             AgentAction.ACTION_TYPE_TEXT -> ActionVisualCue(
                 icon = Icons.Default.Keyboard,
+                emoji = "⌨️",
                 label = "Typing Input",
                 color = Color(0xFF60A5FA),
                 contentDescription = "Type Text"

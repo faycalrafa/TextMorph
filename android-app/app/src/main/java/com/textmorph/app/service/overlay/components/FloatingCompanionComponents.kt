@@ -193,6 +193,12 @@ fun FloatingEdgePill(
                             modifier = Modifier.size(18.dp)
                         )
                     }
+                    FloatingButtonState.LISTENING -> {
+                        Text(
+                            text = "👂",
+                            fontSize = 17.sp
+                        )
+                    }
                     FloatingButtonState.IDLE -> {
                         Icon(
                             imageVector = Icons.Default.AutoAwesome,

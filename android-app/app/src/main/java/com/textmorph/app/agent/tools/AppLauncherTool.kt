@@ -9,7 +9,7 @@ import com.textmorph.app.util.AppLogger
 /**
  * Tool for launching installed applications and web URLs.
  */
-class AppLauncherTool(private val context: Context) {
+class AppLauncherTool(val context: Context) {
 
     private val TAG = "AppLauncherTool"
 

@@ -5,12 +5,12 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.keyframes
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -18,7 +18,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
@@ -28,23 +27,21 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.textmorph.app.agent.model.AgentTaskStep
 import com.textmorph.app.agent.ui.AgentVisualCues
-import kotlin.math.roundToInt
 
 /**
- * Messenger-style active agent floating bubble displaying:
- * 1. Leading spinning / thinking circle animation.
- * 2. Center visual cue: thinking emoji 🤔 during planning, or action-specific icon during execution.
- * 3. Edge Blue Pulse Glider: An electric blue vertical glowing pulse traveling up & down on screen edge.
- * 4. Tap-to-interrupt functionality stopping the running task immediately.
+ * Messenger-style living active agent floating companion bubble displaying:
+ * 1. Subtle idle floating drift (gentle sinusoidal bobbing in air).
+ * 2. Animated looking & blinking eyes (👀) when inspecting/reading the screen.
+ * 3. Thinking emoji (🤔) strictly during LLM inference/planning (never while viewing screen).
+ * 4. Action cues: ⌨️ keyboard for typing, 👆 finger for tapping, 👂 for listening.
+ * 5. Smooth progress ring.
+ * 6. Tap-to-interrupt functionality stopping the running task immediately.
  */
 @Composable
 fun TaskExecutionBubble(
@@ -56,35 +53,57 @@ fun TaskExecutionBubble(
     val actionType = currentStep?.actionType ?: "thinking"
     val visualCue = AgentVisualCues.resolve(actionType, isThinking = isThinking)
 
-    val infiniteTransition = rememberInfiniteTransition(label = "TaskBubbleAnimations")
+    val infiniteTransition = rememberInfiniteTransition(label = "LivingBubbleAnimations")
 
+    // Subtle sinusoidal floating drift
+    val floatOffsetY by infiniteTransition.animateFloat(
+        initialValue = -3.5f,
+        targetValue = 3.5f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(2200, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "FloatingBobbingY"
+    )
+    val floatOffsetX by infiniteTransition.animateFloat(
+        initialValue = -2.0f,
+        targetValue = 2.0f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(3100, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "FloatingBobbingX"
+    )
+
+    // Pulse scale for active action icons/emojis
     val emojiPulseScale by infiniteTransition.animateFloat(
         initialValue = 0.92f,
         targetValue = 1.08f,
         animationSpec = infiniteRepeatable(
-            animation = tween(800, easing = FastOutSlowInEasing),
+            animation = tween(750, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Reverse
         ),
         label = "EmojiPulse"
     )
 
     Box(
-        modifier = modifier.size(54.dp),
+        modifier = modifier.size(56.dp),
         contentAlignment = Alignment.Center
     ) {
-        // Outer Thinking Ring: smooth progress sweep
+        // Outer Progress Ring: smooth electric blue sweep
         CircularProgressIndicator(
             modifier = Modifier.size(52.dp),
-            color = Color(0xFF3B82F6),
+            color = if (isThinking) Color(0xFFFBBF24) else Color(0xFF3B82F6),
             strokeWidth = 3.dp
         )
 
-        // Inner Charcoal Slate Pill with Electric Blue border
+        // Inner Charcoal Slate Floating Companion Orb with living bobbing offset
         Surface(
             shape = CircleShape,
-            color = Color(0xF2111827), // Charcoal Slate dark midnight
+            color = Color(0xF2111827), // Charcoal Slate midnight
             shadowElevation = 8.dp,
             modifier = Modifier
+                .offset(x = floatOffsetX.dp, y = floatOffsetY.dp)
                 .size(42.dp)
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
@@ -93,7 +112,7 @@ fun TaskExecutionBubble(
                 )
                 .border(
                     width = 1.5.dp,
-                    color = Color(0xFF3B82F6),
+                    color = if (isThinking) Color(0xFFFBBF24) else Color(0xFF38BDF8),
                     shape = CircleShape
                 )
         ) {
@@ -106,7 +125,10 @@ fun TaskExecutionBubble(
                     transitionSpec = { fadeIn(tween(250)) togetherWith fadeOut(tween(200)) },
                     label = "BubbleCueTransition"
                 ) { cue ->
-                    if (cue.emoji != null) {
+                    if (cue.emoji == "👀") {
+                        // Animated eyes that glance left/right and periodically blink
+                        ScreenInspectingEyes(modifier = Modifier.size(24.dp))
+                    } else if (cue.emoji != null) {
                         Text(
                             text = cue.emoji,
                             fontSize = 19.sp,
@@ -123,5 +145,54 @@ fun TaskExecutionBubble(
                 }
             }
         }
+    }
+}
+
+/**
+ * Animated eyes that glance left-right and periodically blink when reading the screen.
+ */
+@Composable
+fun ScreenInspectingEyes(modifier: Modifier = Modifier) {
+    val transition = rememberInfiniteTransition(label = "InspectingEyesTransition")
+
+    // Glancing look-around horizontal shift
+    val lookOffsetX by transition.animateFloat(
+        initialValue = -2.5f,
+        targetValue = 2.5f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1200, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "EyesLookX"
+    )
+
+    // Periodic quick eyelid blink every 2.8s
+    val blinkScaleY by transition.animateFloat(
+        initialValue = 1.0f,
+        targetValue = 0.08f,
+        animationSpec = infiniteRepeatable(
+            animation = keyframes {
+                durationMillis = 2800
+                1.0f at 0
+                1.0f at 2550
+                0.08f at 2680
+                1.0f at 2800
+            },
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "EyesBlink"
+    )
+
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = modifier
+    ) {
+        Text(
+            text = "👀",
+            fontSize = 20.sp,
+            modifier = Modifier
+                .offset(x = lookOffsetX.dp)
+                .scale(scaleX = 1.05f, scaleY = blinkScaleY)
+        )
     }
 }

@@ -18,8 +18,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Bolt
-import androidx.compose.material.icons.filled.ChatBubbleOutline
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Hearing
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
@@ -52,7 +52,8 @@ import kotlinx.coroutines.Job
 enum class FloatingButtonState {
     IDLE,
     GENERATING,
-    REVERT_WINDOW
+    REVERT_WINDOW,
+    LISTENING
 }
 
 /**
@@ -93,7 +94,7 @@ fun FloatingToolbarContent(
     onToggleQuickFix: (Boolean) -> Unit = {},
     slashCommandRepository: SlashCommandRepository = SlashCommandRepository.getInstance(LocalContext.current),
     onDismiss: () -> Unit,
-    onOpenFloatingChat: () -> Unit = {},
+    onQuickAgentRequest: () -> Unit = {},
     engineProvider: () -> LlmEngine
 ) {
     val context = LocalContext.current
@@ -151,7 +152,7 @@ fun FloatingToolbarContent(
         onRegisterSingleTapHandler?.invoke {
             AppLogger.d(TAG, "singleTapHandler executed in Compose. state=$state")
             when (state) {
-                FloatingButtonState.IDLE -> {
+                FloatingButtonState.IDLE, FloatingButtonState.LISTENING -> {
                     collapseToolbar()
                 }
                 FloatingButtonState.GENERATING -> {
@@ -238,12 +239,14 @@ fun FloatingToolbarContent(
                     icon = when (state) {
                         FloatingButtonState.GENERATING -> Icons.Default.Stop
                         FloatingButtonState.REVERT_WINDOW -> Icons.AutoMirrored.Filled.Undo
+                        FloatingButtonState.LISTENING -> Icons.Default.Hearing
                         FloatingButtonState.IDLE -> Icons.Default.AutoAwesome
                     },
                     contentDescription = "Companion Action",
                     tint = when (state) {
                         FloatingButtonState.GENERATING -> Color(0xFFEF4444)
                         FloatingButtonState.REVERT_WINDOW -> Color(0xFFFBBF24)
+                        FloatingButtonState.LISTENING -> Color(0xFF38BDF8)
                         FloatingButtonState.IDLE -> Color(0xFF60A5FA)
                     },
                     backgroundColor = Color(0x331F2937),
@@ -305,15 +308,15 @@ fun FloatingToolbarContent(
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // 1. Dedicated Open Chat Button (matches Charcoal Slate toolbar theme)
+                        // 1. Dedicated Quick Agent Request Button (initiates listening & multi-step execution)
                         CompanionSquareIconButton(
-                            icon = Icons.Default.ChatBubbleOutline,
-                            contentDescription = "Open Chat",
-                            tint = Color(0xFF60A5FA),
-                            backgroundColor = Color(0x331F2937),
-                            borderColor = Color(0x44374151),
+                            icon = Icons.Default.Hearing,
+                            contentDescription = "Quick Agent Request",
+                            tint = Color(0xFF38BDF8),
+                            backgroundColor = Color(0x330284C7),
+                            borderColor = Color(0x6638BDF8),
                             onClick = {
-                                onOpenFloatingChat()
+                                onQuickAgentRequest()
                             }
                         )
 
