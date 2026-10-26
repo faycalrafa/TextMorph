@@ -3,6 +3,10 @@ package com.textmorph.app.ui.navigation.components
 import android.content.Context
 import android.widget.Toast
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import com.textmorph.app.data.model.PromptEntity
 import com.textmorph.app.data.repository.AppReleaseInfo
 import com.textmorph.app.data.repository.DownloadState
@@ -14,7 +18,10 @@ import com.textmorph.app.ui.common.UpdateDialog
 import com.textmorph.app.ui.prompts.PromptEditorDialog
 import com.textmorph.app.util.PermissionUtils
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Handles root modal dialogs (Prompt Editor, Accessibility Disclosure, In-App Update)
@@ -67,15 +74,27 @@ fun MainAppDialogs(
         )
     }
 
+    var downloadJob by remember { mutableStateOf<Job?>(null) }
+
     if (showUpdateDialog && activeReleaseInfo != null) {
         UpdateDialog(
             releaseInfo = activeReleaseInfo,
             downloadState = downloadState,
-            onDismiss = onDismissUpdateDialog,
+            onDismiss = {
+                downloadJob?.cancel()
+                downloadJob = null
+                onDismissUpdateDialog()
+            },
             onStartDownload = {
-                scope.launch {
+                if (downloadJob?.isActive == true || downloadState is DownloadState.Starting || downloadState is DownloadState.Progress) {
+                    return@UpdateDialog
+                }
+                onDownloadStateChanged(DownloadState.Starting)
+                downloadJob = scope.launch(Dispatchers.IO) {
                     updateRepository.downloadApk(activeReleaseInfo.downloadUrl).collect { state ->
-                        onDownloadStateChanged(state)
+                        withContext(Dispatchers.Main) {
+                            onDownloadStateChanged(state)
+                        }
                     }
                 }
             },

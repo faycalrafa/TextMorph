@@ -34,6 +34,7 @@ data class AppReleaseInfo(
 )
 
 sealed class DownloadState {
+    data object Starting : DownloadState()
     data class Progress(val percent: Int, val bytesDownloaded: Long, val totalBytes: Long) : DownloadState()
     data class Completed(val file: File) : DownloadState()
     data class Error(val message: String) : DownloadState()
@@ -43,6 +44,7 @@ class UpdateRepository(private val context: Context) {
 
     private val TAG = "UpdateRepository"
     private val json = Json { ignoreUnknownKeys = true }
+    private val downloadMutex = kotlinx.coroutines.sync.Mutex()
     private val RELEASES_URL = "https://api.github.com/repos/faycalrafa/TextMorph/releases/latest"
 
     fun getCurrentVersionName(): String {
@@ -117,6 +119,11 @@ class UpdateRepository(private val context: Context) {
     private var cachedDownloadedApkFile: File? = null
 
     fun downloadApk(downloadUrl: String): Flow<DownloadState> = flow {
+        emit(DownloadState.Starting)
+        if (!downloadMutex.tryLock()) {
+            AppLogger.w(TAG, "Download already in progress; ignoring duplicate request")
+            return@flow
+        }
         var activeConnection: HttpURLConnection? = null
         try {
             AppLogger.i(TAG, "Starting high-speed APK download from $downloadUrl...")
@@ -196,6 +203,11 @@ class UpdateRepository(private val context: Context) {
             AppLogger.e(TAG, "Failed downloading update APK: ${e.message}", e)
             emit(DownloadState.Error(e.message ?: "Download failed"))
         } finally {
+            try {
+                downloadMutex.unlock()
+            } catch (unlockEx: Exception) {
+                // Ignore if not locked
+            }
             try {
                 activeConnection?.disconnect()
             } catch (discEx: Exception) {

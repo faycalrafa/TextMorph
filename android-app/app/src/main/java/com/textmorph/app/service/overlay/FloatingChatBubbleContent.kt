@@ -100,6 +100,12 @@ fun FloatingChatBubbleContent(
     val activeSession = sessions.find { it.id == currentSessionId }
     val isAgentMode = activeSession?.isAgentMode == true
 
+    val visibleMessages = remember(messages, isAgentMode) {
+        messages.filter { msg ->
+            if (isAgentMode) msg.isAgentTurn else !msg.isAgentTurn
+        }
+    }
+
     var inputText by remember { mutableStateOf("") }
     var isGenerating by remember { mutableStateOf(false) }
     var generationJob by remember { mutableStateOf<Job?>(null) }
@@ -183,9 +189,9 @@ fun FloatingChatBubbleContent(
     }
 
     // Scroll to bottom on new messages
-    LaunchedEffect(messages.size) {
-        if (messages.isNotEmpty()) {
-            listState.animateScrollToItem(messages.size - 1)
+    LaunchedEffect(visibleMessages.size) {
+        if (visibleMessages.isNotEmpty()) {
+            listState.animateScrollToItem(visibleMessages.size - 1)
         }
     }
 
@@ -259,7 +265,7 @@ fun FloatingChatBubbleContent(
                     .padding(horizontal = 10.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                if (messages.isEmpty()) {
+                if (visibleMessages.isEmpty()) {
                     item {
                         Box(
                             modifier = Modifier
@@ -277,10 +283,10 @@ fun FloatingChatBubbleContent(
                     }
                 }
 
-                items(messages, key = { it.id }) { msg ->
+                items(visibleMessages, key = { it.id }) { msg ->
                     ChatMessageItemView(
                         message = msg,
-                        isGenerating = isGenerating && msg.id == messages.lastOrNull()?.id,
+                        isGenerating = isGenerating && msg.id == visibleMessages.lastOrNull()?.id,
                         generationStatus = activeGenerationStatus,
                         onEditPrompt = { userMsg ->
                             val activeId = currentSessionId ?: return@ChatMessageItemView
@@ -299,7 +305,7 @@ fun FloatingChatBubbleContent(
                         },
                         onInterruptAction = {
                             generationJob?.cancel()
-                            agentEngine?.cancelRunningTask()
+                            agentEngine.cancelRunningTask()
                             com.textmorph.app.agent.coordinator.TaskExecutionCoordinator.interrupt()
                             isGenerating = false
                             val activeId = currentSessionId ?: return@ChatMessageItemView
@@ -413,7 +419,7 @@ fun FloatingChatBubbleContent(
                 },
                 onStop = {
                     generationJob?.cancel()
-                    agentEngine?.cancelRunningTask()
+                    agentEngine.cancelRunningTask()
                     com.textmorph.app.agent.coordinator.TaskExecutionCoordinator.interrupt()
                     isGenerating = false
                     val activeId = currentSessionId

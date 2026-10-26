@@ -37,8 +37,10 @@ object AiChatInferenceExecutor {
         onStart()
 
         val activeSession = chatRepository.getActiveSession()
-        val priorMessages = chatRepository.currentMessages.value
         val isAgent = activeSession?.isAgentMode == true
+        val priorMessages = chatRepository.currentMessages.value.filter { msg ->
+            if (isAgent) msg.isAgentTurn else !msg.isAgentTurn
+        }
         val systemPrompt = if (isAgent) {
             settings?.agentSystemPrompt?.takeIf { it.isNotBlank() }
                 ?: settings?.let { com.textmorph.app.agent.prompts.AgentPrompts.getAgentSystemPrompt(it.actionCommandSyntax) }
@@ -63,13 +65,15 @@ object AiChatInferenceExecutor {
             sessionId = sessionId,
             role = "user",
             content = prompt,
-            attachmentsJson = ChatMessageEntity.serializeAttachments(attachments)
+            attachmentsJson = ChatMessageEntity.serializeAttachments(attachments),
+            isAgentMode = isAgent
         )
 
         val aiPlaceholder = ChatMessageEntity(
             sessionId = sessionId,
             role = "assistant",
-            content = ""
+            content = "",
+            isAgentMode = isAgent
         )
 
         val job = scope.launch(Dispatchers.Main) {
@@ -139,7 +143,16 @@ object AiChatInferenceExecutor {
                 if (isAgent && agentEngine != null) {
                     val parsedAction = com.textmorph.app.agent.parser.AgentActionParser.parseAction(effectiveFinalContent)
                     if (parsedAction != null) {
-                        val effectiveAction = if (parsedAction.action == com.textmorph.app.agent.model.AgentAction.ACTION_EXECUTE_TASK) {
+                        val effectiveAction = if (parsedAction.action == com.textmorph.app.agent.model.AgentAction.ACTION_OPEN_APP &&
+                            isMultiStepIntent(prompt, parsedAction.response)
+                        ) {
+                            AppLogger.i(TAG, "Auto-escalated standalone open_app to execute_task for multi-step prompt: '$prompt'")
+                            com.textmorph.app.agent.model.AgentAction(
+                                action = com.textmorph.app.agent.model.AgentAction.ACTION_EXECUTE_TASK,
+                                params = mapOf("goal" to kotlinx.serialization.json.JsonPrimitive(prompt)),
+                                response = "Executing multi-step task: $prompt"
+                            )
+                        } else if (parsedAction.action == com.textmorph.app.agent.model.AgentAction.ACTION_EXECUTE_TASK) {
                             val existingGoal = parsedAction.getStringParam("goal")
                                 .ifEmpty { parsedAction.getStringParam("task") }
                                 .ifEmpty { parsedAction.getStringParam("prompt") }
@@ -307,6 +320,23 @@ object AiChatInferenceExecutor {
             }
         }
         setJob(job)
+    }
+
+    fun isMultiStepIntent(userPrompt: String, modelResponse: String = ""): Boolean {
+        val lowerPrompt = userPrompt.lowercase()
+        val lowerResponse = modelResponse.lowercase()
+        val conjunctions = listOf(" and ", " then ", " to ", " so that ", " after ")
+        val actionVerbs = listOf(
+            "search", "find", "look for", "play", "send", "type", "check",
+            "see ", "turn on", "turn off", "toggle", "browse", "select", "click", "watch", "listen"
+        )
+        val hasConjunction = conjunctions.any { lowerPrompt.contains(it) }
+        val hasActionVerb = actionVerbs.any { lowerPrompt.contains(it) }
+        val responseHasIntent = listOf(
+            "while i search", "while i find", "while i check", "searching for",
+            "will search", "will find", "will check", "looking for"
+        ).any { lowerResponse.contains(it) }
+        return (hasConjunction && hasActionVerb) || responseHasIntent
     }
 
     fun extractThought(rawText: String): Pair<String?, String> {

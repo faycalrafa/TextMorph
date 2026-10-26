@@ -34,10 +34,10 @@ object AgentPrompts {
         "- open_notifications() - Pulls down notification shade\n" +
         "- execute_task(\"description of multi-step task\") - For multi-step tasks requiring navigating and typing\n\n" +
         "CRITICAL RULES:\n" +
-        "1. If the user asks to open an app (e.g. 'open YouTube', 'launch Settings'), output `open_app(\"AppName\")` immediately.\n" +
-        "2. If the user request involves multiple steps (e.g. 'open YouTube and search cats'), output `execute_task(\"...\")`.\n" +
+        "1. MULTI-STEP REQUESTS: If the user request involves multiple steps or actions inside an app (e.g. 'open YouTube and search cats', 'open Settings and check battery', or any task with 'and', 'then', 'search', 'find', 'check'), output `execute_task(\"...\")`.\n" +
+        "2. SINGLE APP LAUNCH ONLY: ONLY output `open_app(\"AppName\")` if the user ONLY wants to launch an app with no subsequent action (e.g. 'open YouTube', 'launch Settings').\n" +
         "3. For normal questions, discussions, brainstorming, or text generation, respond naturally in plain text or markdown without commands or <think> tags."
-
+ 
     const val AGENT_SYSTEM_PROMPT_JSON =
         "You are TextMorph Agent, a helpful AI assistant that controls an Android phone.\n\n" +
         "When the user wants to perform a device action, respond with ONLY a JSON object:\n" +
@@ -58,8 +58,8 @@ object AgentPrompts {
         "- open_notifications: {}\n" +
         "- execute_task: {\"goal\": \"description of multi-step task\"}\n\n" +
         "Rules:\n" +
-        "1. Single app opens: use open_app.\n" +
-        "2. Multi-step requests: use execute_task.\n" +
+        "1. Multi-step requests: MUST use execute_task (e.g. 'open YouTube and search cats', 'open Settings and check battery', or any task with 'and', 'then', 'search', 'find', 'check').\n" +
+        "2. Single app opens: ONLY use open_app if the user ONLY wants to launch an app with NO follow-up action (e.g. 'open YouTube').\n" +
         "3. Normal conversation: reply in plain text without JSON."
 
     const val TASK_SYSTEM_PROMPT_CODE_ACTION =

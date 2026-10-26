@@ -40,6 +40,10 @@ class ChatSessionRepository private constructor(private val context: Context) {
     private val indexFile: File
         get() = File(context.filesDir, "chat_sessions_index.json")
 
+    private val storageDelegate by lazy {
+        ChatSessionStorageDelegate(sessionsDir, indexFile, json)
+    }
+
     private val _sessionsState = MutableStateFlow<List<ChatSessionEntity>>(emptyList())
     val sessionsState: StateFlow<List<ChatSessionEntity>> = _sessionsState.asStateFlow()
     val sessions: StateFlow<List<ChatSessionEntity>> get() = sessionsState
@@ -288,15 +292,10 @@ class ChatSessionRepository private constructor(private val context: Context) {
     }
 
     suspend fun switchMode(isAgentMode: Boolean) = withContext(Dispatchers.IO) {
-        val targetSession = _sessionsState.value.firstOrNull { it.isAgentMode == isAgentMode }
-        if (targetSession != null) {
-            selectSession(targetSession.id)
-            AppLogger.d(TAG, "Switched to existing mode workspace: ${targetSession.id} (agent=$isAgentMode)")
-        } else {
-            val title = if (isAgentMode) "Agent Workspace" else "Chat Workspace"
-            val newSession = createSession(title = title)
-            setAgentMode(newSession.id, isAgentMode)
-            AppLogger.i(TAG, "Created dedicated mode workspace: ${newSession.id} (agent=$isAgentMode)")
+        val currentId = _activeSessionId.value ?: _sessionsState.value.firstOrNull()?.id
+        if (currentId != null) {
+            setAgentMode(currentId, isAgentMode)
+            AppLogger.d(TAG, "Toggled agent mode to $isAgentMode for current session $currentId")
         }
     }
 
@@ -316,12 +315,14 @@ class ChatSessionRepository private constructor(private val context: Context) {
             val created = createSession("Diagnostics Workspace")
             created.id
         }
+        val isAgent = _sessionsState.value.firstOrNull { it.id == activeId }?.isAgentMode == true || actionPayloadJson != null
         val userMsg = ChatMessageEntity(
             sessionId = activeId,
             role = "user",
             content = userPrompt,
             attachmentsJson = attachmentsJson,
-            systemPrompt = systemPrompt
+            systemPrompt = systemPrompt,
+            isAgentMode = isAgent
         )
         val assistantMsg = ChatMessageEntity(
             sessionId = activeId,
@@ -332,6 +333,7 @@ class ChatSessionRepository private constructor(private val context: Context) {
             systemPrompt = systemPrompt,
             actionPayloadJson = actionPayloadJson,
             actionStatus = actionStatus,
+            isAgentMode = isAgent,
             tokensPerSecond = tokensPerSecond,
             totalTokens = totalTokens,
             durationMs = durationMs
@@ -442,36 +444,11 @@ class ChatSessionRepository private constructor(private val context: Context) {
     }
 
     private fun saveIndexToDisk(sessions: List<ChatSessionEntity>) {
-        try {
-            val atomicFile = AtomicFile(indexFile)
-            val stream = atomicFile.startWrite()
-            try {
-                stream.write(json.encodeToString(sessions).toByteArray(Charsets.UTF_8))
-                atomicFile.finishWrite(stream)
-            } catch (e: Exception) {
-                atomicFile.failWrite(stream)
-                throw e
-            }
-        } catch (e: Exception) {
-            AppLogger.e(TAG, "Failed writing session index to disk: ${e.message}", e)
-        }
+        storageDelegate.saveIndexToDisk(sessions)
     }
 
     private fun saveMessagesToDisk(sessionId: String, messages: List<ChatMessageEntity>) {
-        try {
-            val target = File(sessionsDir, "session_$sessionId.json")
-            val atomicFile = AtomicFile(target)
-            val stream = atomicFile.startWrite()
-            try {
-                stream.write(json.encodeToString(messages).toByteArray(Charsets.UTF_8))
-                atomicFile.finishWrite(stream)
-            } catch (e: Exception) {
-                atomicFile.failWrite(stream)
-                throw e
-            }
-        } catch (e: Exception) {
-            AppLogger.e(TAG, "Failed saving messages for $sessionId: ${e.message}", e)
-        }
+        storageDelegate.saveMessagesToDisk(sessionId, messages)
     }
 
     companion object {

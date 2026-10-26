@@ -272,4 +272,84 @@ class ChatAndAutomationUpgradeUnitTests {
         assertFalse(isRunning)
         assertTrue(isInterrupted)
     }
+
+    @Test
+    fun testChatMessageEntityIsAgentModeSerialization() {
+        val chatTurn = ChatMessageEntity(
+            sessionId = "s1",
+            role = "user",
+            content = "Hello there",
+            isAgentMode = false
+        )
+        assertFalse(chatTurn.isAgentMode)
+        assertFalse(chatTurn.isAgentTurn)
+
+        val agentTurn = ChatMessageEntity(
+            sessionId = "s1",
+            role = "user",
+            content = "open youtube and search cats",
+            isAgentMode = true
+        )
+        assertTrue(agentTurn.isAgentMode)
+        assertTrue(agentTurn.isAgentTurn)
+
+        val encoded = json.encodeToString(agentTurn)
+        assertTrue(encoded.contains("\"isAgentMode\": true"))
+
+        val decoded = json.decodeFromString<ChatMessageEntity>(encoded)
+        assertTrue(decoded.isAgentMode)
+        assertTrue(decoded.isAgentTurn)
+    }
+
+    @Test
+    fun testChatMessageModePartitioning() {
+        val sessionMessages = listOf(
+            ChatMessageEntity(id = "1", sessionId = "s1", role = "user", content = "Explain gravity", isAgentMode = false),
+            ChatMessageEntity(id = "2", sessionId = "s1", role = "assistant", content = "Gravity is a fundamental force...", isAgentMode = false),
+            ChatMessageEntity(id = "3", sessionId = "s1", role = "user", content = "open settings and check battery", isAgentMode = true),
+            ChatMessageEntity(id = "4", sessionId = "s1", role = "assistant", content = "Opening settings...", isAgentMode = true, actionPayloadJson = "open_app")
+        )
+
+        // When in Chat mode: only non-agent turns are visible
+        val chatVisible = sessionMessages.filter { !it.isAgentTurn }
+        assertEquals(2, chatVisible.size)
+        assertEquals("1", chatVisible[0].id)
+        assertEquals("2", chatVisible[1].id)
+
+        // When in Agent mode: only agent turns are visible
+        val agentVisible = sessionMessages.filter { it.isAgentTurn }
+        assertEquals(2, agentVisible.size)
+        assertEquals("3", agentVisible[0].id)
+        assertEquals("4", agentVisible[1].id)
+    }
+
+    @Test
+    fun testMultiStepIntentDetection() {
+        val multiStep1 = "open youtube and search for orange cats"
+        val multiStep2 = "open settings and check battery"
+        val multiStep3 = "open chrome then find flight tickets"
+        val multiStep4 = "open spotify to play jazz"
+        val single1 = "open youtube"
+        val single2 = "launch settings"
+
+        assertTrue(com.textmorph.app.ui.chat.components.AiChatInferenceExecutor.isMultiStepIntent(multiStep1))
+        assertTrue(com.textmorph.app.ui.chat.components.AiChatInferenceExecutor.isMultiStepIntent(multiStep2))
+        assertTrue(com.textmorph.app.ui.chat.components.AiChatInferenceExecutor.isMultiStepIntent(multiStep3))
+        assertTrue(com.textmorph.app.ui.chat.components.AiChatInferenceExecutor.isMultiStepIntent(multiStep4))
+
+        assertFalse(com.textmorph.app.ui.chat.components.AiChatInferenceExecutor.isMultiStepIntent(single1))
+        assertFalse(com.textmorph.app.ui.chat.components.AiChatInferenceExecutor.isMultiStepIntent(single2))
+
+        // Response intent test (even if user typed short command)
+        val shortCommand = "contacts nouh"
+        val modelResponse = "Opening Contacts now. Please wait while I search for nouh."
+        assertTrue(com.textmorph.app.ui.chat.components.AiChatInferenceExecutor.isMultiStepIntent(shortCommand, modelResponse))
+    }
+
+    @Test
+    fun testDownloadStateStarting() {
+        val starting: com.textmorph.app.data.repository.DownloadState = com.textmorph.app.data.repository.DownloadState.Starting
+        val isStarting = starting is com.textmorph.app.data.repository.DownloadState.Starting
+        assertTrue(isStarting)
+    }
 }

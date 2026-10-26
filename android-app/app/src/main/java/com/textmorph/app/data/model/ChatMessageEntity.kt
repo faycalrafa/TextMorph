@@ -20,11 +20,15 @@ data class ChatMessageEntity(
     val actionPayloadJson: String? = null,
     val actionStatus: String? = null, // "pending", "running", "success", "failed", "interrupted"
     val actionStepsJson: String? = null, // List<AgentTaskStep> serialized
+    val isAgentMode: Boolean = false,
     val timestamp: Long = System.currentTimeMillis(),
     val tokensPerSecond: Float? = null,
     val totalTokens: Int? = null,
     val durationMs: Long? = null
 ) {
+    val isAgentTurn: Boolean
+        get() = isAgentMode || actionPayloadJson != null || actionStepsJson != null
+
     fun getActionSteps(): List<AgentTaskStep> {
         return AgentTaskStep.deserializeList(actionStepsJson)
     }

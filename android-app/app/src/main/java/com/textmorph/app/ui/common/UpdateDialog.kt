@@ -111,7 +111,21 @@ fun UpdateDialog(
                 Spacer(modifier = Modifier.height(16.dp))
 
                 // Download Progress
-                if (downloadState is DownloadState.Progress) {
+                if (downloadState is DownloadState.Starting) {
+                    Text(
+                        text = "Connecting to release server…",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    LinearProgressIndicator(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(8.dp)
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                } else if (downloadState is DownloadState.Progress) {
                     Text(
                         text = "Downloading... ${downloadState.percent}%",
                         style = MaterialTheme.typography.bodyMedium,
@@ -156,12 +170,18 @@ fun UpdateDialog(
                             Text("Install Now")
                         }
                     } else {
+                        val isDownloading = downloadState is DownloadState.Starting || downloadState is DownloadState.Progress
                         Button(
                             onClick = onStartDownload,
-                            enabled = downloadState !is DownloadState.Progress,
+                            enabled = !isDownloading,
                             shape = RoundedCornerShape(10.dp)
                         ) {
-                            Text(if (downloadState is DownloadState.Progress) "Downloading..." else "Download & Install")
+                            val buttonText = when (downloadState) {
+                                is DownloadState.Starting -> "Connecting..."
+                                is DownloadState.Progress -> "Downloading (${downloadState.percent}%)"
+                                else -> "Download & Install"
+                            }
+                            Text(buttonText)
                         }
                     }
                 }

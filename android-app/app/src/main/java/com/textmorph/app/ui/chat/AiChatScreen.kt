@@ -67,6 +67,7 @@ import com.textmorph.app.llm.LlamaCppEngineManager
 import com.textmorph.app.llm.OpenAiCloudEngine
 import com.textmorph.app.llm.context.ChatCompactor
 import com.textmorph.app.ui.chat.components.AiChatInferenceExecutor
+import com.textmorph.app.ui.chat.components.AiChatSheets
 import com.textmorph.app.ui.chat.components.AttachedMediaItem
 import com.textmorph.app.util.AppLogger
 import com.textmorph.app.util.PermissionUtils
@@ -108,6 +109,12 @@ fun AiChatContent(
     val currentSession = sessions.find { it.id == activeSessionId }
     val isAgentMode = currentSession?.isAgentMode == true
 
+    val visibleMessages = remember(messages, isAgentMode) {
+        messages.filter { msg ->
+            if (isAgentMode) msg.isAgentTurn else !msg.isAgentTurn
+        }
+    }
+
     fun getActiveEngine(): com.textmorph.app.llm.LlmEngine {
         return when (settings.selectedEngine) {
             EngineType.CLOUD_OPENAI -> {
@@ -137,7 +144,7 @@ fun AiChatContent(
     val voiceHelper = remember { VoiceInputHelper(context) }
     val isListening by voiceHelper.isListening.collectAsState()
 
-    val contextMetrics = remember(messages, inputText, attachments.size, activeSessionId, sessions) {
+    val contextMetrics = remember(visibleMessages, inputText, attachments.size, activeSessionId, sessions) {
         chatRepository.computeActiveContextMetrics(
             currentInput = inputText,
             currentImageCount = attachments.count { it.isImage }
@@ -168,9 +175,9 @@ fun AiChatContent(
         }
     }
 
-    LaunchedEffect(messages.lastOrNull()?.content, messages.size) {
-        if (messages.isNotEmpty()) {
-            listState.animateScrollToItem(messages.size - 1)
+    LaunchedEffect(visibleMessages.lastOrNull()?.content, visibleMessages.size) {
+        if (visibleMessages.isNotEmpty()) {
+            listState.animateScrollToItem(visibleMessages.size - 1)
         }
     }
 
@@ -255,13 +262,13 @@ fun AiChatContent(
         com.textmorph.app.ui.chat.components.AiChatTopBar(
             activeModelName = activeModelName,
             contextMetrics = contextMetrics,
-            hasMessages = messages.isNotEmpty(),
+            hasMessages = visibleMessages.isNotEmpty(),
             onOpenDrawer = onOpenDrawer,
             onOpenModelSwitch = { showModelSwitchSheet = true },
             onOpenCapacitySheet = { showCapacitySheet = true },
             onClearChat = {
                 currentJob?.cancel()
-                agentEngine?.cancelRunningTask()
+                agentEngine.cancelRunningTask()
                 isGenerating = false
                 scope.launch { chatRepository.clearSessionMessages(activeSessionId ?: "") }
             }
@@ -278,7 +285,7 @@ fun AiChatContent(
                 .weight(1f)
                 .fillMaxWidth()
         ) {
-            if (messages.isEmpty()) {
+            if (visibleMessages.isEmpty()) {
                 com.textmorph.app.ui.chat.components.ChatEmptyStateStarters(
                     isAgentMode = isAgentMode,
                     activeModelName = activeModelName,
@@ -293,10 +300,10 @@ fun AiChatContent(
                     contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    items(messages, key = { it.id }) { msg ->
+                    items(visibleMessages, key = { it.id }) { msg ->
                         ChatMessageItemView(
                             message = msg,
-                            isGenerating = isGenerating && msg.id == messages.lastOrNull()?.id,
+                            isGenerating = isGenerating && msg.id == visibleMessages.lastOrNull()?.id,
                             generationStatus = activeGenerationStatus,
                             onEditPrompt = { userMsg ->
                                 val targetId = activeSessionId ?: return@ChatMessageItemView
@@ -326,7 +333,7 @@ fun AiChatContent(
                             },
                             onInterruptAction = {
                                 currentJob?.cancel()
-                                agentEngine?.cancelRunningTask()
+                                agentEngine.cancelRunningTask()
                                 com.textmorph.app.agent.coordinator.TaskExecutionCoordinator.interrupt()
                                 isGenerating = false
                                 val targetId = activeSessionId ?: return@ChatMessageItemView
@@ -383,7 +390,7 @@ fun AiChatContent(
             onSend = ::handleSend,
             onStop = {
                 currentJob?.cancel()
-                agentEngine?.cancelRunningTask()
+                agentEngine.cancelRunningTask()
                 com.textmorph.app.agent.coordinator.TaskExecutionCoordinator.interrupt()
                 isGenerating = false
                 val targetId = activeSessionId
@@ -400,83 +407,22 @@ fun AiChatContent(
         )
     }
 
-    if (showAttachmentSheet) {
-        com.textmorph.app.ui.chat.components.ChatAttachmentBottomSheet(
-            onDismiss = { showAttachmentSheet = false },
-            onPhotoCaptured = { item -> attachments.add(item) },
-            onPickFiles = { mediaPickerLauncher.launch("*/*") }
-        )
-    }
-
-    if (showModelSwitchSheet) {
-        ModelQuickSwitchBottomSheet(
-            settings = settings,
-            availableModels = availableModels,
-            onDismiss = { showModelSwitchSheet = false },
-            onSelectModel = { model ->
-                scope.launch {
-                    val targetEngine = when (model.modelFileType) {
-                        com.textmorph.app.data.model.ModelFileType.GGUF -> com.textmorph.app.data.model.EngineType.ON_DEVICE_LLAMA_CPP
-                        else -> com.textmorph.app.data.model.EngineType.ON_DEVICE_LITERT
-                    }
-                    settingsRepository.setActiveModel(model.name, model.path, model.uriString, targetEngine)
-                    settingsRepository.setEngine(targetEngine)
-                    showModelSwitchSheet = false
-                    Toast.makeText(context, "Switched active model to: ${model.name}", Toast.LENGTH_SHORT).show()
-                }
-            },
-            onSelectEngine = { engine ->
-                scope.launch {
-                    settingsRepository.setEngine(engine)
-                    showModelSwitchSheet = false
-                    Toast.makeText(context, "Switched engine to: ${engine.displayName}", Toast.LENGTH_SHORT).show()
-                }
-            },
-            onSaveConfig = { maxTokens, temp, topP, thinking, accel ->
-                scope.launch {
-                    settingsRepository.updateAiModelConfig(
-                        maxTokens = maxTokens,
-                        temperature = temp,
-                        topK = settings.topK,
-                        topP = topP,
-                        enableThinking = thinking,
-                        speculativeDecoding = settings.speculativeDecoding,
-                        defaultSystemPrompt = settings.defaultSystemPrompt
-                    )
-                    settingsRepository.setPreferredAccelerator(accel)
-                }
-            }
-        )
-    }
-
-    if (showCapacitySheet) {
-        ContextCapacityBottomSheet(
-            metrics = contextMetrics,
-            onCompressHistory = {
-                val activeId = activeSessionId ?: return@ContextCapacityBottomSheet
-                val activeSession = chatRepository.getActiveSession()
-                val allMessages = chatRepository.currentMessages.value
-                scope.launch(Dispatchers.IO) {
-                    val (older, _) = ChatCompactor.partitionWindow(allMessages)
-                    val targetMessages = if (older.isNotEmpty()) older else allMessages
-                    val newSummary = ChatCompactor.summarizeTurns(getActiveEngine(), activeSession?.summary, targetMessages)
-                    val updatedFacts = ChatCompactor.extractSessionFacts(getActiveEngine(), activeSession?.sessionState, allMessages)
-                    chatRepository.updateSessionCompactionState(activeId, newSummary, updatedFacts)
-                    kotlinx.coroutines.withContext(Dispatchers.Main) {
-                        Toast.makeText(context, "Compacted history into summary", Toast.LENGTH_SHORT).show()
-                    }
-                }
-            },
-            onPruneContext = {
-                val activeId = activeSessionId ?: return@ContextCapacityBottomSheet
-                scope.launch(Dispatchers.IO) {
-                    chatRepository.pruneSessionArtifacts(activeId)
-                    kotlinx.coroutines.withContext(Dispatchers.Main) {
-                        Toast.makeText(context, "Pruned context artifacts", Toast.LENGTH_SHORT).show()
-                    }
-                }
-            },
-            onDismiss = { showCapacitySheet = false }
-        )
-    }
+    AiChatSheets(
+        scope = scope,
+        settings = settings,
+        availableModels = availableModels,
+        settingsRepository = settingsRepository,
+        chatRepository = chatRepository,
+        activeSessionId = activeSessionId,
+        activeEngine = getActiveEngine(),
+        contextMetrics = contextMetrics,
+        showAttachmentSheet = showAttachmentSheet,
+        onDismissAttachmentSheet = { showAttachmentSheet = false },
+        onPhotoCaptured = { item -> attachments.add(item) },
+        onPickFiles = { mediaPickerLauncher.launch("*/*") },
+        showModelSwitchSheet = showModelSwitchSheet,
+        onDismissModelSwitchSheet = { showModelSwitchSheet = false },
+        showCapacitySheet = showCapacitySheet,
+        onDismissCapacitySheet = { showCapacitySheet = false }
+    )
 }
