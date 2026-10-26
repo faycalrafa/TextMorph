@@ -212,6 +212,9 @@ object AgentActionParser {
             AgentAction.ACTION_CLICK_TEXT -> {
                 extractStringParam("text", "label", "target", "element")
             }
+            AgentAction.ACTION_CLICK_ELEMENT -> {
+                extractNumberParam("element_id", "id", "index")
+            }
             AgentAction.ACTION_CLICK_AT -> {
                 extractNumberParam("x")
                 extractNumberParam("y")

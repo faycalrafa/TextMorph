@@ -39,6 +39,8 @@ class ScreenAutomationController(private val service: AccessibilityService) {
     private val ownPackage = "com.textmorph.app"
     var onTapDispatched: ((Float, Float) -> Unit)? = null
     var onTargetFocused: ((Float, Float) -> Unit)? = null
+    @Volatile
+    private var lastDumpedNodes: List<UiElementNode> = emptyList()
 
     fun dumpScreenHierarchy(): List<UiElementNode> {
         val result = mutableListOf<UiElementNode>()
@@ -53,6 +55,7 @@ class ScreenAutomationController(private val service: AccessibilityService) {
                 } finally {
                     try { root.recycle() } catch (e: Exception) { AppLogger.d(TAG, "Recycle: ${e.message}") }
                 }
+                lastDumpedNodes = result
                 return result
             }
 
@@ -68,7 +71,27 @@ class ScreenAutomationController(private val service: AccessibilityService) {
         } catch (e: Exception) {
             AppLogger.e(TAG, "Error dumping screen hierarchy: ${e.message}", e)
         }
+        lastDumpedNodes = result
         return result
+    }
+
+    /**
+     * Directly clicks an element by its screen dump index [0..N-1].
+     */
+    fun clickElementByIndex(index: Int): Boolean {
+        return try {
+            val target = lastDumpedNodes.getOrNull(index)
+            if (target != null) {
+                AppLogger.i(TAG, "Clicking element [$index]: '${target.displayText}' center=(${target.centerX}, ${target.centerY})")
+                clickAtCoordinates(target.centerX.toFloat(), target.centerY.toFloat())
+            } else {
+                AppLogger.w(TAG, "clickElementByIndex: invalid index $index (cache count=${lastDumpedNodes.size})")
+                false
+            }
+        } catch (e: Exception) {
+            AppLogger.e(TAG, "Failed clicking element index $index: ${e.message}", e)
+            false
+        }
     }
 
     private fun traverseNode(node: AccessibilityNodeInfo, list: MutableList<UiElementNode>, depth: Int) {
@@ -130,13 +153,44 @@ class ScreenAutomationController(private val service: AccessibilityService) {
 
     fun clickAtCoordinates(x: Float, y: Float): Boolean {
         return try {
-            onTargetFocused?.invoke(x, y)
-            onTapDispatched?.invoke(x, y)
-            val path = Path().apply { moveTo(x, y) }
+            var targetX = x
+            var targetY = y
+
+            // Magnetic snap check: verify if coordinates landed slightly below an interactive target
+            val allWindows = service.windows
+            if (allWindows != null) {
+                for (window in allWindows) {
+                    val root = window.root ?: continue
+                    try {
+                        if (root.packageName?.toString() == ownPackage) continue
+                        val snapResult = TargetClickResolver.findMagneticSnapTarget(root, x, y)
+                        if (snapResult != null) {
+                            if (snapResult.isSnapped) {
+                                AppLogger.i(TAG, "Magnetic snapping tap: ($x, $y) -> (${snapResult.snappedX}, ${snapResult.snappedY})")
+                            }
+                            targetX = snapResult.snappedX
+                            targetY = snapResult.snappedY
+
+                            if (snapResult.node.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                                onTargetFocused?.invoke(targetX, targetY)
+                                onTapDispatched?.invoke(targetX, targetY)
+                                return true
+                            }
+                            break
+                        }
+                    } finally {
+                        try { root.recycle() } catch (e: Exception) { AppLogger.d(TAG, "Root recycle: ${e.message}") }
+                    }
+                }
+            }
+
+            onTargetFocused?.invoke(targetX, targetY)
+            onTapDispatched?.invoke(targetX, targetY)
+            val path = Path().apply { moveTo(targetX, targetY) }
             val stroke = GestureDescription.StrokeDescription(path, 0, 100)
             val gesture = GestureDescription.Builder().addStroke(stroke).build()
             val dispatched = service.dispatchGesture(gesture, null, null)
-            AppLogger.d(TAG, "Click at ($x, $y) dispatched=$dispatched")
+            AppLogger.d(TAG, "Click at ($targetX, $targetY) dispatched=$dispatched")
             dispatched
         } catch (e: Exception) {
             AppLogger.e(TAG, "Failed clicking at ($x, $y): ${e.message}", e)
@@ -145,11 +199,7 @@ class ScreenAutomationController(private val service: AccessibilityService) {
     }
 
     /**
-     * 1-to-1 port of PrivateAgent's 4-pass click disambiguation.
-     * Pass 1: exact match, skip editable (prefer buttons/links)
-     * Pass 2: substring match, skip editable
-     * Pass 3: exact match, allow editable
-     * Pass 4: substring match, allow editable
+     * Precision 4-pass click disambiguation using deepest-leaf matching.
      */
     fun clickByText(targetText: String): Boolean {
         try {
@@ -159,11 +209,15 @@ class ScreenAutomationController(private val service: AccessibilityService) {
                     val root = window.root ?: continue
                     try {
                         if (root.packageName?.toString() == ownPackage) continue
-                        val found = findAndClickNode(root, targetText, exactOnly = true, skipEditable = true)
-                            || findAndClickNode(root, targetText, exactOnly = false, skipEditable = true)
-                            || findAndClickNode(root, targetText, exactOnly = true, skipEditable = false)
-                            || findAndClickNode(root, targetText, exactOnly = false, skipEditable = false)
-                        if (found) return true
+                        val matchingNode = TargetClickResolver.resolveMatchingNode(root, targetText)
+
+                        if (matchingNode != null) {
+                            try {
+                                if (clickNodeOrParent(matchingNode)) return true
+                            } finally {
+                                try { matchingNode.recycle() } catch (e: Exception) { AppLogger.d(TAG, "MatchingNode recycle: ${e.message}") }
+                            }
+                        }
                     } finally {
                         try { root.recycle() } catch (e: Exception) { AppLogger.d(TAG, "Recycle: ${e.message}") }
                     }
@@ -171,33 +225,6 @@ class ScreenAutomationController(private val service: AccessibilityService) {
             }
         } catch (e: Exception) {
             AppLogger.e(TAG, "Error clicking text '$targetText': ${e.message}", e)
-        }
-        return false
-    }
-
-    private fun findAndClickNode(
-        node: AccessibilityNodeInfo,
-        targetText: String,
-        exactOnly: Boolean = false,
-        skipEditable: Boolean = true
-    ): Boolean {
-        val text = node.text?.toString() ?: ""
-        val desc = node.contentDescription?.toString() ?: ""
-        val exactMatch = text.equals(targetText, ignoreCase = true) || desc.equals(targetText, ignoreCase = true)
-        val containsMatch = text.contains(targetText, ignoreCase = true) || desc.contains(targetText, ignoreCase = true)
-        val matches = if (exactOnly) exactMatch else containsMatch
-
-        if (matches && (!skipEditable || !node.isEditable) && clickNodeOrParent(node)) {
-            return true
-        }
-
-        for (i in 0 until node.childCount) {
-            val child = node.getChild(i) ?: continue
-            try {
-                if (findAndClickNode(child, targetText, exactOnly, skipEditable)) return true
-            } finally {
-                try { child.recycle() } catch (e: Exception) { AppLogger.d(TAG, "Child recycle: ${e.message}") }
-            }
         }
         return false
     }

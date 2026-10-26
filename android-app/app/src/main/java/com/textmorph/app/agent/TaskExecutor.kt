@@ -298,7 +298,7 @@ class TaskExecutor(
                 val stepDelay = when (action.action) {
                     "open_app" -> 3000L
                     "type_text" -> 2000L
-                    "click_text", "click_at" -> 1500L
+                    "click_text", "click_at", "click_element" -> 1500L
                     "press_enter" -> 1500L
                     "scroll", "swipe" -> 1000L
                     else -> 1000L
@@ -336,6 +336,7 @@ class TaskExecutor(
         return when (action.action) {
             AgentAction.ACTION_OPEN_APP -> "Opening ${action.getStringParamWithAliases("app_name", "name", "app", default = "App")}"
             AgentAction.ACTION_CLICK_TEXT -> "Tapping \"${action.getStringParamWithAliases("text", "label")}\""
+            AgentAction.ACTION_CLICK_ELEMENT -> "Tapping element [${action.getIntParamWithAliases("element_id", "id", "index", default = 0)}]"
             AgentAction.ACTION_CLICK_AT -> "Tapping at (${action.getFloatParam("x")}, ${action.getFloatParam("y")})"
             AgentAction.ACTION_TYPE_TEXT -> "Typing \"${action.getStringParamWithAliases("text", "content")}\""
             AgentAction.ACTION_PRESS_ENTER -> "Submitting keyboard enter"
@@ -375,6 +376,10 @@ class TaskExecutor(
                 "click_text" -> {
                     val text = action.getStringParamWithAliases("text", "label")
                     screenTool.clickText(text)
+                }
+                "click_element", "click_id" -> {
+                    val id = action.getIntParamWithAliases("element_id", "id", "index", default = -1)
+                    if (id >= 0) screenTool.clickElement(id) else false
                 }
                 "click_at" -> {
                     val x = action.getFloatParam("x")
@@ -433,7 +438,7 @@ class TaskExecutor(
             $screenDump
 
             Step $step/$maxSteps. Return ONLY a single JSON object with your action on one line:
-            {"action": "click_text", "text": "target text"} or {"action": "click_at", "x": 500, "y": 800} or {"action": "type_text", "text": "search query"} or {"action": "press_enter"} or {"action": "scroll", "direction": "down"} or {"action": "open_app", "app_name": "App"} or {"action": "press_back"} or {"action": "done", "response": "summary"}
+            {"action": "click_element", "id": 5} or {"action": "click_text", "text": "target text"} or {"action": "click_at", "x": 500, "y": 800} or {"action": "type_text", "text": "search query"} or {"action": "press_enter"} or {"action": "scroll", "direction": "down"} or {"action": "open_app", "app_name": "App"} or {"action": "press_back"} or {"action": "done", "response": "summary"}
             """.trimIndent()
         } else {
             """
@@ -443,6 +448,7 @@ class TaskExecutor(
             $screenDump
 
             Step $step/$maxSteps. Return ONLY a single action command on one line:
+            - click_element(id)
             - click_text("exact text to click")
             - click_at(x, y)
             - type_text("search text", hint="optional field hint")

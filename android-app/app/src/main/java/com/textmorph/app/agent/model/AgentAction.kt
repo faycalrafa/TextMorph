@@ -31,6 +31,14 @@ data class AgentAction(
         return raw.toIntOrNull() ?: default
     }
 
+    fun getIntParamWithAliases(vararg keys: String, default: Int = 0): Int {
+        for (k in keys) {
+            val v = getStringParam(k, "").toIntOrNull()
+            if (v != null) return v
+        }
+        return default
+    }
+
     fun getFloatParam(key: String, default: Float = 0f): Float {
         val raw = getStringParam(key, "")
         return raw.toFloatOrNull() ?: default
@@ -51,6 +59,7 @@ data class AgentAction(
         const val ACTION_READ_SCREEN = "read_screen"
         const val ACTION_CLICK_TEXT = "click_text"
         const val ACTION_CLICK_AT = "click_at"
+        const val ACTION_CLICK_ELEMENT = "click_element"
         const val ACTION_TYPE_TEXT = "type_text"
         const val ACTION_PRESS_ENTER = "press_enter"
         const val ACTION_SCROLL = "scroll"

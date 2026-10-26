@@ -145,11 +145,20 @@ fun AgentInteractionOverlayContent(
                         .border(1.5.dp, Color(0xFF60A5FA), CircleShape)
                 )
 
-                // Central finger clicking emoji / indicator
-                Text(
-                    text = "👆",
-                    fontSize = 24.sp,
-                    modifier = Modifier.scale(1.1f)
+                // Precision inner reticle ring
+                Box(
+                    modifier = Modifier
+                        .size(20.dp)
+                        .border(1.dp, Color(0x9960A5FA), CircleShape)
+                )
+
+                // High-precision focal target dot (dead-center on tap coordinates)
+                Box(
+                    modifier = Modifier
+                        .size(8.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFF38BDF8))
+                        .border(1.5.dp, Color.White, CircleShape)
                 )
             }
         }

@@ -66,6 +66,7 @@ object AgentPrompts {
         "You are a phone automation agent. You are given a TASK and the current SCREEN content.\n" +
         "You must decide what single action to take next to accomplish the task.\n\n" +
         "Respond with ONLY a single command on a single line (no code fences, no extra text):\n" +
+        "- click_element(5) - Click an element by its [id] number from the screen list\n" +
         "- click_text(\"exact text to click\") - Click an element by its visible text\n" +
         "- click_at(540, 960) - Click at screen coordinates (x, y)\n" +
         "- type_text(\"hello\", hint=\"optional hint\") - Type into the focused or editable field\n" +
@@ -79,7 +80,7 @@ object AgentPrompts {
         "- done(\"Task is complete\") - Task is finished\n\n" +
         "Rules:\n" +
         "- ALWAYS use the screen dump or attached screen image to decide your next action.\n" +
-        "- If element has visible text, prefer click_text(\"...\"). Otherwise use click_at(x, y).\n" +
+        "- Prefer click_element(id) or click_text(\"...\"). If no matching element or text, use click_at(x, y).\n" +
         "- When typing in a search box, click it first if not focused, then type.\n" +
         "- Call done(\"...\") ONLY when the task is fully accomplished."
 
@@ -88,6 +89,7 @@ object AgentPrompts {
         "Respond with ONLY a JSON object (no markdown, no extra text):\n" +
         "{\"action\": \"action_name\", \"params\": {\"key\": \"value\"}, \"reasoning\": \"why\", \"is_complete\": false}\n\n" +
         "Available actions:\n" +
+        "- click_element: {\"id\": 5}\n" +
         "- click_text: {\"text\": \"exact text\"}\n" +
         "- click_at: {\"x\": 540, \"y\": 960}\n" +
         "- type_text: {\"text\": \"hello\", \"field_hint\": \"optional\"}\n" +
@@ -100,7 +102,7 @@ object AgentPrompts {
         "- wait: {}\n" +
         "- done: {}\n\n" +
         "Rules:\n" +
-        "- Prefer click_text. If no text, use click_at coordinates.\n" +
+        "- Prefer click_element or click_text. If no text or id, use click_at coordinates.\n" +
         "- Set is_complete=true only when goal is fully achieved."
 
     // Canonical defaults

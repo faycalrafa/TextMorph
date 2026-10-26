@@ -170,7 +170,7 @@ class DeviceActionExecutor(
             val stepDelay = when (actionName) {
                 "open_app" -> 2500L
                 "type_text" -> 1500L
-                "click_at", "click_text" -> 1200L
+                "click_at", "click_text", "click_element" -> 1200L
                 "scroll", "swipe" -> 800L
                 else -> 1000L
             }
@@ -200,6 +200,9 @@ class DeviceActionExecutor(
     private fun executePrimitiveAction(plan: ActionPlan): Boolean {
         return try {
             when (plan.action) {
+                "click_element", "click_id" -> {
+                    if (plan.elementId != null) screenController.clickElementByIndex(plan.elementId) else false
+                }
                 "click_at" -> {
                     if (plan.targetX != null && plan.targetY != null) {
                         screenController.clickAtCoordinates(plan.targetX, plan.targetY)
@@ -262,8 +265,8 @@ class DeviceActionExecutor(
             $dump
             Step $step/$maxSteps. Return ONLY a single JSON object:
             {
-              "action": "click_at | click_text | type_text | press_enter | scroll | open_app | press_back | done",
-              "params": {"x": 540, "y": 960, "text": "...", "field_hint": "..."},
+              "action": "click_element | click_at | click_text | type_text | press_enter | scroll | open_app | press_back | done",
+              "params": {"id": 5, "x": 540, "y": 960, "text": "...", "field_hint": "..."},
               "reasoning": "1 short sentence explaining next step",
               "is_complete": false
             }
@@ -285,8 +288,9 @@ class DeviceActionExecutor(
             val y = params?.get("y")?.jsonPrimitive?.doubleOrNull?.toFloat()
             val text = params?.get("text")?.jsonPrimitive?.contentOrNull ?: ""
             val hint = params?.get("field_hint")?.jsonPrimitive?.contentOrNull
+            val elementId = (params?.get("element_id") ?: params?.get("id") ?: params?.get("index"))?.jsonPrimitive?.contentOrNull?.toIntOrNull()
 
-            return ActionPlan(action, x, y, text, hint, reasoning, isComplete)
+            return ActionPlan(action, x, y, text, hint, reasoning, isComplete, elementId)
         } catch (e: Exception) {
             return null
         }
@@ -299,6 +303,7 @@ class DeviceActionExecutor(
         val textParam: String,
         val fieldHint: String?,
         val reasoning: String,
-        val isComplete: Boolean
+        val isComplete: Boolean,
+        val elementId: Int? = null
     )
 }

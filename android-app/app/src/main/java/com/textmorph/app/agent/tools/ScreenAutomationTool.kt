@@ -48,6 +48,13 @@ class ScreenAutomationTool(
         return success
     }
 
+    fun clickElement(index: Int): Boolean {
+        val ctrl = controllerProvider() ?: return false
+        val success = ctrl.clickElementByIndex(index)
+        AppLogger.d(TAG, "clickElement($index) result: $success")
+        return success
+    }
+
     fun clickAt(x: Float, y: Float): Boolean {
         val ctrl = controllerProvider() ?: return false
         val success = ctrl.clickAtCoordinates(x, y)

@@ -147,6 +147,15 @@ object CodeActionParser {
                 )
             }
 
+            "click_element", "click_id", "tap_element" -> {
+                val id = getArg(0, "id", "index", "element_id").filter { it.isDigit() }
+                AgentAction(
+                    action = AgentAction.ACTION_CLICK_ELEMENT,
+                    params = toJsonParams(mapOf("element_id" to id)),
+                    response = "Tapping element [$id]"
+                )
+            }
+
             "click_at", "tap_at", "tap" -> {
                 val x = getArg(0, "x")
                 val y = getArg(1, "y")
@@ -158,9 +167,21 @@ object CodeActionParser {
             }
 
             "click" -> {
-                val arg0 = getArg(0, "text", "x")
+                val arg0 = getArg(0, "text", "x", "id")
                 val arg1 = getArg(1, "y")
-                if (arg1.isNotBlank() || arg0.all { it.isDigit() || it == '.' }) {
+                if (arg1.isNotBlank()) {
+                    AgentAction(
+                        action = AgentAction.ACTION_CLICK_AT,
+                        params = toJsonParams(mapOf("x" to arg0, "y" to arg1)),
+                        response = "Tapping at ($arg0, $arg1)"
+                    )
+                } else if (arg0.all { it.isDigit() } && arg0.toIntOrNull() != null && arg0.toInt() < 100) {
+                    AgentAction(
+                        action = AgentAction.ACTION_CLICK_ELEMENT,
+                        params = toJsonParams(mapOf("element_id" to arg0)),
+                        response = "Tapping element [$arg0]"
+                    )
+                } else if (arg0.all { it.isDigit() || it == '.' }) {
                     AgentAction(
                         action = AgentAction.ACTION_CLICK_AT,
                         params = toJsonParams(mapOf("x" to arg0, "y" to arg1)),
