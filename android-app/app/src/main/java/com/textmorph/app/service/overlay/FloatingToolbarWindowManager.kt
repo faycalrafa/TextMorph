@@ -85,7 +85,14 @@ class FloatingToolbarWindowManager(
         onTapDispatched = { x, y -> service.getInteractionOverlayManager()?.showTap(x, y) }
         onTargetFocused = { x, y -> coordinateAnimator.animateTo(x, y, durationMs = 380L) }
     }
-    val actionExecutor = DeviceActionExecutor(service, automationController, liteRtEngine, llamaCppEngine, cloudEngine)
+    val agentEngine by lazy {
+        com.textmorph.app.agent.AgentEngine(
+            context = service,
+            controllerProvider = { automationController },
+            serviceProvider = { service },
+            engineProvider = { getActiveEngine() }
+        )
+    }
     private val voiceInputHelper = VoiceInputHelper(service)
 
     init {
@@ -172,19 +179,16 @@ class FloatingToolbarWindowManager(
                 voiceInputHelper.stopListening()
                 transitionTo(OverlayDisplayState.AUTOMATING_ACTION)
                 windowScope.launch {
-                    val sessionId = VoiceAgentMissionRecorder.recordMissionStart(service, goal)
                     try {
-                        val result = actionExecutor.executeGoal(
+                        val result = VoiceAgentMissionCoordinator.executeMission(
+                            context = service,
+                            agentEngine = agentEngine,
                             goal = goal,
-                            onProgress = { _, _ -> },
-                            onTargetAnimate = { x, y -> coordinateAnimator.animateTo(x, y, durationMs = 380L) }
+                            onProgress = { status -> AppLogger.d(TAG, "Voice mission progress: $status") }
                         )
                         AppLogger.i(TAG, "Quick agent goal result: $result")
-                        VoiceAgentMissionRecorder.recordMissionResult(service, sessionId, goal, result, isSuccess = true)
                     } catch (e: Exception) {
                         AppLogger.e(TAG, "Quick agent goal execution failed: ${e.message}", e)
-                        val errorMsg = e.message ?: "Voice agent mission failed."
-                        VoiceAgentMissionRecorder.recordMissionResult(service, sessionId, goal, errorMsg, isSuccess = false)
                     } finally {
                         transitionTo(OverlayDisplayState.COLLAPSED_BUBBLE)
                     }
@@ -299,7 +303,7 @@ class FloatingToolbarWindowManager(
                             val elapsed = SystemClock.uptimeMillis() - automatingStateTimestamp
                             if (elapsed >= 450L) {
                                 com.textmorph.app.agent.coordinator.TaskExecutionCoordinator.interrupt()
-                                actionExecutor.stopExecution()
+                                agentEngine.cancelRunningTask()
                             } else {
                                 AppLogger.d(TAG, "Ignoring premature tap on AUTOMATING_ACTION within debounce window (${elapsed}ms < 450ms)")
                             }
@@ -395,7 +399,7 @@ class FloatingToolbarWindowManager(
                                         isThinking = taskState.isThinking,
                                         onInterrupt = {
                                             com.textmorph.app.agent.coordinator.TaskExecutionCoordinator.interrupt()
-                                            actionExecutor.stopExecution()
+                                            agentEngine.cancelRunningTask()
                                         }
                                     )
                                 }

@@ -45,6 +45,10 @@ class TaskExecutor(
     @Volatile
     private var isCancelled = false
 
+    @Volatile
+    var lastRawOutput: String = ""
+        private set
+
     fun cancel() {
         isCancelled = true
         AppLogger.i(TAG, "Task execution cancelled by user.")
@@ -57,6 +61,7 @@ class TaskExecutor(
         onStepsUpdated: ((List<AgentTaskStep>) -> Unit)? = null
     ): String = withContext(Dispatchers.IO) {
         isCancelled = false
+        lastRawOutput = ""
         AppLogger.i(TAG, "Executing multi-step task: '$goal' (maxSteps=$maxSteps)")
         TaskExecutionCoordinator.startTask(goal)
         onStepsUpdated?.invoke(TaskExecutionCoordinator.state.value.stepsHistory)
@@ -120,8 +125,10 @@ class TaskExecutor(
                 onStepsUpdated?.invoke(TaskExecutionCoordinator.state.value.stepsHistory)
                 onProgress(step, "Viewing screen (Step $step/$maxSteps)…")
 
-                // Unified Screen Perception: Grounded Private Agent semantic hierarchy with exact coordinate centers and element IDs
-                val screenDump = screenTool.readScreenPrivateAgent(goal)
+                // Milestone-targeted Private Agent Perception: Ground hierarchy query on current active milestone
+                val activeMilestone = milestones.getOrNull(activeMilestoneIndex)
+                val perceptionQuery = activeMilestone?.description ?: goal
+                val screenDump = screenTool.readScreenPrivateAgent(perceptionQuery)
                 val imageBytes: ByteArray? = if (isVisionCapable) {
                     screenTool.captureCleanScreenshotBytes()
                 } else null
@@ -146,14 +153,14 @@ class TaskExecutor(
                 TaskExecutionCoordinator.setThinking(true)
                 onProgress(step, "Planning next action (Step $step/$maxSteps)…")
 
-                val activeMilestone = milestones.getOrNull(activeMilestoneIndex)
                 val targetGoalText = if (activeMilestone != null && milestones.size > 1) {
-                    "OVERALL GOAL: $goal\nACTIVE STEP (${activeMilestone.index}/${milestones.size}): ${activeMilestone.description}"
+                    "OVERALL GOAL: $goal\nACTIVE MILESTONE (${activeMilestone.index}/${milestones.size}): ${activeMilestone.description}\nFocus ONLY on completing this active milestone right now."
                 } else goal
 
                 val prompt = buildStepPrompt(targetGoalText, step, maxSteps, screenDump, commandSyntax, consecutiveFailures >= 2)
 
                 val rawOutput = queryLlm(prompt, imageBytes, taskSystemPrompt)
+                lastRawOutput = rawOutput
                 try {
                     chatRepoProvider?.invoke()?.recordDiagnosticTurn(
                         userPrompt = "Step $step ($goal)",
@@ -173,7 +180,7 @@ class TaskExecutor(
                 if (action == null) {
                     AppLogger.w(TAG, "Failed parsing action at step $step: $rawOutput")
                     if (++consecutiveFailures >= 3) {
-                        val failMsg = "Task Failed: Model did not return valid actions."
+                        val failMsg = "Task Failed: Model output could not be parsed: '${rawOutput.take(120)}'"
                         TaskExecutionCoordinator.finishTask(failMsg, success = false)
                         onStepsUpdated?.invoke(TaskExecutionCoordinator.state.value.stepsHistory)
                         return@withContext failMsg

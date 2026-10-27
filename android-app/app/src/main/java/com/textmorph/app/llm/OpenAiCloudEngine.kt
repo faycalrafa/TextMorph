@@ -9,9 +9,11 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -203,9 +205,12 @@ class OpenAiCloudEngine(
                             val parsed = json.parseToJsonElement(dataJson).jsonObject
                             val choices = parsed["choices"]?.jsonArray
                             val delta = choices?.firstOrNull()?.jsonObject?.get("delta")?.jsonObject
-                            val content = delta?.get("content")?.jsonPrimitive?.content
-                            if (!content.isNullOrEmpty()) {
-                                emit(content)
+                            val contentElem = delta?.get("content")
+                            if (contentElem != null && contentElem !is kotlinx.serialization.json.JsonNull) {
+                                val content = contentElem.jsonPrimitive.contentOrNull
+                                if (!content.isNullOrEmpty() && content != "null") {
+                                    emit(content)
+                                }
                             }
                         } catch (e: Exception) {
                             // Non-fatal parse issue on chunk boundary

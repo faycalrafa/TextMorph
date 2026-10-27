@@ -270,6 +270,7 @@ object AiChatInferenceExecutor {
                             chatRepository.updateLastAssistantMessage(
                                 sessionId = sessionId,
                                 content = finalContent,
+                                rawNakedOutput = agentEngine.taskExecutor.lastRawOutput.ifBlank { finalOutput },
                                 actionStatus = if (isInterrupted) "interrupted" else if (isSuccess) "success" else "failed",
                                 actionStepsJson = com.textmorph.app.agent.model.AgentTaskStep.serializeList(finalSteps)
                             )
