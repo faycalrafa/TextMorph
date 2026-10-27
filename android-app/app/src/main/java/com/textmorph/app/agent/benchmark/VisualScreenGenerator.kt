@@ -177,4 +177,53 @@ object VisualScreenGenerator {
         bitmap.recycle()
         return stream.toByteArray()
     }
+
+    /**
+     * Renders buttons with a visual click indicator (green if hit, red if missed)
+     * stamped directly onto the canvas for real-time visual feedback.
+     */
+    fun renderCanvasWithClickToPng(
+        buttons: List<VisualButtonTarget>,
+        clickX: Int,
+        clickY: Int,
+        isHit: Boolean,
+        width: Int = DEFAULT_WIDTH,
+        height: Int = DEFAULT_HEIGHT
+    ): ByteArray {
+        val bitmap = renderCanvasBitmap(buttons, width, height)
+        val canvas = Canvas(bitmap)
+
+        val dotColor = if (isHit) Color.rgb(34, 197, 94) else Color.rgb(239, 68, 68) // #22C55E (Green) or #EF4444 (Red)
+        val haloPaint = Paint().apply {
+            color = if (isHit) Color.argb(100, 34, 197, 94) else Color.argb(100, 239, 68, 68)
+            style = Paint.Style.FILL
+            isAntiAlias = true
+        }
+        val dotPaint = Paint().apply {
+            color = dotColor
+            style = Paint.Style.FILL
+            isAntiAlias = true
+        }
+        val ringPaint = Paint().apply {
+            color = Color.WHITE
+            strokeWidth = 3f
+            style = Paint.Style.STROKE
+            isAntiAlias = true
+        }
+
+        val cx = clickX.toFloat().coerceIn(16f, (width - 16).toFloat())
+        val cy = clickY.toFloat().coerceIn(16f, (height - 16).toFloat())
+
+        // 1. Semi-transparent halo (radius 26px)
+        canvas.drawCircle(cx, cy, 26f, haloPaint)
+        // 2. Solid color center dot (radius 14px)
+        canvas.drawCircle(cx, cy, 14f, dotPaint)
+        // 3. Crisp white outline (radius 14px)
+        canvas.drawCircle(cx, cy, 14f, ringPaint)
+
+        val stream = ByteArrayOutputStream()
+        bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)
+        bitmap.recycle()
+        return stream.toByteArray()
+    }
 }

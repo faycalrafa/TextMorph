@@ -23,13 +23,11 @@ class AgentBenchmarkUnitTests {
     @Test
     fun testBenchmarkTestCasesDefinition() {
         val testCases = AgentBenchmarkEngine.TEST_CASES
-        assertEquals(5, testCases.size)
+        assertEquals(2, testCases.size)
         assertEquals("test_1_app_launch", testCases[0].id)
         assertEquals(AgentAction.ACTION_OPEN_APP, testCases[0].expectedAction)
-        assertEquals(AgentAction.ACTION_MAKE_CALL, testCases[1].expectedAction)
-        assertEquals(AgentAction.ACTION_SEND_SMS, testCases[2].expectedAction)
-        assertEquals(AgentAction.ACTION_SET_ALARM, testCases[3].expectedAction)
-        assertEquals(AgentAction.ACTION_CLICK_TEXT, testCases[4].expectedAction)
+        assertEquals("test_3_send_sms", testCases[1].id)
+        assertEquals(AgentAction.ACTION_SEND_SMS, testCases[1].expectedAction)
     }
 
     @Test
@@ -39,25 +37,10 @@ class AgentBenchmarkUnitTests {
         assertNotNull(code1)
         assertTrue(AgentBenchmarkEngine.TEST_CASES[0].expectedParamsValidator(code1!!))
 
-        // Test 2: call("Mom")
-        val code2 = CodeActionParser.parse("call(\"Mom\")")
+        // Test 2: send_sms("Nouh", "I will arrive in 15 minutes")
+        val code2 = CodeActionParser.parse("send_sms(\"Nouh\", \"I will arrive in 15 minutes\")")
         assertNotNull(code2)
         assertTrue(AgentBenchmarkEngine.TEST_CASES[1].expectedParamsValidator(code2!!))
-
-        // Test 3: send_sms("Nouh", "I will arrive in 15 minutes")
-        val code3 = CodeActionParser.parse("send_sms(\"Nouh\", \"I will arrive in 15 minutes\")")
-        assertNotNull(code3)
-        assertTrue(AgentBenchmarkEngine.TEST_CASES[2].expectedParamsValidator(code3!!))
-
-        // Test 4: set_alarm(7, 30, "Gym")
-        val code4 = CodeActionParser.parse("set_alarm(7, 30, \"Gym\")")
-        assertNotNull(code4)
-        assertTrue(AgentBenchmarkEngine.TEST_CASES[3].expectedParamsValidator(code4!!))
-
-        // Test 5: click_text("Search")
-        val code5 = CodeActionParser.parse("click_text(\"Search\")")
-        assertNotNull(code5)
-        assertTrue(AgentBenchmarkEngine.TEST_CASES[4].expectedParamsValidator(code5!!))
     }
 
     @Test
@@ -67,25 +50,10 @@ class AgentBenchmarkUnitTests {
         assertNotNull(json1)
         assertTrue(AgentBenchmarkEngine.TEST_CASES[0].expectedParamsValidator(json1!!))
 
-        // Test 2: {"action": "make_call", "params": {"contact_name": "Mom"}}
-        val json2 = AgentActionParser.parseAction("""{"action": "make_call", "params": {"contact_name": "Mom"}}""")
+        // Test 2: {"action": "send_sms", "params": {"contact_name": "Nouh", "message": "I will arrive in 15 minutes"}}
+        val json2 = AgentActionParser.parseAction("""{"action": "send_sms", "params": {"contact_name": "Nouh", "message": "I will arrive in 15 minutes"}}""")
         assertNotNull(json2)
         assertTrue(AgentBenchmarkEngine.TEST_CASES[1].expectedParamsValidator(json2!!))
-
-        // Test 3: {"action": "send_sms", "params": {"contact_name": "Nouh", "message": "I will arrive in 15 minutes"}}
-        val json3 = AgentActionParser.parseAction("""{"action": "send_sms", "params": {"contact_name": "Nouh", "message": "I will arrive in 15 minutes"}}""")
-        assertNotNull(json3)
-        assertTrue(AgentBenchmarkEngine.TEST_CASES[2].expectedParamsValidator(json3!!))
-
-        // Test 4: {"action": "set_alarm", "params": {"hour": 7, "minute": 30, "label": "Gym"}}
-        val json4 = AgentActionParser.parseAction("""{"action": "set_alarm", "params": {"hour": 7, "minute": 30, "label": "Gym"}}""")
-        assertNotNull(json4)
-        assertTrue(AgentBenchmarkEngine.TEST_CASES[3].expectedParamsValidator(json4!!))
-
-        // Test 5: {"action": "click_text", "params": {"text": "Search"}}
-        val json5 = AgentActionParser.parseAction("""{"action": "click_text", "params": {"text": "Search"}}""")
-        assertNotNull(json5)
-        assertTrue(AgentBenchmarkEngine.TEST_CASES[4].expectedParamsValidator(json5!!))
     }
 
     @Test

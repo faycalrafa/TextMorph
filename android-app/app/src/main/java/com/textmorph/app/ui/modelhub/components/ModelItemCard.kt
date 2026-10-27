@@ -1,8 +1,6 @@
 package com.textmorph.app.ui.modelhub.components
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -27,13 +25,7 @@ import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.KeyboardArrowUp
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -42,17 +34,11 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -60,39 +46,28 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.work.WorkInfo
 import com.textmorph.app.data.model.ModelFileType
 import com.textmorph.app.data.model.ModelInfo
-import com.textmorph.app.data.repository.ModelStorageRepository
-import com.textmorph.app.llm.ModelLoadingProgress
-import com.textmorph.app.llm.ModelSessionState
-import com.textmorph.app.worker.DownloadWorker
 
+/**
+ * Clean model item card rendering available downloaded/in-memory models on device.
+ * Exposes Activate, Stop/Offload, Chat navigation, Vision attachment, and deletion.
+ */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ModelItemCard(
     model: ModelInfo,
     isCurrentActive: Boolean,
     isLoadingEngine: Boolean,
-    loadingProgress: ModelLoadingProgress? = null,
-    sessionState: ModelSessionState? = null,
     onActivate: () -> Unit,
     onOffload: () -> Unit = {},
-    onOpenAiConfig: () -> Unit = {},
     onAttachMmproj: () -> Unit = {},
     onDetachMmproj: () -> Unit = {},
-    onDownload: () -> Unit,
-    onCancelDownload: () -> Unit,
     onDelete: () -> Unit,
     onImportToPrivateStorage: () -> Unit = {},
     onNavigateToChat: () -> Unit = {},
-    onOpenBenchmark: () -> Unit = {},
-    modelRepository: ModelStorageRepository,
     modifier: Modifier = Modifier
 ) {
-    val workInfo by modelRepository.getDownloadWorkInfo(model.id).collectAsState(initial = null)
-    val isDownloading = workInfo?.state == WorkInfo.State.RUNNING || workInfo?.state == WorkInfo.State.ENQUEUED
-    val downloadPercent = workInfo?.progress?.getInt(DownloadWorker.KEY_PROGRESS_PERCENT, 0) ?: 0
     val isGguf = model.modelFileType == ModelFileType.GGUF || model.name.endsWith(".gguf", ignoreCase = true)
 
     fun formatSize(bytes: Long): String {
@@ -150,88 +125,92 @@ fun ModelItemCard(
                             )
                         }
 
-                        // Size badge
-                        val sizeStr = formatSize(model.sizeBytes)
-                        if (sizeStr.isNotBlank()) {
+                        // Multimodal vision badge
+                        if (model.isVisionCapable || !model.mmprojName.isNullOrBlank()) {
                             Surface(
                                 shape = RoundedCornerShape(4.dp),
-                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f)
-                            ) {
-                                Text(
-                                    text = sizeStr,
-                                    fontSize = 10.sp,
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-
-                        // Vision badge
-                        if (model.isVisionCapable) {
-                            Surface(
-                                shape = RoundedCornerShape(4.dp),
-                                color = MaterialTheme.colorScheme.tertiaryContainer
+                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
                             ) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
                                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                 ) {
                                     Icon(
-                                        Icons.Default.Visibility,
+                                        imageVector = Icons.Default.Visibility,
                                         contentDescription = null,
-                                        modifier = Modifier.size(10.dp),
-                                        tint = MaterialTheme.colorScheme.onTertiaryContainer
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(10.dp)
                                     )
                                     Spacer(modifier = Modifier.width(3.dp))
                                     Text(
                                         text = "Vision",
                                         fontSize = 10.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onTertiaryContainer
+                                        color = MaterialTheme.colorScheme.primary
                                     )
                                 }
                             }
                         }
 
-                        // Active badge
+                        // Loaded status pill
                         if (isCurrentActive) {
                             Surface(
                                 shape = RoundedCornerShape(4.dp),
-                                color = Color(0xFF2E7D32)
+                                color = Color(0xFF16A34A).copy(alpha = 0.2f)
                             ) {
-                                Text(
-                                    text = "Active In Memory",
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.White,
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
                                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                )
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.CheckCircle,
+                                        contentDescription = null,
+                                        tint = Color(0xFF16A34A),
+                                        modifier = Modifier.size(10.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(3.dp))
+                                    Text(
+                                        text = "ACTIVE",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF16A34A)
+                                    )
+                                }
                             }
+                        }
+
+                        val sizeStr = formatSize(model.sizeBytes)
+                        if (sizeStr.isNotBlank()) {
+                            Text(
+                                text = sizeStr,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(vertical = 2.dp)
+                            )
                         }
                     }
                 }
 
-                if (model.isDownloaded && model.path != null) {
-                    IconButton(
-                        onClick = onDelete,
-                        modifier = Modifier.size(32.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Delete,
-                            contentDescription = "Remove Model",
-                            tint = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
+                // Delete Action Button
+                IconButton(
+                    onClick = onDelete,
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Delete,
+                        contentDescription = "Remove Model",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                        modifier = Modifier.size(18.dp)
+                    )
                 }
             }
 
             // GGUF mmproj Vision Extension Row
-            if (isGguf && model.isDownloaded) {
-                Spacer(modifier = Modifier.height(6.dp))
+            if (isGguf) {
+                Spacer(modifier = Modifier.height(8.dp))
                 Surface(
                     shape = RoundedCornerShape(6.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(
@@ -276,21 +255,6 @@ fun ModelItemCard(
                 }
             }
 
-            // Downloading Progress Bar
-            if (isDownloading) {
-                Spacer(modifier = Modifier.height(8.dp))
-                LinearProgressIndicator(
-                    progress = { downloadPercent / 100f },
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "Downloading: $downloadPercent%",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.primary
-                )
-            }
-
             Spacer(modifier = Modifier.height(10.dp))
 
             // Action Buttons in FlowRow
@@ -316,18 +280,6 @@ fun ModelItemCard(
                         Text("Stop / Offload", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     }
 
-                    // AI Configurations Dialog Button
-                    OutlinedButton(
-                        onClick = onOpenAiConfig,
-                        shape = RoundedCornerShape(8.dp),
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                        modifier = Modifier.height(34.dp)
-                    ) {
-                        Icon(Icons.Default.Settings, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Config", fontSize = 12.sp)
-                    }
-
                     // Chat Screen shortcut
                     OutlinedButton(
                         onClick = onNavigateToChat,
@@ -339,19 +291,7 @@ fun ModelItemCard(
                         Spacer(modifier = Modifier.width(4.dp))
                         Text("Chat", fontSize = 12.sp)
                     }
-
-                    // Agentic Benchmark Button
-                    OutlinedButton(
-                        onClick = onOpenBenchmark,
-                        shape = RoundedCornerShape(8.dp),
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                        modifier = Modifier.height(34.dp)
-                    ) {
-                        Icon(Icons.Default.Speed, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Benchmark", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                    }
-                } else if (model.isDownloaded) {
+                } else {
                     // Activate Model Button
                     Button(
                         onClick = onActivate,
@@ -370,42 +310,7 @@ fun ModelItemCard(
                             Text("Activate", fontSize = 12.sp)
                         }
                     }
-                } else {
-                    // Download Model Button
-                    if (isDownloading) {
-                        OutlinedButton(
-                            onClick = onCancelDownload,
-                            shape = RoundedCornerShape(8.dp),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                            modifier = Modifier.height(34.dp)
-                        ) {
-                            Icon(Icons.Default.Close, contentDescription = null, modifier = Modifier.size(14.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Cancel", fontSize = 12.sp)
-                        }
-                    } else {
-                        Button(
-                            onClick = onDownload,
-                            shape = RoundedCornerShape(8.dp),
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                            modifier = Modifier.height(34.dp)
-                        ) {
-                            Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Download", fontSize = 12.sp)
-                        }
-                    }
                 }
-            }
-
-            // Accordion-Style Console Logs (Only under the current active / loading model)
-            if (isCurrentActive || isLoadingEngine) {
-                Spacer(modifier = Modifier.height(8.dp))
-                ModelConsoleLogsAccordion(
-                    isLoadingEngine = isLoadingEngine,
-                    loadingProgress = loadingProgress,
-                    sessionState = sessionState
-                )
             }
         }
     }

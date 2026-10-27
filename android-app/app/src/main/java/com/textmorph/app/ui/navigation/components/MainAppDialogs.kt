@@ -3,6 +3,7 @@ package com.textmorph.app.ui.navigation.components
 import android.content.Context
 import android.widget.Toast
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -43,8 +44,42 @@ fun MainAppDialogs(
     activeReleaseInfo: AppReleaseInfo?,
     downloadState: DownloadState?,
     onDismissUpdateDialog: () -> Unit,
-    onDownloadStateChanged: (DownloadState?) -> Unit
+    onDownloadStateChanged: (DownloadState?) -> Unit,
+    showAiConfigDialog: Boolean = false,
+    onDismissAiConfigDialog: () -> Unit = {}
 ) {
+    val settings by settingsRepository.settingsState.collectAsState(initial = settingsRepository.settingsState.value)
+
+    if (showAiConfigDialog) {
+        com.textmorph.app.ui.modelhub.components.AiModelConfigDialog(
+            settings = settings,
+            onSave = { maxTokens, temp, k, p, thinking, speculative, syntax, perceptionMode, contextWindow ->
+                scope.launch {
+                    val targetAgentPrompt = if (syntax != settings.actionCommandSyntax) {
+                        com.textmorph.app.agent.prompts.AgentPrompts.getAgentSystemPrompt(syntax)
+                    } else {
+                        settings.agentSystemPrompt
+                    }
+                    settingsRepository.updateAiModelConfig(
+                        maxTokens = maxTokens,
+                        temperature = temp,
+                        topK = k,
+                        topP = p,
+                        enableThinking = thinking,
+                        speculativeDecoding = speculative,
+                        defaultSystemPrompt = settings.defaultSystemPrompt,
+                        agentSystemPrompt = targetAgentPrompt,
+                        actionCommandSyntax = syntax,
+                        screenPerceptionMode = perceptionMode,
+                        contextWindowTokens = contextWindow
+                    )
+                    onDismissAiConfigDialog()
+                    Toast.makeText(context, "AI configurations saved.", Toast.LENGTH_SHORT).show()
+                }
+            },
+            onDismiss = onDismissAiConfigDialog
+        )
+    }
     if (showPromptEditor) {
         PromptEditorDialog(
             prompt = editingPrompt,

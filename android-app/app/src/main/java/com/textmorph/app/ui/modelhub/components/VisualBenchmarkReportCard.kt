@@ -131,7 +131,7 @@ fun VisualBenchmarkResultsView(
 
     // 3. Per-Round Breakdown
     Text(
-        text = "Trial Breakdown (3 Rounds × 6 Buttons)",
+        text = "Trial Breakdown (2 Rounds × 6 Buttons)",
         fontWeight = FontWeight.Bold,
         fontSize = 13.sp,
         color = Color(0xFF94A3B8)
@@ -336,7 +336,7 @@ fun VisualBenchmarkIntroCard(
                 text = "Evaluates visual perception, spatial coordinate grounding, and sequence execution.\n\n" +
                         "• Displays a synthetic screen with 6 numbered buttons scattered randomly.\n" +
                         "• The AI model must locate and press each button in ascending order (1 -> 2 -> 3 -> 4 -> 5 -> 6).\n" +
-                        "• Repeats across 3 consecutive randomized trials (18 total interactions) to measure execution speed, spatial pixel precision, accuracy, and RAM footprint.",
+                        "• Repeats across 2 consecutive randomized trials (12 total interactions) to measure execution speed, spatial pixel precision, accuracy, and RAM footprint.",
                 style = MaterialTheme.typography.bodySmall,
                 color = Color(0xFFCBD5E1),
                 lineHeight = 18.sp
@@ -376,106 +376,6 @@ fun VisualBenchmarkIntroCard(
                     Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(6.dp))
                     Text("Start Visual Benchmark", fontWeight = FontWeight.Bold)
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun VisualBenchmarkRunningCard(
-    state: VisualBenchmarkProgressState,
-    onCancel: () -> Unit
-) {
-    Card(
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B))
-    ) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Column {
-                    Text(
-                        text = "Round ${state.currentRound}/${state.totalRounds} • Target: Button ${state.currentTargetNumber}",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 13.sp,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    Text(
-                        text = "Step ${state.overallStepIndex}/${state.overallTotalSteps} total",
-                        fontSize = 11.sp,
-                        color = Color(0xFF94A3B8)
-                    )
-                }
-
-                OutlinedButton(
-                    onClick = onCancel,
-                    shape = RoundedCornerShape(6.dp),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 2.dp)
-                ) {
-                    Icon(Icons.Default.Stop, contentDescription = null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.error)
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Cancel", fontSize = 11.sp, color = MaterialTheme.colorScheme.error)
-                }
-            }
-
-            val progressFraction = if (state.overallTotalSteps > 0) {
-                state.overallStepIndex.toFloat() / state.overallTotalSteps.toFloat()
-            } else 0f
-
-            LinearProgressIndicator(
-                progress = { progressFraction.coerceIn(0.05f, 1.0f) },
-                modifier = Modifier.fillMaxWidth()
-            )
-
-            // Canvas Thumbnail Preview
-            if (state.currentCanvasPreviewBytes != null) {
-                val previewBitmap = remember(state.currentCanvasPreviewBytes) {
-                    runCatching {
-                        BitmapFactory.decodeByteArray(
-                            state.currentCanvasPreviewBytes,
-                            0,
-                            state.currentCanvasPreviewBytes.size
-                        )
-                    }.getOrNull()
-                }
-
-                if (previewBitmap != null) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(180.dp)
-                            .clip(RoundedCornerShape(8.dp)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Image(
-                            bitmap = previewBitmap.asImageBitmap(),
-                            contentDescription = "Test Screen Preview",
-                            contentScale = ContentScale.Fit,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-                }
-            }
-
-            // Live Output Console
-            if (state.liveStreamingOutput.isNotBlank()) {
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = Color(0xFF0F172A),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(
-                        text = state.liveStreamingOutput,
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 11.sp,
-                        color = Color(0xFF38BDF8),
-                        modifier = Modifier.padding(10.dp),
-                        maxLines = 5
-                    )
                 }
             }
         }

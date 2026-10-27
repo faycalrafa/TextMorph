@@ -1,7 +1,9 @@
 package com.textmorph.app.ui.chat.components
 
 import com.textmorph.app.data.model.ChatMessageEntity
+import com.textmorph.app.data.model.InteractionTriggerSource
 import com.textmorph.app.data.repository.ChatSessionRepository
+import com.textmorph.app.data.repository.LlmInteractionRepository
 import com.textmorph.app.llm.LiteRtLmEngine
 import com.textmorph.app.llm.LlamaCppEngine
 import com.textmorph.app.llm.LlmEngine
@@ -32,7 +34,8 @@ object AiChatInferenceExecutor {
         setJob: (Job) -> Unit,
         agentEngine: com.textmorph.app.agent.AgentEngine? = null,
         attachments: List<com.textmorph.app.data.model.ChatAttachment> = emptyList(),
-        settings: com.textmorph.app.data.model.AppSettings? = null
+        settings: com.textmorph.app.data.model.AppSettings? = null,
+        context: android.content.Context? = null
     ) {
         onStart()
 
@@ -138,6 +141,25 @@ object AiChatInferenceExecutor {
                     durationMs = lastMetrics?.totalDurationMs
                 )
                 AppLogger.d(TAG, "Completed chat turn for session=$sessionId: length=${finalOutput.length}, speed=${lastMetrics?.tokensPerSecond} tok/s")
+
+                if (context != null) {
+                    try {
+                        LlmInteractionRepository.getInstance(context).recordInteraction(
+                            source = InteractionTriggerSource.CHAT_CONVERSATION,
+                            title = if (isAgent) "Agent Conversation" else "Chat Turn",
+                            userPrompt = prompt,
+                            systemPrompt = systemPrompt,
+                            rawOutput = finalOutput,
+                            cleanOutput = effectiveFinalContent,
+                            thoughtContent = thought,
+                            tokensPerSecond = lastMetrics?.tokensPerSecond,
+                            totalTokens = lastMetrics?.tokenCount,
+                            durationMs = lastMetrics?.totalDurationMs
+                        )
+                    } catch (logEx: Exception) {
+                        AppLogger.w(TAG, "Failed logging chat turn interaction: ${logEx.message}")
+                    }
+                }
 
                 // If in Agent mode, check if LLM returned an autonomous tool action JSON
                 if (isAgent && agentEngine != null) {

@@ -10,19 +10,20 @@ import com.textmorph.app.util.SystemTelemetryManager
 import com.textmorph.app.util.TokenEstimator
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 
 /**
  * Orchestrator for evaluating multimodal LLMs on visual perception and spatial grounding.
- * Tests 3 consecutive trials of 6 randomized numbered buttons (18 total interactions)
+ * Tests 2 consecutive trials of 6 randomized numbered buttons (12 total interactions)
  * in ascending numerical order (1 -> 2 -> 3 -> 4 -> 5 -> 6).
  */
 object VisualAgentBenchmarkEngine {
 
     private const val TAG = "VisualAgentBenchmarkEngine"
-    const val TOTAL_ROUNDS = 3
+    const val TOTAL_ROUNDS = 2
     const val BUTTONS_PER_ROUND = 6
     const val TOTAL_STEPS = TOTAL_ROUNDS * BUTTONS_PER_ROUND
 
@@ -108,6 +109,39 @@ object VisualAgentBenchmarkEngine {
                 )
 
                 roundSteps.add(stepResult)
+
+                // Visual feedback: Show for 2 seconds where the LLM clicked (green if hit, red if missed)
+                val targetClickX = stepResult.clickedX ?: if (stepResult.isHit) targetButton.centerX else null
+                val targetClickY = stepResult.clickedY ?: if (stepResult.isHit) targetButton.centerY else null
+
+                if (targetClickX != null && targetClickY != null) {
+                    val canvasWithDot = VisualScreenGenerator.renderCanvasWithClickToPng(
+                        buttons = buttons,
+                        clickX = targetClickX,
+                        clickY = targetClickY,
+                        isHit = stepResult.isHit
+                    )
+                    val resultStatus = if (stepResult.isHit) "HIT ✓" else "MISSED ✗ (${stepResult.distanceErrorPx?.toInt() ?: 0}px)"
+                    onProgress(
+                        VisualBenchmarkProgressState(
+                            isRunning = true,
+                            currentRound = roundIndex,
+                            totalRounds = TOTAL_ROUNDS,
+                            currentTargetNumber = targetNumber,
+                            totalStepsPerRound = BUTTONS_PER_ROUND,
+                            overallStepIndex = overallStepIndex,
+                            overallTotalSteps = TOTAL_STEPS,
+                            currentStatus = "Round $roundIndex/$TOTAL_ROUNDS • Button $targetNumber: $resultStatus",
+                            liveStreamingOutput = stepResult.rawOutput,
+                            currentCanvasPreviewBytes = canvasWithDot,
+                            lastClickX = targetClickX,
+                            lastClickY = targetClickY,
+                            lastClickIsHit = stepResult.isHit,
+                            lastDistanceErrorPx = stepResult.distanceErrorPx
+                        )
+                    )
+                    delay(2000L)
+                }
             }
 
             val roundEndTime = System.currentTimeMillis()

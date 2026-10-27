@@ -69,14 +69,14 @@ data class VisualBenchmarkRoundReport(
 }
 
 /**
- * Aggregated visual agentic report across 3 complete randomized trials (18 total steps).
+ * Aggregated visual agentic report across 2 complete randomized trials (12 total steps).
  */
 data class VisualBenchmarkReport(
     val modelName: String,
     val backend: String,
     val roundReports: List<VisualBenchmarkRoundReport>,
-    val totalTrials: Int = 3,
-    val totalSteps: Int = 18,
+    val totalTrials: Int = 2,
+    val totalSteps: Int = 12,
     val successfulHits: Int,
     val accuracyPercent: Float,
     val perfectTrials: Int,
@@ -99,14 +99,18 @@ data class VisualBenchmarkReport(
 data class VisualBenchmarkProgressState(
     val isRunning: Boolean = false,
     val currentRound: Int = 0,
-    val totalRounds: Int = 3,
+    val totalRounds: Int = 2,
     val currentTargetNumber: Int = 0,
     val totalStepsPerRound: Int = 6,
     val overallStepIndex: Int = 0,
-    val overallTotalSteps: Int = 18,
+    val overallTotalSteps: Int = 12,
     val currentStatus: String = "",
     val liveStreamingOutput: String = "",
     val currentCanvasPreviewBytes: ByteArray? = null,
     val currentReport: VisualBenchmarkReport? = null,
+    val lastClickX: Int? = null,
+    val lastClickY: Int? = null,
+    val lastClickIsHit: Boolean? = null,
+    val lastDistanceErrorPx: Float? = null,
     val error: String? = null
 )

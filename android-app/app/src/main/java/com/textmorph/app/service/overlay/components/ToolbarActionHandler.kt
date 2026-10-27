@@ -5,8 +5,10 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.widget.Toast
 import com.textmorph.app.data.model.ContextAction
+import com.textmorph.app.data.model.InteractionTriggerSource
 import com.textmorph.app.data.model.PromptEntity
 import com.textmorph.app.data.model.SlashCommandEntity
+import com.textmorph.app.data.repository.LlmInteractionRepository
 import com.textmorph.app.llm.LiteRtLmSessionDelegate
 import com.textmorph.app.llm.LlmEngine
 import com.textmorph.app.service.overlay.FloatingButtonState
@@ -63,9 +65,6 @@ class ToolbarActionHandler(
         onFixingInProgressChanged: (Boolean) -> Unit,
         onPendingFixUndoChanged: (String?) -> Unit
     ) {
-        if (currentState == FloatingButtonState.REVERT_WINDOW) {
-            onStateChanged(FloatingButtonState.IDLE)
-        }
         onPendingFixUndoChanged(null)
 
         // 1. Emoji trigger :(emotion):
@@ -136,6 +135,18 @@ class ToolbarActionHandler(
                                 onInsertText(fixed, false)
                                 onPendingFixUndoChanged(current)
                                 AppLogger.d(TAG, "Quick fix automatically replaced text with: '$fixed'")
+                                try {
+                                    LlmInteractionRepository.getInstance(context).recordInteraction(
+                                        source = InteractionTriggerSource.SYSTEM_ACTIVITY,
+                                        title = "Auto-Correct Quick Fix",
+                                        userPrompt = current,
+                                        systemPrompt = fixInstruction,
+                                        rawOutput = fixed,
+                                        cleanOutput = fixed
+                                    )
+                                } catch (logEx: Exception) {
+                                    AppLogger.w(TAG, "Failed logging quick fix interaction: ${logEx.message}")
+                                }
                             }
                         }
                     } catch (e: Exception) {
@@ -187,10 +198,13 @@ class ToolbarActionHandler(
                         AppLogger.w(TAG, "Failed writing vision response to clipboard: ${clipEx.message}")
                     }
                     try {
-                        com.textmorph.app.data.repository.ChatSessionRepository.getInstance(context).recordDiagnosticTurn(
+                        LlmInteractionRepository.getInstance(context).recordInteraction(
+                            source = InteractionTriggerSource.CUSTOM_PROMPTS,
+                            title = "Vision Prompt Transformation",
                             userPrompt = rawInput,
                             systemPrompt = instruction,
-                            rawOutput = rawNaked
+                            rawOutput = rawNaked,
+                            cleanOutput = finalOutput
                         )
                     } catch (logEx: Exception) {
                         AppLogger.w(TAG, "Failed recording vision diagnostic turn: ${logEx.message}")
@@ -256,10 +270,15 @@ class ToolbarActionHandler(
                         AppLogger.d(TAG, "Secondary clipboard cache: ${e.message}")
                     }
                     try {
-                        com.textmorph.app.data.repository.ChatSessionRepository.getInstance(context).recordDiagnosticTurn(
+                        val triggerSource = if (directExecute) InteractionTriggerSource.CUSTOM_COMMANDS else InteractionTriggerSource.CUSTOM_PROMPTS
+                        val triggerTitle = if (directExecute) "Toolbar Quick Execution" else "Toolbar Custom Prompt"
+                        LlmInteractionRepository.getInstance(context).recordInteraction(
+                            source = triggerSource,
+                            title = triggerTitle,
                             userPrompt = input,
                             systemPrompt = effectiveInstruction,
-                            rawOutput = rawNaked
+                            rawOutput = rawNaked,
+                            cleanOutput = finalOutput
                         )
                     } catch (logEx: Exception) {
                         AppLogger.w(TAG, "Failed recording toolbar diagnostic turn: ${logEx.message}")

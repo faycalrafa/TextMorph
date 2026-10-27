@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.Widgets
 import androidx.compose.material3.DrawerValue
@@ -124,6 +125,7 @@ fun MainAppScaffold(
     var editingPrompt by remember { mutableStateOf<PromptEntity?>(null) }
     var showProminentDisclosure by remember { mutableStateOf(false) }
     var showUpdateDialog by remember { mutableStateOf(false) }
+    var showAiConfigDialog by remember { mutableStateOf(false) }
     var isCheckingUpdate by remember { mutableStateOf(false) }
     var activeReleaseInfo by remember { mutableStateOf<AppReleaseInfo?>(null) }
     var downloadState by remember { mutableStateOf<DownloadState?>(null) }
@@ -176,6 +178,8 @@ fun MainAppScaffold(
             searchQuery = ""
         } else if (drawerState.isOpen) {
             scope.launch { drawerState.close() }
+        } else if (currentDestination == AppDestination.BENCHMARK || currentDestination == AppDestination.RAW_LLM_DUMP) {
+            currentDestination = AppDestination.MODEL_HUB
         } else if (currentDestination != AppDestination.CHAT) {
             currentDestination = AppDestination.CHAT
         }
@@ -230,6 +234,21 @@ fun MainAppScaffold(
         } else if (currentDestination == AppDestination.RAW_LLM_DUMP) {
             com.textmorph.app.ui.modelhub.components.LlmConversationDumpScreen(
                 chatRepository = chatRepository,
+                onNavigateBack = { currentDestination = AppDestination.MODEL_HUB }
+            )
+        } else if (currentDestination == AppDestination.BENCHMARK) {
+            val curSettings by settingsRepository.settingsState.collectAsState()
+            val isLlamaActive = curSettings.selectedEngine == EngineType.ON_DEVICE_LLAMA_CPP
+            val activeEngine = if (isLlamaActive) llamaCppEngine else liteRtEngine
+            val llamaSession by llamaCppEngine.sessionState.collectAsState()
+            val liteRtSession by liteRtEngine.sessionState.collectAsState()
+            val activeModelName = if (isLlamaActive) llamaSession.modelName else liteRtSession.modelName
+            val activeBackend = if (isLlamaActive) llamaSession.backend else liteRtSession.backend
+
+            com.textmorph.app.ui.modelhub.AgentBenchmarkScreen(
+                engine = activeEngine,
+                modelName = if (activeModelName.isNotBlank()) activeModelName else curSettings.activeModelName,
+                backend = activeBackend,
                 onNavigateBack = { currentDestination = AppDestination.MODEL_HUB }
             )
         } else {
@@ -294,6 +313,20 @@ fun MainAppScaffold(
                                         Icon(
                                             imageVector = Icons.Default.Terminal,
                                             contentDescription = "Raw LLM Conversation Dump",
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                    IconButton(onClick = { currentDestination = AppDestination.BENCHMARK }) {
+                                        Icon(
+                                            imageVector = Icons.Default.Speed,
+                                            contentDescription = "Agent Capability Benchmark",
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                    IconButton(onClick = { showAiConfigDialog = true }) {
+                                        Icon(
+                                            imageVector = Icons.Default.Settings,
+                                            contentDescription = "AI Model Configurations",
                                             tint = MaterialTheme.colorScheme.primary
                                         )
                                     }
@@ -398,39 +431,20 @@ fun MainAppScaffold(
                                 isCheckingUpdate = isCheckingUpdate,
                                 downloadedApk = updateRepository.getDownloadedApkFile(),
                                 onCheckForUpdates = ::triggerUpdateCheck,
-                                onInstallDownloadedApk = {
-                                    updateRepository.getDownloadedApkFile()?.let { file ->
-                                        updateRepository.installApk(file)
-                                    }
-                                },
-                                onSaveApkToPath = {
-                                    if (activeReleaseInfo != null) {
-                                        showUpdateDialog = true
-                                    } else {
-                                        triggerUpdateCheck()
-                                    }
-                                },
-                                onReplayOnboarding = {
-                                    showProminentDisclosure = true
-                                },
-                                onNavigateToDevLogs = {
-                                    currentDestination = AppDestination.DEV_LOGS
-                                },
-                                onNavigateToVersionHistory = {
-                                    currentDestination = AppDestination.VERSION_HISTORY
-                                }
+                                onInstallDownloadedApk = { updateRepository.getDownloadedApkFile()?.let { updateRepository.installApk(it) } },
+                                onSaveApkToPath = { if (activeReleaseInfo != null) showUpdateDialog = true else triggerUpdateCheck() },
+                                onReplayOnboarding = { showProminentDisclosure = true },
+                                onNavigateToDevLogs = { currentDestination = AppDestination.DEV_LOGS },
+                                onNavigateToVersionHistory = { currentDestination = AppDestination.VERSION_HISTORY }
                             )
                         }
 
-                        AppDestination.TOOLS -> {
-                            AgentToolsScreen(
-                                onOpenDrawer = { scope.launch { drawerState.open() } }
-                            )
-                        }
+                        AppDestination.TOOLS -> AgentToolsScreen(onOpenDrawer = { scope.launch { drawerState.open() } })
 
                         AppDestination.VERSION_HISTORY,
                         AppDestination.DEV_LOGS,
-                        AppDestination.RAW_LLM_DUMP -> {
+                        AppDestination.RAW_LLM_DUMP,
+                        AppDestination.BENCHMARK -> {
                             // Handled in root Scaffold branch
                         }
                     }
@@ -460,7 +474,9 @@ fun MainAppScaffold(
                 showUpdateDialog = false
                 downloadState = null
             },
-            onDownloadStateChanged = { downloadState = it }
+            onDownloadStateChanged = { downloadState = it },
+            showAiConfigDialog = showAiConfigDialog,
+            onDismissAiConfigDialog = { showAiConfigDialog = false }
         )
     }
 }

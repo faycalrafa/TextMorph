@@ -25,9 +25,34 @@ data class ClipboardResult(
 class ClipboardCaptureActivity : Activity() {
 
     private val TAG = "ClipboardCaptureActivity"
+    private var hasExtracted = false
+    private val handler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val timeoutRunnable = Runnable {
+        if (!hasExtracted) {
+            AppLogger.d(TAG, "Window focus timeout reached, attempting clipboard extraction fallback.")
+            extractAndFinish()
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        window.setBackgroundDrawableResource(android.R.color.transparent)
+        handler.postDelayed(timeoutRunnable, 600L)
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus && !hasExtracted) {
+            AppLogger.d(TAG, "ClipboardCaptureActivity gained window focus. Reading primaryClip...")
+            extractAndFinish()
+        }
+    }
+
+    private fun extractAndFinish() {
+        if (hasExtracted) return
+        hasExtracted = true
+        handler.removeCallbacks(timeoutRunnable)
+
         try {
             val cm = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
             val clip = cm?.primaryClip
@@ -36,7 +61,11 @@ class ClipboardCaptureActivity : Activity() {
 
             if (clip != null && clip.itemCount > 0) {
                 val item = clip.getItemAt(0)
-                text = item.text?.toString()
+                text = try {
+                    item.coerceToText(this)?.toString()
+                } catch (e: Exception) {
+                    item.text?.toString()
+                }
 
                 val uri: Uri? = item.uri
                 if (uri != null) {
@@ -69,7 +98,11 @@ class ClipboardCaptureActivity : Activity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        callback = null
+        handler.removeCallbacks(timeoutRunnable)
+        if (!hasExtracted) {
+            callback?.invoke(ClipboardResult(null, null))
+            callback = null
+        }
     }
 
     companion object {
@@ -87,7 +120,11 @@ class ClipboardCaptureActivity : Activity() {
                 val clip = cm?.primaryClip
                 if (clip != null && clip.itemCount > 0) {
                     val item = clip.getItemAt(0)
-                    val text = item.text?.toString()
+                    val text = try {
+                        item.coerceToText(context)?.toString()
+                    } catch (e: Exception) {
+                        item.text?.toString()
+                    }
                     var imageBytes: ByteArray? = null
                     val uri = item.uri
                     if (uri != null) {

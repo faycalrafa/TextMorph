@@ -35,16 +35,26 @@ fun LazyListScope.buildToolbarChips(
     onEditPromptInline: (PromptEntity) -> Unit,
     localQuickFixEnabled: Boolean,
     onToggleQuickFix: (Boolean) -> Unit,
-    onCancelActiveJob: () -> Unit
+    onCancelActiveJob: () -> Unit,
+    onAcceptTransformation: () -> Unit = {},
+    onUndoTransformation: () -> Unit = {}
 ) {
     when (state) {
         FloatingButtonState.REVERT_WINDOW -> {
             item {
                 CompanionActionChip(
-                    icon = Icons.AutoMirrored.Filled.Undo,
-                    label = if (isCompactMode) "Undo" else "Undo Transformation",
+                    icon = Icons.Default.Check,
+                    label = if (isCompactMode) "Accept" else "Accept",
                     accent = true,
-                    onClick = onCancelActiveJob
+                    onClick = onAcceptTransformation
+                )
+            }
+            item {
+                CompanionActionChip(
+                    icon = Icons.AutoMirrored.Filled.Undo,
+                    label = if (isCompactMode) "Undo" else "Undo",
+                    accent = false,
+                    onClick = onUndoTransformation
                 )
             }
         }

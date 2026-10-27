@@ -265,6 +265,15 @@ fun FloatingToolbarContent(
                         onCancelActiveJob = {
                             actionHandler.cancelActiveJob()
                             Toast.makeText(context, "Generation stopped.", Toast.LENGTH_SHORT).show()
+                        },
+                        onAcceptTransformation = {
+                            state = FloatingButtonState.IDLE
+                            Toast.makeText(context, "Changes accepted.", Toast.LENGTH_SHORT).show()
+                        },
+                        onUndoTransformation = {
+                            onRevertText()
+                            state = FloatingButtonState.IDLE
+                            Toast.makeText(context, "Text reverted.", Toast.LENGTH_SHORT).show()
                         }
                     )
                 }

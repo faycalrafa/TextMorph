@@ -26,6 +26,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DeleteSweep
+import androidx.compose.material.icons.filled.FilterList
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
@@ -59,7 +61,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.textmorph.app.agent.prompts.AgentPrompts
+import com.textmorph.app.data.model.InteractionTriggerSource
 import com.textmorph.app.data.repository.ChatSessionRepository
+import com.textmorph.app.data.repository.LlmInteractionRepository
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -68,30 +72,44 @@ import java.util.Locale
 /**
  * Dedicated full-screen diagnostic route displaying raw, unfiltered byte-for-byte
  * LLM generation dumps, system instructions, and tool commands across all features.
+ * Displays interactions ordered recent-to-oldest with source filters and retention controls.
  */
 @OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun LlmConversationDumpScreen(
     chatRepository: ChatSessionRepository,
     onNavigateBack: () -> Unit,
+    interactionRepository: LlmInteractionRepository = LlmInteractionRepository.getInstance(LocalContext.current),
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val allInteractions by interactionRepository.interactions.collectAsState()
+    val retentionDays by interactionRepository.retentionDays.collectAsState()
     val messages by chatRepository.currentMessages.collectAsState()
-    val activeSessionId by chatRepository.activeSessionId.collectAsState()
     val activeSession = chatRepository.getActiveSession()
+
     var showSystemInstructions by remember { mutableStateOf(false) }
+    var selectedFilter by remember { mutableStateOf<InteractionTriggerSource?>(null) } // null = All
 
     BackHandler {
         onNavigateBack()
     }
 
-    val turns = remember(messages) {
-        ConversationDumpTurn.extractDumpTurns(
-            messages = messages,
-            defaultSystemPrompt = AgentPrompts.AGENT_SYSTEM_PROMPT_CODE_ACTION
-        )
+    val filteredInteractions = remember(allInteractions, selectedFilter) {
+        if (selectedFilter == null) allInteractions
+        else allInteractions.filter { it.source == selectedFilter }
+    }
+
+    val turns = remember(filteredInteractions, messages) {
+        if (filteredInteractions.isNotEmpty()) {
+            ConversationDumpTurn.fromInteractionRecords(filteredInteractions)
+        } else {
+            ConversationDumpTurn.extractDumpTurns(
+                messages = messages,
+                defaultSystemPrompt = AgentPrompts.AGENT_SYSTEM_PROMPT_CODE_ACTION
+            )
+        }
     }
 
     fun copyToClipboard(label: String, text: String) {
@@ -114,7 +132,7 @@ fun LlmConversationDumpScreen(
                             color = Color.White
                         )
                         Text(
-                            text = "${activeSession?.title ?: "Active Thread"} • ${turns.size} turns recorded",
+                            text = "${turns.size} records • Flushed ${if (retentionDays >= LlmInteractionRepository.FOREVER_DAYS) "never" else "daily ($retentionDays d)"}",
                             style = MaterialTheme.typography.labelSmall,
                             color = Color(0xFF94A3B8)
                         )
@@ -130,28 +148,24 @@ fun LlmConversationDumpScreen(
                     }
                 },
                 actions = {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(end = 10.dp)
-                    ) {
-                        FilterChip(
-                            selected = showSystemInstructions,
-                            onClick = { showSystemInstructions = !showSystemInstructions },
-                            label = {
-                                Text(
-                                    text = if (showSystemInstructions) "Sys Prompt: Visible" else "Sys Prompt: Hidden",
-                                    fontSize = 11.sp
-                                )
-                            },
-                            leadingIcon = {
-                                Icon(
-                                    imageVector = if (showSystemInstructions) Icons.Default.Visibility else Icons.Default.VisibilityOff,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(14.dp)
-                                )
-                            }
-                        )
-                    }
+                    FilterChip(
+                        selected = showSystemInstructions,
+                        onClick = { showSystemInstructions = !showSystemInstructions },
+                        label = {
+                            Text(
+                                text = if (showSystemInstructions) "Sys: On" else "Sys: Off",
+                                fontSize = 11.sp
+                            )
+                        },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = if (showSystemInstructions) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                                contentDescription = null,
+                                modifier = Modifier.size(14.dp)
+                            )
+                        },
+                        modifier = Modifier.padding(end = 8.dp)
+                    )
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = Color(0xFF111827)
@@ -166,7 +180,7 @@ fun LlmConversationDumpScreen(
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            // Header Diagnosis / Explanation Card
+            // Header Diagnosis / Explanation Card with Retention Controls
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
@@ -202,22 +216,58 @@ fun LlmConversationDumpScreen(
                         }
 
                         Text(
-                            text = "Byte-for-byte LLM inputs and generations—including raw JSON actions, markdown prose, reasoning tokens, and floating toolbar prompts—with zero format modifications or stripping.",
+                            text = "Byte-for-byte LLM inputs and generations across custom prompts, toolbar commands, voice agent missions, chat, and auto-correct. Ordered from most recent to oldest.",
                             style = MaterialTheme.typography.bodySmall,
                             color = Color(0xFFCBD5E1),
                             lineHeight = 16.sp
                         )
 
-                        if (turns.isNotEmpty()) {
-                            FlowRow(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                verticalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
+                        // Retention Extension Controls
+                        Text(
+                            text = "Record Retention (Auto-flush oldest):",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color(0xFF94A3B8)
+                        )
+                        FlowRow(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            listOf(
+                                1 to "1 Day",
+                                3 to "3 Days",
+                                7 to "7 Days",
+                                30 to "30 Days",
+                                LlmInteractionRepository.FOREVER_DAYS to "Forever"
+                            ).forEach { (days, label) ->
+                                FilterChip(
+                                    selected = retentionDays == days,
+                                    onClick = {
+                                        scope.launch {
+                                            interactionRepository.setRetentionDays(days)
+                                            Toast.makeText(context, "Retention set to $label", Toast.LENGTH_SHORT).show()
+                                        }
+                                    },
+                                    label = { Text(label, fontSize = 11.sp) },
+                                    leadingIcon = if (retentionDays == days) {
+                                        { Icon(Icons.Default.Schedule, contentDescription = null, modifier = Modifier.size(12.dp)) }
+                                    } else null
+                                )
+                            }
+                        }
+
+                        // Action Buttons: Copy All & Clear All
+                        FlowRow(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            if (turns.isNotEmpty()) {
                                 Button(
                                     onClick = {
                                         val fullMarkdown = buildString {
-                                            appendLine("# Raw LLM Conversation Dump (${activeSession?.title ?: "Chat"})\n")
+                                            appendLine("# Raw LLM Conversation Dump (${activeSession?.title ?: "All Features"})\n")
                                             turns.forEach { turn ->
                                                 val timeStr = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date(turn.timestamp))
                                                 appendLine("## Turn #${turn.turnNumber} ($timeStr)")
@@ -226,9 +276,6 @@ fun LlmConversationDumpScreen(
                                                 }
                                                 appendLine("### User Request\n${turn.userPrompt}\n")
                                                 appendLine("### Naked LLM Output\n```\n${turn.rawNakedOutput}\n```\n")
-                                                if (turn.actionPayloadJson != null) {
-                                                    appendLine("- Action: `${turn.actionPayloadJson}` (Status: ${turn.actionStatus})")
-                                                }
                                                 appendLine("---\n")
                                             }
                                         }
@@ -240,24 +287,55 @@ fun LlmConversationDumpScreen(
                                     Spacer(modifier = Modifier.width(6.dp))
                                     Text("Copy All Turns", fontSize = 12.sp)
                                 }
-
-                                OutlinedButton(
-                                    onClick = {
-                                        activeSessionId?.let { id ->
-                                            scope.launch {
-                                                chatRepository.clearSessionMessages(id)
-                                                Toast.makeText(context, "Conversation turns cleared.", Toast.LENGTH_SHORT).show()
-                                            }
-                                        }
-                                    },
-                                    shape = RoundedCornerShape(8.dp),
-                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
-                                ) {
-                                    Icon(Icons.Default.DeleteSweep, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text("Clear Chat Turns", fontSize = 12.sp)
-                                }
                             }
+
+                            OutlinedButton(
+                                onClick = {
+                                    scope.launch {
+                                        interactionRepository.clearAll()
+                                        activeSession?.id?.let { chatRepository.clearSessionMessages(it) }
+                                        Toast.makeText(context, "All records cleared.", Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                                shape = RoundedCornerShape(8.dp),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                            ) {
+                                Icon(Icons.Default.DeleteSweep, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Clear Records", fontSize = 12.sp)
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Source Filter Chips Row
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.FilterList, contentDescription = null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Filter by Source:", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    }
+
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        FilterChip(
+                            selected = selectedFilter == null,
+                            onClick = { selectedFilter = null },
+                            label = { Text("All (${allInteractions.size})", fontSize = 11.sp) }
+                        )
+
+                        InteractionTriggerSource.entries.forEach { src ->
+                            val count = allInteractions.count { it.source == src }
+                            FilterChip(
+                                selected = selectedFilter == src,
+                                onClick = { selectedFilter = if (selectedFilter == src) null else src },
+                                label = { Text("${src.displayName} ($count)", fontSize = 11.sp) }
+                            )
                         }
                     }
                 }
@@ -285,13 +363,13 @@ fun LlmConversationDumpScreen(
                                 modifier = Modifier.size(40.dp)
                             )
                             Text(
-                                text = "No Conversation Turns Recorded",
+                                text = "No Interaction Records Found",
                                 fontWeight = FontWeight.Bold,
                                 color = Color.White,
                                 fontSize = 14.sp
                             )
                             Text(
-                                text = "Send a prompt in Chat, run an Agent tool action, or trigger a Floating Toolbar prompt. All unstripped generations will appear here live.",
+                                text = "Trigger a prompt from the toolbar, run a voice agent command, or send a message in chat. All executions will be captured here in real-time.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = Color(0xFF94A3B8),
                                 textAlign = androidx.compose.ui.text.style.TextAlign.Center

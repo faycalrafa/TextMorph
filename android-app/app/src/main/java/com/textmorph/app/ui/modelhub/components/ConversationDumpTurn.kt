@@ -21,6 +21,30 @@ data class ConversationDumpTurn(
     val isActionFailed: Boolean
 ) {
     companion object {
+        fun fromInteractionRecord(record: com.textmorph.app.data.model.LlmInteractionRecord, index: Int): ConversationDumpTurn {
+            return ConversationDumpTurn(
+                turnNumber = index,
+                timestamp = record.timestamp,
+                systemPrompt = record.systemPrompt,
+                userPrompt = "[${record.source.displayName}] ${record.userPrompt}",
+                rawNakedOutput = record.rawOutput,
+                cleanContent = record.cleanOutput,
+                thoughtContent = record.thoughtContent,
+                actionPayloadJson = record.actionStepsJson,
+                actionStatus = if (record.isError) "failed" else "success",
+                tokensPerSecond = record.tokensPerSecond,
+                totalTokens = record.totalTokens,
+                durationMs = record.durationMs,
+                isActionFailed = record.isError
+            )
+        }
+
+        fun fromInteractionRecords(records: List<com.textmorph.app.data.model.LlmInteractionRecord>): List<ConversationDumpTurn> {
+            return records.sortedByDescending { it.timestamp }.mapIndexed { index, record ->
+                fromInteractionRecord(record, records.size - index)
+            }
+        }
+
         /**
          * Pairs user requests with assistant responses from the conversation history,
          * returning turns ordered strictly from LATEST TO OLDEST.

@@ -113,17 +113,15 @@ class FloatingToolbarWindowManager(
 
     fun isBusy(): Boolean = isBusyState || displayState == OverlayDisplayState.AUTOMATING_ACTION
     fun isExpanded(): Boolean = displayState != OverlayDisplayState.COLLAPSED_BUBBLE
-
-    fun onUserTyped(newText: String) {
-        service.mainHandler.post { userTypedHandler?.invoke(newText) }
-    }
-
-    fun onUserNavigatedBack() {
-        service.mainHandler.post { userNavigatedBackHandler?.invoke() }
-    }
+    fun onUserTyped(newText: String) = service.mainHandler.post { userTypedHandler?.invoke(newText) }
+    fun onUserNavigatedBack() = service.mainHandler.post { userNavigatedBackHandler?.invoke() }
 
     fun handleCollapsedBubbleClick() {
-        transitionTo(OverlayDisplayState.EXPANDED_TOOLBAR)
+        if (service.isKeyboardVisible()) {
+            transitionTo(OverlayDisplayState.EXPANDED_TOOLBAR)
+        } else {
+            startQuickAgentListening()
+        }
     }
 
     fun collapse() {
@@ -174,6 +172,7 @@ class FloatingToolbarWindowManager(
                 voiceInputHelper.stopListening()
                 transitionTo(OverlayDisplayState.AUTOMATING_ACTION)
                 windowScope.launch {
+                    val sessionId = VoiceAgentMissionRecorder.recordMissionStart(service, goal)
                     try {
                         val result = actionExecutor.executeGoal(
                             goal = goal,
@@ -181,8 +180,11 @@ class FloatingToolbarWindowManager(
                             onTargetAnimate = { x, y -> coordinateAnimator.animateTo(x, y, durationMs = 380L) }
                         )
                         AppLogger.i(TAG, "Quick agent goal result: $result")
+                        VoiceAgentMissionRecorder.recordMissionResult(service, sessionId, goal, result, isSuccess = true)
                     } catch (e: Exception) {
                         AppLogger.e(TAG, "Quick agent goal execution failed: ${e.message}", e)
+                        val errorMsg = e.message ?: "Voice agent mission failed."
+                        VoiceAgentMissionRecorder.recordMissionResult(service, sessionId, goal, errorMsg, isSuccess = false)
                     } finally {
                         transitionTo(OverlayDisplayState.COLLAPSED_BUBBLE)
                     }

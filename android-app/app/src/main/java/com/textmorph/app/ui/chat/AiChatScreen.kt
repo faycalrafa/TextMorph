@@ -230,7 +230,8 @@ fun AiChatContent(
                 setJob = { currentJob = it },
                 agentEngine = agentEngine,
                 attachments = chatAttachments,
-                settings = settings
+                settings = settings,
+                context = context
             )
         }
     }

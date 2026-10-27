@@ -35,17 +35,6 @@ object AgentBenchmarkEngine {
             }
         ),
         BenchmarkTestCase(
-            id = "test_2_phone_call",
-            title = "Voice Call",
-            scenario = "Initiate a phone call to a named contact (Mom)",
-            userPrompt = "Call Mom immediately",
-            expectedAction = AgentAction.ACTION_MAKE_CALL,
-            expectedParamsValidator = { action ->
-                val contact = action.getStringParamWithAliases("contact_name", "name", "contact")
-                contact.contains("mom", ignoreCase = true)
-            }
-        ),
-        BenchmarkTestCase(
             id = "test_3_send_sms",
             title = "SMS Messaging",
             scenario = "Prepare a text message with recipient and message body",
@@ -55,30 +44,6 @@ object AgentBenchmarkEngine {
                 val recipient = action.getStringParamWithAliases("recipient", "contact_name", "name", "to")
                 val msg = action.getStringParamWithAliases("message", "text", "body")
                 recipient.contains("nouh", ignoreCase = true) && msg.contains("15", ignoreCase = true)
-            }
-        ),
-        BenchmarkTestCase(
-            id = "test_4_set_alarm",
-            title = "Device Alarm",
-            scenario = "Configure a system alarm with time and label",
-            userPrompt = "Set an alarm for 7:30 AM labeled Gym",
-            expectedAction = AgentAction.ACTION_SET_ALARM,
-            expectedParamsValidator = { action ->
-                val hour = action.getIntParam("hour", -1)
-                val minute = action.getIntParam("minute", -1)
-                val label = action.getStringParamWithAliases("label", "name")
-                hour == 7 && minute == 30 && (label.isBlank() || label.contains("gym", ignoreCase = true))
-            }
-        ),
-        BenchmarkTestCase(
-            id = "test_5_ui_click",
-            title = "UI Screen Automation",
-            scenario = "Perform an accessibility click on an on-screen element",
-            userPrompt = "Tap the Search button on the screen",
-            expectedAction = AgentAction.ACTION_CLICK_TEXT,
-            expectedParamsValidator = { action ->
-                val text = action.getStringParamWithAliases("text", "label", "target")
-                text.contains("search", ignoreCase = true)
             }
         )
     )

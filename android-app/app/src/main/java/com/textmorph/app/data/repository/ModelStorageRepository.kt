@@ -160,26 +160,9 @@ class ModelStorageRepository(private val context: Context) {
                 )
             }
 
-            // 3. Include catalog entries (mark as downloaded if file with matching name was found)
-            val catalogList = listOf(CATALOG_E2B, CATALOG_E4B, CATALOG_SMOL_GGUF)
-            val catalogModels = catalogList.map { catalog ->
-                val matched = list.firstOrNull { it.name.equals(catalog.name, ignoreCase = true) }
-                if (matched != null) {
-                    catalog.copy(
-                        isDownloaded = true,
-                        path = matched.path,
-                        sizeBytes = matched.sizeBytes
-                    )
-                } else {
-                    catalog
-                }
-            }
-
-            // Merge unique entries
+            // 3. Only include models actually present on device / in storage
             val finalList = mutableListOf<ModelInfo>()
-            finalList.addAll(catalogModels)
-            list.filterNot { item -> catalogList.any { it.name.equals(item.name, ignoreCase = true) } }
-                .forEach { finalList.add(it) }
+            finalList.addAll(list.filter { it.isDownloaded })
 
             // Preserve registered SAF models from current availableModels
             val currentSafModels = _availableModels.value.filter { it.uriString != null || it.id.startsWith("saf_") }
