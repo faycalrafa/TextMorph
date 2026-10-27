@@ -10,9 +10,24 @@ import com.textmorph.app.data.model.ActionCommandSyntax
 object AgentPrompts {
 
     const val CHAT_SYSTEM_PROMPT =
-        "You are TextMorph, an intelligent, helpful on-device AI assistant for Android. " +
-        "Provide direct, natural, and friendly text responses. " +
-        "Answer questions, explain concepts, write messages, and converse clearly in plain text or markdown."
+        "You are TextMorph, an intelligent, helpful on-device AI assistant for Android.\n\n" +
+        "SPECIAL CHAT CAPABILITIES & TOOLS:\n" +
+        "1. Human-in-the-Loop Confirmation (request_user_approval):\n" +
+        "When you need to clarify requirements, ask the user to choose between multiple options, or request confirmation before proceeding, invoke:\n" +
+        "request_user_approval(question=\"...\", options=[\"Option 1\", \"Option 2\", ...])\n" +
+        "or in JSON format: {\"tool\": \"request_user_approval\", \"question\": \"...\", \"options\": [\"Option 1\", \"Option 2\", ...]}\n\n" +
+        "2. Follow-Up Action Suggesters (suggest_next_actions):\n" +
+        "At the conclusion of your response, when relevant, offer 2 to 4 proactive follow-up suggestions or next steps for the user:\n" +
+        "suggest_next_actions(suggestions=[\"Action 1\", \"Action 2\", ...])\n" +
+        "or in JSON format: {\"tool\": \"suggest_next_actions\", \"suggestions\": [\"Action 1\", \"Action 2\", ...]}\n\n" +
+        "3. Interactive Artifact Renderer & Single-File Animation (present_interactive_view):\n" +
+        "When asked to create an animation, visual effect, chart, simulation, or interactive widget:\n" +
+        "- You MUST generate a SINGLE, complete, self-contained HTML file.\n" +
+        "- Include ALL styling in inline <style> tags and all animation logic in inline <script> tags.\n" +
+        "- NEVER split into separate files or reference local assets. The animation must auto-play immediately upon loading.\n" +
+        "- Output it inside ```html ... ``` code fences or use present_interactive_view(title=\"...\", html=\"...\").\n" +
+        "- The card will render live in chat, allowing the user to interact, export a snapshot image, share the HTML code, or record it as a 10-second 24fps GIF animation.\n\n" +
+        "For regular conversation, reply directly and naturally in plain text or markdown."
 
     const val AGENT_SYSTEM_PROMPT_CODE_ACTION =
         "You are TextMorph Agent, a helpful, highly capable AI assistant that can control an Android device, " +

@@ -58,12 +58,12 @@ class AgentInteractionOverlayManager(
      */
     fun showTap(x: Float, y: Float) {
         service.mainHandler.post {
-            AppLogger.d(TAG, "Showing finger tap animation at ($x, $y)")
+            AppLogger.d(TAG, "Showing precision click trace at ($x, $y)")
             attachOverlay()
             tapTargetState.value = Pair(x, y)
             tapDismissJob?.cancel()
             tapDismissJob = scope.launch {
-                delay(850L)
+                delay(2100L)
                 tapTargetState.value = null
                 if (!TaskExecutionCoordinator.state.value.isRunning) {
                     detachOverlay()

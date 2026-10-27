@@ -145,6 +145,30 @@ class ChatSessionRepository private constructor(private val context: Context) {
         }
     }
 
+    suspend fun getOrCreateVoiceAgentSession(): ChatSessionEntity = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            val existing = _sessionsState.value.firstOrNull {
+                it.id == VOICE_AGENT_SESSION_ID || it.title == VOICE_AGENT_SESSION_TITLE
+            }
+            if (existing != null) {
+                return@withLock existing
+            }
+            val newSession = ChatSessionEntity(
+                id = VOICE_AGENT_SESSION_ID,
+                title = VOICE_AGENT_SESSION_TITLE,
+                createdAt = System.currentTimeMillis(),
+                updatedAt = System.currentTimeMillis(),
+                isAgentMode = true
+            )
+            val updatedList = listOf(newSession) + _sessionsState.value
+            _sessionsState.value = updatedList
+            saveIndexToDisk(updatedList)
+            saveMessagesToDisk(newSession.id, emptyList())
+            AppLogger.i(TAG, "Created dedicated Voice Agent session: ${newSession.id}")
+            newSession
+        }
+    }
+
     suspend fun selectSession(sessionId: String) = withContext(Dispatchers.IO) {
         mutex.withLock {
             val session = _sessionsState.value.find { it.id == sessionId }
@@ -452,6 +476,9 @@ class ChatSessionRepository private constructor(private val context: Context) {
     }
 
     companion object {
+        const val VOICE_AGENT_SESSION_ID = "voice_agent_session_shared"
+        const val VOICE_AGENT_SESSION_TITLE = "Voice Agent Missions"
+
         @Volatile
         private var instance: ChatSessionRepository? = null
 

@@ -73,6 +73,8 @@ fun ChatMessageItemView(
     onEditPrompt: ((ChatMessageEntity) -> Unit)? = null,
     onRetryPrompt: ((ChatMessageEntity) -> Unit)? = null,
     onInterruptAction: (() -> Unit)? = null,
+    onSelectOption: ((String) -> Unit)? = null,
+    onSelectSuggestion: ((String) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -180,13 +182,37 @@ fun ChatMessageItemView(
                     Spacer(modifier = Modifier.height(6.dp))
                 }
 
-                // 3. Action or HTML or Standard Content
+                // 3. Tool Invocations, Actions, HTML, or Standard Prose
                 val isAction = message.actionPayloadJson != null ||
                     message.actionStepsJson != null ||
                     message.role == "action" ||
                     (message.content.trim().startsWith("{\"action\":") && message.content.contains("}"))
 
-                if (message.actionStepsJson != null) {
+                val approval = remember(message.content) {
+                    ChatToolCallExtractor.extractApproval(message.content)
+                }
+                val followUps = remember(message.content) {
+                    ChatToolCallExtractor.extractFollowUps(message.content)
+                }
+                val interactiveView = remember(message.content) {
+                    ChatToolCallExtractor.extractInteractiveViewHtml(message.content)
+                }
+
+                if (approval != null) {
+                    if (approval.preText.isNotBlank()) {
+                        AssistantTextBubble(text = approval.preText)
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+                    UserApprovalCard(
+                        question = approval.question,
+                        options = approval.options,
+                        onSelectOption = { onSelectOption?.invoke(it) }
+                    )
+                    if (approval.postText.isNotBlank()) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        AssistantTextBubble(text = approval.postText)
+                    }
+                } else if (message.actionStepsJson != null) {
                     AgentTaskTimelineCard(
                         message = message,
                         onInterrupt = {
@@ -201,31 +227,39 @@ fun ChatMessageItemView(
                         status = message.actionStatus ?: "success"
                     )
                 } else {
+                    val rawDisplayContent = followUps?.remainingContent?.ifBlank { null } ?: message.content
+                    val htmlToRender = interactiveView?.second
                     val segments = HtmlSnippetExtractor.extractSegments(
-                        content = message.content,
+                        content = rawDisplayContent,
                         isDone = !isGenerating
                     )
+                    val effectiveHtml = htmlToRender ?: segments.htmlContent
 
-                    if (segments.htmlContent != null) {
-                        // Render pre-text prose if present
+                    if (effectiveHtml != null) {
                         if (segments.preText.isNotBlank()) {
                             AssistantTextBubble(text = segments.preText)
                             Spacer(modifier = Modifier.height(8.dp))
                         }
 
-                        // Render sandboxed HTML preview (or loading pulse card)
                         HtmlSandboxPreviewCard(
-                            htmlContent = segments.htmlContent,
-                            isDone = segments.isHtmlComplete
+                            htmlContent = effectiveHtml,
+                            isDone = segments.isHtmlComplete || !isGenerating
                         )
 
-                        // Render post-text prose if present
                         if (segments.postText.isNotBlank()) {
                             Spacer(modifier = Modifier.height(8.dp))
                             AssistantTextBubble(text = segments.postText)
                         }
-                    } else if (message.content.isNotBlank()) {
-                        AssistantTextBubble(text = message.content)
+                    } else if (rawDisplayContent.isNotBlank()) {
+                        AssistantTextBubble(text = rawDisplayContent)
+                    }
+
+                    if (followUps != null && followUps.suggestions.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        FollowUpSuggestionsRow(
+                            suggestions = followUps.suggestions,
+                            onSelectSuggestion = { onSelectSuggestion?.invoke(it) }
+                        )
                     }
                 }
 

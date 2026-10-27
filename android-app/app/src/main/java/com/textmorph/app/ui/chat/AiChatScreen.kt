@@ -345,6 +345,12 @@ fun AiChatContent(
                                         actionStatus = "interrupted"
                                     )
                                 }
+                            },
+                            onSelectOption = { selectedOption ->
+                                handleSend(selectedOption)
+                            },
+                            onSelectSuggestion = { selectedSuggestion ->
+                                handleSend(selectedSuggestion)
                             }
                         )
                     }

@@ -44,12 +44,11 @@ object VoiceAgentMissionCoordinator {
         val chatRepo = ChatSessionRepository.getInstance(context)
         val interactionRepo = LlmInteractionRepository.getInstance(context)
 
-        // 1. Create a dedicated Voice Agent session in ChatSessionRepository
-        val sessionTitle = if (trimmedGoal.length > 24) "Voice: ${trimmedGoal.take(22)}…" else "Voice: $trimmedGoal"
+        // 1. Get or create the unified single Voice Agent session in ChatSessionRepository
         val session = try {
-            chatRepo.createSession(title = sessionTitle)
+            chatRepo.getOrCreateVoiceAgentSession()
         } catch (e: Exception) {
-            AppLogger.e(TAG, "Failed creating voice chat session: ${e.message}", e)
+            AppLogger.e(TAG, "Failed retrieving unified voice chat session: ${e.message}", e)
             null
         }
         val sessionId = session?.id
