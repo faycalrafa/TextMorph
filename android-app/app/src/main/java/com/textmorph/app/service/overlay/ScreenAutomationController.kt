@@ -472,10 +472,18 @@ class ScreenAutomationController(private val service: AccessibilityService) {
 
     fun getCurrentPackage(): String? {
         return try {
-            service.windows?.firstOrNull { it.type == AccessibilityWindowInfo.TYPE_APPLICATION }?.root?.use {
-                it.packageName?.toString()
+            var ownAppSeen = false
+            var fallbackApp: String? = null
+            for (w in service.windows.orEmpty()) {
+                val root = w.root ?: continue
+                val pkg = try { root.packageName?.toString() } finally { root.recycle() }
+                if (pkg == null || w.type != AccessibilityWindowInfo.TYPE_APPLICATION) continue
+                if (w.isActive || w.isFocused) return pkg
+                if (pkg == ownPackage) ownAppSeen = true else if (fallbackApp == null) fallbackApp = pkg
             }
+            fallbackApp ?: if (ownAppSeen) ownPackage else null
         } catch (e: Exception) {
+            AppLogger.d(TAG, "getCurrentPackage: ${e.message}")
             null
         }
     }
