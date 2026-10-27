@@ -11,7 +11,6 @@ import com.textmorph.app.agent.tools.ScreenAutomationTool
 import com.textmorph.app.agent.ui.AgentToastNotifier
 import com.textmorph.app.data.model.ActionCommandSyntax
 import com.textmorph.app.data.model.AppSettings
-import com.textmorph.app.data.model.ScreenPerceptionMode
 import com.textmorph.app.llm.LiteRtLmEngine
 import com.textmorph.app.llm.LlamaCppEngine
 import com.textmorph.app.llm.LlmEngine
@@ -75,15 +74,9 @@ class TaskExecutor(
             is com.textmorph.app.llm.OpenAiCloudEngine -> true
             else -> false
         }
-        val perceptionMode = if (settings.screenPerceptionMode == ScreenPerceptionMode.SCREEN_CAPTURE && !isVisionCapable) {
-            AppLogger.i(TAG, "Screen Capture selected but active model has no vision encoder. Falling back to Private Agent Way.")
-            ScreenPerceptionMode.PRIVATE_AGENT
-        } else {
-            settings.screenPerceptionMode
-        }
         val taskSystemPrompt = AgentPrompts.getTaskSystemPrompt(commandSyntax)
 
-        AppLogger.i(TAG, "Task configured with syntax=$commandSyntax, perceptionMode=$perceptionMode (isVisionCapable=$isVisionCapable)")
+        AppLogger.i(TAG, "Task configured with syntax=$commandSyntax (isVisionCapable=$isVisionCapable)")
 
         try {
             if (!screenTool.isAccessibilityReady()) {
@@ -127,25 +120,11 @@ class TaskExecutor(
                 onStepsUpdated?.invoke(TaskExecutionCoordinator.state.value.stepsHistory)
                 onProgress(step, "Viewing screen (Step $step/$maxSteps)…")
 
-                var imageBytes: ByteArray? = null
-                val screenDump: String = when (perceptionMode) {
-                    ScreenPerceptionMode.SCREEN_CAPTURE -> {
-                        val captured = screenTool.captureCleanScreenshotBytes()
-                        if (captured != null) {
-                            imageBytes = captured
-                            "[Clean Screen Screenshot Attached - Inspect visually]"
-                        } else {
-                            AppLogger.w(TAG, "Clean screenshot capture unavailable, falling back to semantic tree.")
-                            screenTool.readScreenHierarchy()
-                        }
-                    }
-                    ScreenPerceptionMode.PRIVATE_AGENT -> {
-                        screenTool.readScreenPrivateAgent(goal)
-                    }
-                    ScreenPerceptionMode.ACCESSIBILITY_TREE -> {
-                        screenTool.readScreenHierarchy()
-                    }
-                }
+                // Unified Screen Perception: Grounded Private Agent semantic hierarchy with exact coordinate centers and element IDs
+                val screenDump = screenTool.readScreenPrivateAgent(goal)
+                val imageBytes: ByteArray? = if (isVisionCapable) {
+                    screenTool.captureCleanScreenshotBytes()
+                } else null
 
                 // Heuristic 1: Detect loading / spinner states and allow settle time
                 val lowerDump = screenDump.lowercase()

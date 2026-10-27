@@ -45,7 +45,6 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.textmorph.app.data.model.ActionCommandSyntax
 import com.textmorph.app.data.model.AppSettings
-import com.textmorph.app.data.model.ScreenPerceptionMode
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -60,7 +59,6 @@ fun AiModelConfigDialog(
         enableThinking: Boolean,
         speculativeDecoding: Boolean,
         actionCommandSyntax: ActionCommandSyntax,
-        screenPerceptionMode: ScreenPerceptionMode,
         contextWindowTokens: Int
     ) -> Unit,
     onDismiss: () -> Unit
@@ -73,7 +71,6 @@ fun AiModelConfigDialog(
     var enableThinking by remember { mutableStateOf(settings.enableThinking) }
     var speculativeDecoding by remember { mutableStateOf(settings.speculativeDecoding) }
     var actionCommandSyntax by remember { mutableStateOf(settings.actionCommandSyntax) }
-    var screenPerceptionMode by remember { mutableStateOf(settings.screenPerceptionMode) }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -342,42 +339,6 @@ fun AiModelConfigDialog(
                     )
                 }
 
-                Spacer(modifier = Modifier.height(14.dp))
-
-                // Screen Perception Mode Selector
-                Text(
-                    text = "Screen Perception Mode",
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Text(
-                    text = "How the autonomous agent perceives the device screen before deciding actions.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(modifier = Modifier.height(6.dp))
-                FlowRow(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    FilterChip(
-                        selected = screenPerceptionMode == ScreenPerceptionMode.PRIVATE_AGENT,
-                        onClick = { screenPerceptionMode = ScreenPerceptionMode.PRIVATE_AGENT },
-                        label = { Text("Private Agent Way (Default)") }
-                    )
-                    FilterChip(
-                        selected = screenPerceptionMode == ScreenPerceptionMode.ACCESSIBILITY_TREE,
-                        onClick = { screenPerceptionMode = ScreenPerceptionMode.ACCESSIBILITY_TREE },
-                        label = { Text("Accessibility Tree") }
-                    )
-                    FilterChip(
-                        selected = screenPerceptionMode == ScreenPerceptionMode.SCREEN_CAPTURE,
-                        onClick = { screenPerceptionMode = ScreenPerceptionMode.SCREEN_CAPTURE },
-                        label = { Text("Screen Capture (Multimodal)") }
-                    )
-                }
-
                 Spacer(modifier = Modifier.height(20.dp))
 
                 // Action Buttons in FlowRow
@@ -396,7 +357,6 @@ fun AiModelConfigDialog(
                             enableThinking = false
                             speculativeDecoding = false
                             actionCommandSyntax = ActionCommandSyntax.CODE_AS_ACTION
-                            screenPerceptionMode = ScreenPerceptionMode.PRIVATE_AGENT
                         },
                         shape = RoundedCornerShape(10.dp)
                     ) {
@@ -425,7 +385,6 @@ fun AiModelConfigDialog(
                                 enableThinking,
                                 speculativeDecoding,
                                 actionCommandSyntax,
-                                screenPerceptionMode,
                                 contextTokens
                             )
                         },

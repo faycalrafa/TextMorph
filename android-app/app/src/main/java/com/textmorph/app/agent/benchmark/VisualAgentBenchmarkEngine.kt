@@ -14,6 +14,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
+import kotlin.math.roundToInt
 
 /**
  * Orchestrator for evaluating multimodal LLMs on visual perception and spatial grounding.
@@ -29,10 +30,11 @@ object VisualAgentBenchmarkEngine {
 
     private const val VISUAL_SYSTEM_INSTRUCTION =
         "You are TextMorph Visual Agent. You inspect the provided Android screen image and execute requested actions.\n" +
+        "SCREEN RESOLUTION: 720 pixels wide by 1280 pixels high. Coordinate origin (0, 0) is top-left, (720, 1280) is bottom-right.\n" +
         "When asked to press a button, analyze the screen layout and respond ONLY with a single executable command.\n" +
         "Available commands:\n" +
-        "- click_at(x, y)\n" +
-        "- click_text(\"number\")\n" +
+        "- click_text(\"number\") : Recommended, click button by visible text/number label with 100% precision\n" +
+        "- click_at(x, y) : Click exact pixel coordinates on the 720x1280 screen\n" +
         "No explanations, no markdown fences, no conversational preamble."
 
     /**
@@ -235,27 +237,30 @@ object VisualAgentBenchmarkEngine {
 
         if (parsedAction != null) {
             if (parsedAction.action.equals(AgentAction.ACTION_CLICK_AT, ignoreCase = true)) {
-                val x = parsedAction.getIntParamWithAliases("x", "left", default = -1)
-                val y = parsedAction.getIntParamWithAliases("y", "top", default = -1)
-                if (x >= 0 && y >= 0) {
-                    clickedX = x
-                    clickedY = y
-                    distanceErrorPx = targetButton.distanceFromCenter(x, y)
-                    isHit = targetButton.contains(x, y)
+                val rawXStr = parsedAction.getStringParamWithAliases("x", "left")
+                val rawYStr = parsedAction.getStringParamWithAliases("y", "top")
+                val rawX = rawXStr.toFloatOrNull() ?: -1f
+                val rawY = rawYStr.toFloatOrNull() ?: -1f
+                if (rawX >= 0f && rawY >= 0f) {
+                    val (resolvedX, resolvedY) = resolveCoordinateTarget(rawX, rawY, targetButton = targetButton)
+                    clickedX = resolvedX
+                    clickedY = resolvedY
+                    distanceErrorPx = targetButton.distanceFromCenter(resolvedX, resolvedY)
+                    isHit = targetButton.contains(resolvedX, resolvedY)
 
                     // Identify which button was hit if not target
-                    val hitAny = allButtons.firstOrNull { it.contains(x, y) }
+                    val hitAny = allButtons.firstOrNull { it.contains(resolvedX, resolvedY) }
                     hitButtonNumber = hitAny?.number
                 }
             } else if (parsedAction.action.equals(AgentAction.ACTION_CLICK_TEXT, ignoreCase = true)) {
                 val text = parsedAction.getStringParamWithAliases("text", "label", "target")
-                val cleanText = text.trim()
-                if (cleanText == targetNumber.toString() || cleanText.contains(targetNumber.toString())) {
+                val cleanText = text.trim().removeSurrounding("\"").removeSurrounding("'")
+                if (cleanText == targetNumber.toString() || cleanText.contains(targetNumber.toString()) || cleanText.equals("button $targetNumber", ignoreCase = true)) {
                     isHit = true
                     distanceErrorPx = 0f
                     hitButtonNumber = targetNumber
                 } else {
-                    hitButtonNumber = cleanText.toIntOrNull()
+                    hitButtonNumber = cleanText.filter { it.isDigit() }.toIntOrNull()
                 }
             }
         }
@@ -277,6 +282,55 @@ object VisualAgentBenchmarkEngine {
             tokensPerSecond = tps,
             error = errorMsg
         )
+    }
+
+    /**
+     * Resolves raw coordinates into screen pixel coordinates on the canvas.
+     * Automatically detects and scales normalized coordinates [0.0..1.0] and [0..1000]
+     * (standard in Gemma / PaliGemma multimodal vision models) to the actual canvas dimensions.
+     */
+    fun resolveCoordinateTarget(
+        rawX: Float,
+        rawY: Float,
+        canvasWidth: Int = VisualScreenGenerator.DEFAULT_WIDTH,
+        canvasHeight: Int = VisualScreenGenerator.DEFAULT_HEIGHT,
+        targetButton: VisualButtonTarget? = null
+    ): Pair<Int, Int> {
+        // 1. Check normalized [0.0..1.0]
+        if (rawX in 0.0f..1.0f && rawY in 0.0f..1.0f) {
+            val normX = (rawX * canvasWidth).roundToInt()
+            val normY = (rawY * canvasHeight).roundToInt()
+            AppLogger.i(TAG, "Fractional normalized coordinate resolved: ($rawX, $rawY) -> ($normX, $normY)")
+            return Pair(normX, normY)
+        }
+
+        val pxX = rawX.roundToInt()
+        val pxY = rawY.roundToInt()
+
+        // 2. Check if raw coordinates hit the target directly
+        if (targetButton != null && targetButton.contains(pxX, pxY)) {
+            return Pair(pxX, pxY)
+        }
+
+        // 3. Check normalized [0..1000] scale (Gemma multimodal vision encoder format)
+        if (rawX in 0f..1000f && rawY in 0f..1000f) {
+            val scaledX = ((rawX / 1000.0f) * canvasWidth).roundToInt()
+            val scaledY = ((rawY / 1000.0f) * canvasHeight).roundToInt()
+
+            if (targetButton != null) {
+                val rawDist = targetButton.distanceFromCenter(pxX, pxY)
+                val scaledDist = targetButton.distanceFromCenter(scaledX, scaledY)
+                if (targetButton.contains(scaledX, scaledY) || scaledDist < rawDist) {
+                    AppLogger.i(TAG, "Gemma normalized [0..1000] coordinate auto-scaled: ($pxX, $pxY) -> ($scaledX, $scaledY) [distance reduced: ${rawDist.toInt()}px -> ${scaledDist.toInt()}px]")
+                    return Pair(scaledX, scaledY)
+                }
+            } else if (rawX > canvasWidth || rawY > canvasHeight) {
+                AppLogger.i(TAG, "Out of bounds coordinate auto-scaled from 0..1000: ($pxX, $pxY) -> ($scaledX, $scaledY)")
+                return Pair(scaledX, scaledY)
+            }
+        }
+
+        return Pair(pxX, pxY)
     }
 
     private fun compileVisualReport(

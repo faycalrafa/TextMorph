@@ -35,7 +35,7 @@ jobs:
       - name: Determine Release Tag
         id: tag_version
         run: |
-          VERSION="3.5.0"
+          VERSION="3.6.0"
           DATE_TAG="v$VERSION"
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_ENV
           echo "APP_VERSION=$VERSION" >> $GITHUB_ENV

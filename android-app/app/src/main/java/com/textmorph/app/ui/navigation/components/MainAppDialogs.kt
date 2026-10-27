@@ -53,7 +53,7 @@ fun MainAppDialogs(
     if (showAiConfigDialog) {
         com.textmorph.app.ui.modelhub.components.AiModelConfigDialog(
             settings = settings,
-            onSave = { maxTokens, temp, k, p, thinking, speculative, syntax, perceptionMode, contextWindow ->
+            onSave = { maxTokens, temp, k, p, thinking, speculative, syntax, contextWindow ->
                 scope.launch {
                     val targetAgentPrompt = if (syntax != settings.actionCommandSyntax) {
                         com.textmorph.app.agent.prompts.AgentPrompts.getAgentSystemPrompt(syntax)
@@ -70,7 +70,6 @@ fun MainAppDialogs(
                         defaultSystemPrompt = settings.defaultSystemPrompt,
                         agentSystemPrompt = targetAgentPrompt,
                         actionCommandSyntax = syntax,
-                        screenPerceptionMode = perceptionMode,
                         contextWindowTokens = contextWindow
                     )
                     onDismissAiConfigDialog()

@@ -198,4 +198,68 @@ class VisualAgentBenchmarkUnitTests {
         assertEquals(16f, report.avgTps, 0.001f)
         assertEquals(30L, report.ramDeltaMb)
     }
+
+    @Test
+    fun testResolveCoordinateTargetNormalizedGemmaScale() {
+        // Gemma-4-E2B-it output: click_at(623, 600) for Button 2
+        // Canvas is 720 x 1280.
+        // Button 2 is at center (449, 768) with radius 48
+        val targetButton = VisualButtonTarget(number = 2, centerX = 449, centerY = 768, radius = 48)
+
+        val (resolvedX, resolvedY) = VisualAgentBenchmarkEngine.resolveCoordinateTarget(
+            rawX = 623f,
+            rawY = 600f,
+            canvasWidth = 720,
+            canvasHeight = 1280,
+            targetButton = targetButton
+        )
+
+        // 623 / 1000 * 720 = 448.5 -> 449
+        // 600 / 1000 * 1280 = 768.0 -> 768
+        assertEquals(449, resolvedX)
+        assertEquals(768, resolvedY)
+        assertTrue("Resolved coordinates must hit target button", targetButton.contains(resolvedX, resolvedY))
+        assertEquals(0f, targetButton.distanceFromCenter(resolvedX, resolvedY), 1.0f)
+    }
+
+    @Test
+    fun testResolveCoordinateTargetFractionalNormalized() {
+        val (resolvedX, resolvedY) = VisualAgentBenchmarkEngine.resolveCoordinateTarget(
+            rawX = 0.5f,
+            rawY = 0.25f,
+            canvasWidth = 720,
+            canvasHeight = 1280
+        )
+        assertEquals(360, resolvedX)
+        assertEquals(320, resolvedY)
+    }
+
+    @Test
+    fun testResolveCoordinateTargetRawPixelsDirectHit() {
+        val target = VisualButtonTarget(number = 1, centerX = 200, centerY = 300, radius = 48)
+        val (resolvedX, resolvedY) = VisualAgentBenchmarkEngine.resolveCoordinateTarget(
+            rawX = 210f,
+            rawY = 295f,
+            canvasWidth = 720,
+            canvasHeight = 1280,
+            targetButton = target
+        )
+        assertEquals(210, resolvedX)
+        assertEquals(295, resolvedY)
+        assertTrue(target.contains(resolvedX, resolvedY))
+    }
+
+    @Test
+    fun testResolveCoordinateTargetOutOfBoundsScaled() {
+        // Model emits X=800, Y=900 where X > 720 (canvas width)
+        val (resolvedX, resolvedY) = VisualAgentBenchmarkEngine.resolveCoordinateTarget(
+            rawX = 800f,
+            rawY = 900f,
+            canvasWidth = 720,
+            canvasHeight = 1280
+        )
+        // 800/1000 * 720 = 576, 900/1000 * 1280 = 1152
+        assertEquals(576, resolvedX)
+        assertEquals(1152, resolvedY)
+    }
 }

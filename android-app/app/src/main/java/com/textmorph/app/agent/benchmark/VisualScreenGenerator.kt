@@ -102,22 +102,58 @@ object VisualScreenGenerator {
         // 1. Slate Background (#0B1020)
         canvas.drawColor(Color.rgb(11, 16, 32))
 
-        // 2. Subtle Header and Footer Guide Lines
+        // 2. Subtle Coordinate Grid & Border Guide Lines
+        val gridPaint = Paint().apply {
+            color = Color.argb(40, 71, 85, 105) // Subtle Slate grid (alpha 40)
+            strokeWidth = 1f
+            style = Paint.Style.STROKE
+        }
         val guidePaint = Paint().apply {
             color = Color.rgb(31, 41, 55)
             strokeWidth = 2f
             style = Paint.Style.STROKE
         }
+        val tickTextPaint = Paint().apply {
+            color = Color.rgb(100, 116, 139) // Slate 500
+            textSize = 18f
+            isAntiAlias = true
+        }
+
+        // Draw outer border
         canvas.drawRect(8f, 8f, (width - 8).toFloat(), (height - 8).toFloat(), guidePaint)
+
+        // Draw vertical grid lines and tick labels every 200px
+        var xTick = 200f
+        while (xTick < width) {
+            canvas.drawLine(xTick, 8f, xTick, (height - 8).toFloat(), gridPaint)
+            tickTextPaint.textAlign = Paint.Align.CENTER
+            canvas.drawText("${xTick.toInt()}", xTick, 24f, tickTextPaint)
+            xTick += 200f
+        }
+
+        // Draw horizontal grid lines and tick labels every 200px
+        var yTick = 200f
+        while (yTick < height) {
+            canvas.drawLine(8f, yTick, (width - 8).toFloat(), yTick, gridPaint)
+            tickTextPaint.textAlign = Paint.Align.LEFT
+            canvas.drawText("${yTick.toInt()}", 14f, yTick + 6f, tickTextPaint)
+            yTick += 200f
+        }
+
+        // Draw corner coordinate marks for vision calibration
+        tickTextPaint.textAlign = Paint.Align.LEFT
+        canvas.drawText("(0,0)", 14f, 24f, tickTextPaint)
+        tickTextPaint.textAlign = Paint.Align.RIGHT
+        canvas.drawText("($width,$height)", (width - 14).toFloat(), (height - 16).toFloat(), tickTextPaint)
 
         // 3. Header title for visual clarity
         val titlePaint = Paint().apply {
             color = Color.rgb(148, 163, 184) // Slate 400
-            textSize = 28f
+            textSize = 26f
             isAntiAlias = true
             textAlign = Paint.Align.CENTER
         }
-        canvas.drawText("TextMorph Visual Agent Test Screen", (width / 2).toFloat(), 48f, titlePaint)
+        canvas.drawText("TextMorph Visual Agent Test Screen (${width}x${height})", (width / 2).toFloat(), 56f, titlePaint)
 
         // 4. Button Paints
         val fillPaint = Paint().apply {
