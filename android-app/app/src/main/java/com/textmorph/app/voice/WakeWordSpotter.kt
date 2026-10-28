@@ -75,8 +75,8 @@ class WakeWordSpotter(private val context: Context) {
             startCaptureLoop()
             AppLogger.i(TAG, "WakeWordSpotter started successfully.")
             true
-        } catch (e: Exception) {
-            AppLogger.e(TAG, "Failed initializing WakeWordSpotter: ${e.message}", e)
+        } catch (t: Throwable) {
+            AppLogger.e(TAG, "Failed initializing WakeWordSpotter: ${t.message}", t)
             release()
             false
         }
@@ -109,9 +109,36 @@ class WakeWordSpotter(private val context: Context) {
             keywordsThreshold = 0.25f
         )
 
-        spotter = KeywordSpotter(assetManager = context.assets, config = spotterConfig)
-        stream = spotter?.createStream()
-        AppLogger.i(TAG, "Sherpa-ONNX KeywordSpotter and OnlineStream initialized.")
+        val newSpotter = KeywordSpotter(assetManager = context.assets, config = spotterConfig)
+
+        // Validate native pointer: if native C++ initialization failed, ptr is 0L
+        val ptrField = try {
+            KeywordSpotter::class.java.getDeclaredField("ptr").apply { isAccessible = true }
+        } catch (t: Throwable) {
+            null
+        }
+        val ptrValue = ptrField?.getLong(newSpotter) ?: -1L
+        if (ptrValue == 0L) {
+            newSpotter.release()
+            throw IllegalStateException("Sherpa-ONNX KeywordSpotter native instance failed to initialize (native ptr=0). Check model assets and keywords syntax.")
+        }
+
+        spotter = newSpotter
+        val newStream = newSpotter.createStream()
+
+        val streamPtrField = try {
+            OnlineStream::class.java.getDeclaredField("ptr").apply { isAccessible = true }
+        } catch (t: Throwable) {
+            null
+        }
+        val streamPtrValue = streamPtrField?.getLong(newStream) ?: -1L
+        if (streamPtrValue == 0L) {
+            newStream.release()
+            throw IllegalStateException("Sherpa-ONNX OnlineStream native instance failed to initialize (native ptr=0).")
+        }
+
+        stream = newStream
+        AppLogger.i(TAG, "Sherpa-ONNX KeywordSpotter and OnlineStream initialized successfully.")
     }
 
     @SuppressLint("MissingPermission")
@@ -155,49 +182,54 @@ class WakeWordSpotter(private val context: Context) {
                     continue
                 }
 
-                val readSamples = try {
-                    currentRecord.read(shortBuffer, 0, shortBuffer.size)
-                } catch (e: Exception) {
-                    AppLogger.e(TAG, "Error reading from AudioRecord: ${e.message}", e)
-                    -1
-                }
-
-                if (readSamples > 0) {
-                    for (i in 0 until readSamples) {
-                        floatBuffer[i] = shortBuffer[i] / 32768.0f
+                try {
+                    val readSamples = try {
+                        currentRecord.read(shortBuffer, 0, shortBuffer.size)
+                    } catch (t: Throwable) {
+                        AppLogger.e(TAG, "Error reading from AudioRecord: ${t.message}", t)
+                        -1
                     }
 
-                    val samplesToAccept = if (readSamples == floatBuffer.size) {
-                        floatBuffer
-                    } else {
-                        floatBuffer.copyOf(readSamples)
-                    }
-
-                    val currentStream = stream
-                    val currentSpotter = spotter
-
-                    if (currentStream != null && currentSpotter != null) {
-                        currentStream.acceptWaveform(samplesToAccept, SAMPLE_RATE)
-
-                        while (currentSpotter.isReady(currentStream)) {
-                            currentSpotter.decode(currentStream)
+                    if (readSamples > 0) {
+                        for (i in 0 until readSamples) {
+                            floatBuffer[i] = shortBuffer[i] / 32768.0f
                         }
 
-                        val result = currentSpotter.getResult(currentStream)
-                        val keyword = result.keyword.trim()
+                        val samplesToAccept = if (readSamples == floatBuffer.size) {
+                            floatBuffer
+                        } else {
+                            floatBuffer.copyOf(readSamples)
+                        }
 
-                        if (keyword.isNotEmpty()) {
-                            AppLogger.i(TAG, "Wake word spotted: '$keyword'")
-                            pauseListening()
-                            currentSpotter.reset(currentStream)
+                        val currentStream = stream
+                        val currentSpotter = spotter
 
-                            VoiceCommandManager.onWakeWordDetected(keyword) {
-                                resumeListening()
+                        if (currentStream != null && currentSpotter != null) {
+                            currentStream.acceptWaveform(samplesToAccept, SAMPLE_RATE)
+
+                            while (currentSpotter.isReady(currentStream)) {
+                                currentSpotter.decode(currentStream)
+                            }
+
+                            val result = currentSpotter.getResult(currentStream)
+                            val keyword = result.keyword.trim()
+
+                            if (keyword.isNotEmpty()) {
+                                AppLogger.i(TAG, "Wake word spotted: '$keyword'")
+                                pauseListening()
+                                currentSpotter.reset(currentStream)
+
+                                VoiceCommandManager.onWakeWordDetected(keyword) {
+                                    resumeListening()
+                                }
                             }
                         }
+                    } else {
+                        delay(10L)
                     }
-                } else {
-                    delay(10L)
+                } catch (t: Throwable) {
+                    AppLogger.e(TAG, "Error during audio capture/decoding loop: ${t.message}", t)
+                    delay(500L)
                 }
             }
             AppLogger.d(TAG, "Audio capture loop finished.")
@@ -211,8 +243,8 @@ class WakeWordSpotter(private val context: Context) {
             try {
                 audioRecord?.stop()
                 AppLogger.d(TAG, "AudioRecord paused to release microphone.")
-            } catch (e: Exception) {
-                AppLogger.e(TAG, "Error stopping AudioRecord: ${e.message}", e)
+            } catch (t: Throwable) {
+                AppLogger.e(TAG, "Error stopping AudioRecord: ${t.message}", t)
             }
         }
     }
@@ -224,8 +256,8 @@ class WakeWordSpotter(private val context: Context) {
                 audioRecord?.startRecording()
                 isPaused = false
                 AppLogger.i(TAG, "AudioRecord resumed listening.")
-            } catch (e: Exception) {
-                AppLogger.e(TAG, "Failed resuming AudioRecord: ${e.message}", e)
+            } catch (t: Throwable) {
+                AppLogger.e(TAG, "Failed resuming AudioRecord: ${t.message}", t)
             }
         }
     }
@@ -243,27 +275,27 @@ class WakeWordSpotter(private val context: Context) {
 
         try {
             audioRecord?.stop()
-        } catch (e: Exception) {
-            AppLogger.w(TAG, "Error stopping AudioRecord: ${e.message}")
+        } catch (t: Throwable) {
+            AppLogger.w(TAG, "Error stopping AudioRecord: ${t.message}", t)
         }
         try {
             audioRecord?.release()
-        } catch (e: Exception) {
-            AppLogger.w(TAG, "Error releasing AudioRecord: ${e.message}")
+        } catch (t: Throwable) {
+            AppLogger.w(TAG, "Error releasing AudioRecord: ${t.message}", t)
         }
         audioRecord = null
 
         try {
             stream?.release()
-        } catch (e: Exception) {
-            AppLogger.w(TAG, "Error releasing OnlineStream: ${e.message}")
+        } catch (t: Throwable) {
+            AppLogger.w(TAG, "Error releasing OnlineStream: ${t.message}", t)
         }
         stream = null
 
         try {
             spotter?.release()
-        } catch (e: Exception) {
-            AppLogger.w(TAG, "Error releasing KeywordSpotter: ${e.message}")
+        } catch (t: Throwable) {
+            AppLogger.w(TAG, "Error releasing KeywordSpotter: ${t.message}", t)
         }
         spotter = null
         AppLogger.d(TAG, "WakeWordSpotter native resources released.")

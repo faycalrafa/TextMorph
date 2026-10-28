@@ -159,7 +159,37 @@ class WakeWordDetectorUnitTests {
         val content = keywordsFile.readText()
         assertTrue("keywords.txt must define @computer alias", content.contains("@computer"))
         assertTrue("keywords.txt must define @hey_tamim alias", content.contains("@hey_tamim"))
-        assertTrue("keywords.txt must contain computer phonemes", content.contains("k ah m p y uw t er"))
-        assertTrue("keywords.txt must contain hey tamim phonemes", content.contains("h ey / t aa m ih m"))
+        assertTrue("keywords.txt must contain computer phonemes", content.contains("K AH0 M P Y UW1 T ER0"))
+        assertTrue("keywords.txt must contain hey tamim phonemes", content.contains("HH EY1 T AA1 M IH0 M"))
+    }
+
+    @Test
+    fun testKeywordsFile_allTokensExistInTokensTxt() {
+        val tokensFile = File("src/main/assets/kws/tokens.txt")
+        val keywordsFile = File("src/main/assets/kws/keywords.txt")
+        assertTrue("tokens.txt must exist", tokensFile.exists())
+        assertTrue("keywords.txt must exist", keywordsFile.exists())
+
+        val validTokens = tokensFile.readLines()
+            .mapNotNull { line ->
+                val parts = line.trim().split("\\s+".toRegex())
+                parts.firstOrNull()?.takeIf { it.isNotBlank() }
+            }
+            .toSet()
+
+        keywordsFile.readLines().forEach { line ->
+            val trimmed = line.trim()
+            if (trimmed.isEmpty() || trimmed.startsWith("#")) return@forEach
+
+            val tokensPart = trimmed.substringBefore("@").trim()
+            val tokens = tokensPart.split("\\s+".toRegex()).filter { it.isNotBlank() }
+
+            for (token in tokens) {
+                assertTrue(
+                    "Token '$token' from keywords.txt must exist in tokens.txt (line: '$line')",
+                    validTokens.contains(token)
+                )
+            }
+        }
     }
 }

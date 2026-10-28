@@ -42,8 +42,12 @@ class MainActivity : ComponentActivity() {
         results.forEach { (permission, granted) ->
             AppLogger.i(TAG, "Startup permission result for $permission: granted=$granted")
         }
-        if (settingsRepository.settingsState.value.wakeWordDetectionEnabled && PermissionUtils.hasRecordAudioPermission(this)) {
-            WakeWordForegroundService.startService(applicationContext)
+        try {
+            if (settingsRepository.settingsState.value.wakeWordDetectionEnabled && PermissionUtils.hasRecordAudioPermission(this)) {
+                WakeWordForegroundService.startService(applicationContext)
+            }
+        } catch (t: Throwable) {
+            AppLogger.e(TAG, "Failed starting WakeWordForegroundService after permissions: ${t.message}", t)
         }
     }
 
@@ -65,18 +69,26 @@ class MainActivity : ComponentActivity() {
         // Ensure LLM Foreground Service is running
         try {
             LlmForegroundService.startService(applicationContext)
-        } catch (e: Exception) {
-            AppLogger.e(TAG, "Failed to start LlmForegroundService: ${e.message}", e)
+        } catch (t: Throwable) {
+            AppLogger.e(TAG, "Failed to start LlmForegroundService: ${t.message}", t)
         }
 
         // Manage Wake-Word Foreground Service according to user preferences and permissions
         lifecycleScope.launch {
-            settingsRepository.settingsState.collect { settings ->
-                if (settings.wakeWordDetectionEnabled && PermissionUtils.hasRecordAudioPermission(this@MainActivity)) {
-                    WakeWordForegroundService.startService(applicationContext)
-                } else if (!settings.wakeWordDetectionEnabled) {
-                    WakeWordForegroundService.stopService(applicationContext)
+            try {
+                settingsRepository.settingsState.collect { settings ->
+                    try {
+                        if (settings.wakeWordDetectionEnabled && PermissionUtils.hasRecordAudioPermission(this@MainActivity)) {
+                            WakeWordForegroundService.startService(applicationContext)
+                        } else if (!settings.wakeWordDetectionEnabled) {
+                            WakeWordForegroundService.stopService(applicationContext)
+                        }
+                    } catch (t: Throwable) {
+                        AppLogger.e(TAG, "Error toggling WakeWordForegroundService: ${t.message}", t)
+                    }
                 }
+            } catch (t: Throwable) {
+                AppLogger.e(TAG, "Error in wake-word settings observer: ${t.message}", t)
             }
         }
 

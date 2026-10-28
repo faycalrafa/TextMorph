@@ -42,37 +42,59 @@ class WakeWordForegroundService : Service() {
         super.onCreate()
         AppLogger.i(TAG, "WakeWordForegroundService onCreate")
 
-        if (!PermissionUtils.hasRecordAudioPermission(this)) {
-            AppLogger.w(TAG, "RECORD_AUDIO permission missing; cannot start WakeWordForegroundService.")
-            stopSelf()
-            return
-        }
-
-        createNotificationChannel()
-        safeStartForeground("Listening for 'Computer' & 'Hey Tamim'")
-
-        wakeWordSpotter = WakeWordSpotter(this).apply {
-            start()
-        }
-
-        VoiceCommandManager.isDictating.onEach { isDictating ->
-            val status = if (isDictating) {
-                "Processing voice command..."
-            } else {
-                "Listening for 'Computer' & 'Hey Tamim'"
+        try {
+            if (!PermissionUtils.hasRecordAudioPermission(this)) {
+                AppLogger.w(TAG, "RECORD_AUDIO permission missing; cannot start WakeWordForegroundService.")
+                stopSelf()
+                return
             }
-            updateNotification(status)
-        }.launchIn(serviceScope)
+
+            createNotificationChannel()
+            safeStartForeground("Listening for 'Computer' & 'Hey Tamim'")
+
+            val spotter = WakeWordSpotter(this)
+            wakeWordSpotter = spotter
+            val started = spotter.start()
+            if (!started) {
+                AppLogger.e(TAG, "WakeWordSpotter failed to start. Stopping WakeWordForegroundService.")
+                updateNotification("Wake-word detection unavailable (see Dev Logs)")
+                stopSelf()
+                return
+            }
+
+            VoiceCommandManager.isDictating.onEach { isDictating ->
+                val status = if (isDictating) {
+                    "Processing voice command..."
+                } else {
+                    "Listening for 'Computer' & 'Hey Tamim'"
+                }
+                updateNotification(status)
+            }.launchIn(serviceScope)
+        } catch (t: Throwable) {
+            AppLogger.e(TAG, "Fatal failure during WakeWordForegroundService onCreate: ${t.message}", t)
+            try {
+                updateNotification("Wake-word error (see Dev Logs)")
+            } catch (ignored: Throwable) {
+                AppLogger.w(TAG, "Failed posting error notification: ${ignored.message}")
+            }
+            stopSelf()
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         AppLogger.d(TAG, "onStartCommand received (flags=$flags, startId=$startId)")
-        if (!PermissionUtils.hasRecordAudioPermission(this)) {
-            AppLogger.w(TAG, "RECORD_AUDIO missing onStartCommand. Stopping service.")
-            stopSelf()
-            return START_NOT_STICKY
+        return try {
+            if (!PermissionUtils.hasRecordAudioPermission(this)) {
+                AppLogger.w(TAG, "RECORD_AUDIO missing onStartCommand. Stopping service.")
+                stopSelf()
+                START_NOT_STICKY
+            } else {
+                START_STICKY
+            }
+        } catch (t: Throwable) {
+            AppLogger.e(TAG, "Error in onStartCommand: ${t.message}", t)
+            START_NOT_STICKY
         }
-        return START_STICKY
     }
 
     private fun createNotificationChannel() {
@@ -122,8 +144,8 @@ class WakeWordForegroundService : Service() {
                 startForeground(NOTIFICATION_ID, notification)
             }
             AppLogger.i(TAG, "Foreground service started successfully with microphone type.")
-        } catch (e: Exception) {
-            AppLogger.e(TAG, "Failed starting foreground service: ${e.message}", e)
+        } catch (t: Throwable) {
+            AppLogger.e(TAG, "Failed starting foreground service: ${t.message}", t)
         }
     }
 
@@ -131,16 +153,24 @@ class WakeWordForegroundService : Service() {
         try {
             val manager = getSystemService(NotificationManager::class.java)
             manager.notify(NOTIFICATION_ID, buildNotification(statusText))
-        } catch (e: Exception) {
-            AppLogger.w(TAG, "Failed updating wake-word notification: ${e.message}")
+        } catch (t: Throwable) {
+            AppLogger.w(TAG, "Failed updating wake-word notification: ${t.message}")
         }
     }
 
     override fun onDestroy() {
         super.onDestroy()
         AppLogger.i(TAG, "WakeWordForegroundService onDestroy: releasing wake-word spotter.")
-        serviceScope.cancel()
-        wakeWordSpotter?.release()
+        try {
+            serviceScope.cancel()
+        } catch (t: Throwable) {
+            AppLogger.w(TAG, "Error cancelling serviceScope in onDestroy: ${t.message}")
+        }
+        try {
+            wakeWordSpotter?.release()
+        } catch (t: Throwable) {
+            AppLogger.w(TAG, "Error releasing wakeWordSpotter in onDestroy: ${t.message}")
+        }
         wakeWordSpotter = null
     }
 
@@ -157,8 +187,8 @@ class WakeWordForegroundService : Service() {
                     context.startService(intent)
                 }
                 AppLogger.d("WakeWordForegroundService", "Dispatched startService intent.")
-            } catch (e: Exception) {
-                AppLogger.e("WakeWordForegroundService", "startService failed: ${e.message}", e)
+            } catch (t: Throwable) {
+                AppLogger.e("WakeWordForegroundService", "startService failed: ${t.message}", t)
             }
         }
 
@@ -167,8 +197,8 @@ class WakeWordForegroundService : Service() {
                 val intent = Intent(context, WakeWordForegroundService::class.java)
                 context.stopService(intent)
                 AppLogger.d("WakeWordForegroundService", "Dispatched stopService intent.")
-            } catch (e: Exception) {
-                AppLogger.e("WakeWordForegroundService", "stopService failed: ${e.message}", e)
+            } catch (t: Throwable) {
+                AppLogger.e("WakeWordForegroundService", "stopService failed: ${t.message}", t)
             }
         }
     }
