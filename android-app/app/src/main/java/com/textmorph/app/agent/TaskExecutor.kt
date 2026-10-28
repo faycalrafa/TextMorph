@@ -103,6 +103,7 @@ class TaskExecutor(
         val taskSystemPrompt = AgentPrompts.getTaskSystemPrompt(commandSyntax)
 
         try {
+            AgentToastNotifier.showStatusToast(appLauncher.context, "🤖 Starting: ${goal.take(30)}…")
             // 1. Skill Memory Check
             TaskExecutionCoordinator.beginStep(0, "memory", "Checking memory...", "Searching for saved skill")
             onStepsUpdated?.invoke(TaskExecutionCoordinator.state.value.stepsHistory)
@@ -259,6 +260,7 @@ class TaskExecutor(
                 TaskExecutionCoordinator.beginStep(step + 1, action.action, title, reasoning)
                 onStepsUpdated?.invoke(TaskExecutionCoordinator.state.value.stepsHistory)
                 onProgress(step + 1, "Step ${step + 1}: $reasoning")
+                AgentToastNotifier.showStepToast(appLauncher.context, step + 1, maxSteps, title)
 
                 // Anti-repetition check
                 sameActionCount = if (action.action == lastAction) sameActionCount + 1 else 1
@@ -305,6 +307,7 @@ class TaskExecutor(
 
                     val recovery = recoveryEngine.diagnose(action.action, screenContent)
                     onProgress(step + 1, "Recovering: ${recovery.description}")
+                    AgentToastNotifier.showStatusToast(appLauncher.context, "⚠️ Recovering: ${recovery.description.take(28)}")
                     TaskExecutionCoordinator.beginStep(step + 1, "recovery", "Recovering: ${recovery.description}", recovery.description)
                     onStepsUpdated?.invoke(TaskExecutionCoordinator.state.value.stepsHistory)
                     executeRecovery(recovery)

@@ -58,7 +58,8 @@ import kotlinx.coroutines.launch
 @Composable
 fun AiAutomationGeneratorDialog(
     onDismiss: () -> Unit,
-    onSave: (AutomationEntity) -> Unit
+    onSave: (AutomationEntity) -> Unit,
+    onOpenInEditor: ((AutomationEntity) -> Unit)? = null
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -164,8 +165,13 @@ fun AiAutomationGeneratorDialog(
                             isGenerating = true
                             scope.launch {
                                 val result = AiAutomationScriptGenerator.generateAutomation(context, promptInput)
-                                generatedDraft = result
                                 isGenerating = false
+                                if (onOpenInEditor != null) {
+                                    onOpenInEditor(result)
+                                    onDismiss()
+                                } else {
+                                    generatedDraft = result
+                                }
                             }
                         }
                     },
@@ -278,6 +284,18 @@ fun AiAutomationGeneratorDialog(
                     ) {
                         Button(
                             onClick = {
+                                onOpenInEditor?.invoke(draft) ?: onSave(draft)
+                                onDismiss()
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.height(42.dp)
+                        ) {
+                            Text("Review in Form ➡️", fontWeight = FontWeight.Bold, color = Color.White)
+                        }
+
+                        Button(
+                            onClick = {
                                 onSave(draft)
                                 onDismiss()
                             },
@@ -285,7 +303,7 @@ fun AiAutomationGeneratorDialog(
                             shape = RoundedCornerShape(10.dp),
                             modifier = Modifier.height(42.dp)
                         ) {
-                            Text("Save This Automation", fontWeight = FontWeight.Bold, color = Color.White)
+                            Text("Quick Save ✓", fontWeight = FontWeight.Bold, color = Color.White)
                         }
 
                         OutlinedButton(

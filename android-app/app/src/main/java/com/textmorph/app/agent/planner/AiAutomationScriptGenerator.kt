@@ -26,6 +26,7 @@ object AiAutomationScriptGenerator {
         You are the TextMorph Automation Generator. Your role is to convert a user's natural language automation request into a structured JSON automation entity.
 
         Available Tools:
+        - wait(ms)
         - open_app("AppName")
         - open_url("https://...")
         - call("ContactName", "PhoneNumber")
@@ -62,8 +63,24 @@ object AiAutomationScriptGenerator {
 
         // 1. Try LLM Generation
         try {
-            val engine = LiteRtLmEngineManager.getInstance(context)
-            if (engine.sessionState.value.isLoaded) {
+            val settings = runCatching {
+                com.textmorph.app.data.repository.SettingsRepository.getInstance(context).settingsState.value
+            }.getOrNull()
+            val engine: com.textmorph.app.llm.LlmEngine = when (settings?.selectedEngine) {
+                com.textmorph.app.data.model.EngineType.CLOUD_OPENAI -> {
+                    val cloud = com.textmorph.app.llm.OpenAiCloudEngine()
+                    cloud.updateConfig(settings.cloudBaseUrl, settings.cloudApiKey, settings.cloudModelId)
+                    cloud
+                }
+                com.textmorph.app.data.model.EngineType.ON_DEVICE_LLAMA_CPP -> {
+                    com.textmorph.app.llm.LlamaCppEngineManager.getInstance(context)
+                }
+                else -> {
+                    LiteRtLmEngineManager.getInstance(context)
+                }
+            }
+
+            if (engine.isLoaded()) {
                 val sb = StringBuilder()
                 engine.generateStream(
                     prompt = "Convert this request into an automation JSON:\n$trimmed",
@@ -82,8 +99,8 @@ object AiAutomationScriptGenerator {
                     return@withContext parsed
                 }
             }
-        } catch (e: Exception) {
-            AppLogger.w(TAG, "LLM script generation threw: ${e.message}, invoking heuristic fallback.")
+        } catch (e: Throwable) {
+            AppLogger.w(TAG, "LLM script generation threw: ${e.message}, invoking heuristic fallback.", e)
         }
 
         // 2. Deterministic Rule-Based Fallback

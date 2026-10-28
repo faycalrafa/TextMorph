@@ -93,6 +93,9 @@ object AiChatInferenceExecutor {
             try {
                 val sb = StringBuilder()
                 var lastMetrics: com.textmorph.app.llm.InferenceMetrics? = null
+                val streamStartTime = System.currentTimeMillis()
+                var firstTokenTime: Long? = null
+                var streamTokens = 0
 
                 val flow = when (engine) {
                     is LiteRtLmEngine -> engine.generateStreamWithMetrics(
@@ -105,12 +108,27 @@ object AiChatInferenceExecutor {
                         imageBytes = imageBytes,
                         onMetricsUpdated = { lastMetrics = it }
                     )
+                    is com.textmorph.app.llm.OpenAiCloudEngine -> engine.generateStreamWithMetrics(
+                        prompt = assembledPrompt,
+                        imageBytes = imageBytes,
+                        onMetricsUpdated = { lastMetrics = it }
+                    )
                     else -> engine.generateStream(prompt = assembledPrompt, imageBytes = imageBytes)
                 }
 
                 flow.collect { chunk ->
                     chatRepository.setGenerationStatus(null)
+                    val now = System.currentTimeMillis()
+                    if (firstTokenTime == null && chunk.isNotBlank()) {
+                        firstTokenTime = now
+                    }
+                    val words = chunk.split(Regex("\\s+")).filter { it.isNotEmpty() }.size
+                    streamTokens += words.coerceAtLeast(1)
                     sb.append(chunk)
+
+                    val elapsedSec = ((now - (firstTokenTime ?: streamStartTime)) / 1000.0).coerceAtLeast(0.001)
+                    val fallbackTps = (streamTokens / elapsedSec).toFloat()
+
                     val currentText = sb.toString()
                     val (thought, answer) = extractThought(currentText)
                     val effectiveContent = if (thought != null) answer else currentText
@@ -120,9 +138,9 @@ object AiChatInferenceExecutor {
                         thoughtContent = thought,
                         rawNakedOutput = currentText,
                         systemPrompt = systemPrompt,
-                        tokensPerSecond = lastMetrics?.tokensPerSecond,
-                        totalTokens = lastMetrics?.tokenCount,
-                        durationMs = lastMetrics?.totalDurationMs
+                        tokensPerSecond = lastMetrics?.tokensPerSecond ?: fallbackTps,
+                        totalTokens = lastMetrics?.tokenCount ?: streamTokens,
+                        durationMs = lastMetrics?.totalDurationMs ?: (now - streamStartTime)
                     )
                 }
 
@@ -130,17 +148,26 @@ object AiChatInferenceExecutor {
                 val (thought, answer) = extractThought(finalOutput)
                 val effectiveFinalContent = if (thought != null) answer else finalOutput
 
+                val endNow = System.currentTimeMillis()
+                val totalDuration = (endNow - streamStartTime).coerceAtLeast(1L)
+                val finalFallbackTps = if (streamTokens > 0 && totalDuration > 0) {
+                    (streamTokens / (totalDuration / 1000f)).coerceAtLeast(0.1f)
+                } else 0f
+                val finalTps = (lastMetrics?.tokensPerSecond?.takeIf { it > 0f } ?: finalFallbackTps)
+                val finalTokens = lastMetrics?.tokenCount ?: streamTokens
+                val finalDuration = lastMetrics?.totalDurationMs ?: totalDuration
+
                 chatRepository.updateLastAssistantMessage(
                     sessionId = sessionId,
                     content = effectiveFinalContent,
                     thoughtContent = thought,
                     rawNakedOutput = finalOutput,
                     systemPrompt = systemPrompt,
-                    tokensPerSecond = lastMetrics?.tokensPerSecond,
-                    totalTokens = lastMetrics?.tokenCount,
-                    durationMs = lastMetrics?.totalDurationMs
+                    tokensPerSecond = finalTps,
+                    totalTokens = finalTokens,
+                    durationMs = finalDuration
                 )
-                AppLogger.d(TAG, "Completed chat turn for session=$sessionId: length=${finalOutput.length}, speed=${lastMetrics?.tokensPerSecond} tok/s")
+                AppLogger.d(TAG, "Completed chat turn for session=$sessionId: length=${finalOutput.length}, speed=$finalTps tok/s")
 
                 if (context != null) {
                     try {
@@ -152,9 +179,9 @@ object AiChatInferenceExecutor {
                             rawOutput = finalOutput,
                             cleanOutput = effectiveFinalContent,
                             thoughtContent = thought,
-                            tokensPerSecond = lastMetrics?.tokensPerSecond,
-                            totalTokens = lastMetrics?.tokenCount,
-                            durationMs = lastMetrics?.totalDurationMs
+                            tokensPerSecond = finalTps,
+                            totalTokens = finalTokens,
+                            durationMs = finalDuration
                         )
                     } catch (logEx: Exception) {
                         AppLogger.w(TAG, "Failed logging chat turn interaction: ${logEx.message}")

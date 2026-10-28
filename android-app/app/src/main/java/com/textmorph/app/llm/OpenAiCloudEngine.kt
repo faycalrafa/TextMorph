@@ -4,6 +4,7 @@ import android.util.Base64
 import com.textmorph.app.util.AppLogger
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.withContext
@@ -159,6 +160,12 @@ class OpenAiCloudEngine(
                     put("role", "user")
                     if (imageBytes != null) {
                         val base64Img = Base64.encodeToString(imageBytes, Base64.NO_WRAP)
+                        val mimeType = if (imageBytes.size > 8 &&
+                            imageBytes[0] == 0x89.toByte() &&
+                            imageBytes[1] == 0x50.toByte() &&
+                            imageBytes[2] == 0x4E.toByte() &&
+                            imageBytes[3] == 0x47.toByte()
+                        ) "image/png" else "image/jpeg"
                         put("content", buildJsonArray {
                             add(buildJsonObject {
                                 put("type", "text")
@@ -167,7 +174,7 @@ class OpenAiCloudEngine(
                             add(buildJsonObject {
                                 put("type", "image_url")
                                 put("image_url", buildJsonObject {
-                                    put("url", "data:image/jpeg;base64,$base64Img")
+                                    put("url", "data:$mimeType;base64,$base64Img")
                                 })
                             })
                         })
@@ -225,6 +232,40 @@ class OpenAiCloudEngine(
             conn.disconnect()
         }
     }.flowOn(Dispatchers.IO)
+
+    fun generateStreamWithMetrics(
+        prompt: String,
+        systemInstruction: String? = null,
+        imageBytes: ByteArray? = null,
+        onMetricsUpdated: ((InferenceMetrics) -> Unit)? = null
+    ): Flow<String> = channelFlow {
+        val startTime = System.currentTimeMillis()
+        var firstTokenTime: Long? = null
+        var tokenCount = 0
+
+        generateStream(prompt, systemInstruction, imageBytes).collect { chunk ->
+            if (firstTokenTime == null && chunk.isNotBlank()) {
+                firstTokenTime = System.currentTimeMillis()
+            }
+            val words = chunk.split(Regex("\\s+")).filter { it.isNotEmpty() }.size
+            tokenCount += words.coerceAtLeast(1)
+            val now = System.currentTimeMillis()
+            val totalSec = ((now - (firstTokenTime ?: startTime)) / 1000.0).coerceAtLeast(0.001)
+            val ttftMs = (firstTokenTime ?: now) - startTime
+            val speed = (tokenCount / totalSec).toFloat()
+
+            val metrics = InferenceMetrics(
+                tokensPerSecond = speed,
+                timeToFirstTokenMs = ttftMs,
+                tokenCount = tokenCount,
+                totalDurationMs = now - startTime,
+                activeBackend = "Cloud API ($modelId)",
+                modelName = modelId
+            )
+            onMetricsUpdated?.invoke(metrics)
+            send(chunk)
+        }
+    }
 
     override suspend fun generate(
         prompt: String,

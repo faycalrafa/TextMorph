@@ -310,6 +310,15 @@ object CodeActionParser {
                 )
             }
 
+            "wait", "sleep", "delay" -> {
+                val ms = getArg(0, "ms", "duration", "duration_ms", "time", default = "1000")
+                AgentAction(
+                    action = AgentAction.ACTION_WAIT,
+                    params = toJsonParams(mapOf("ms" to ms)),
+                    response = "Waiting ${ms}ms"
+                )
+            }
+
             else -> null
         }
     }

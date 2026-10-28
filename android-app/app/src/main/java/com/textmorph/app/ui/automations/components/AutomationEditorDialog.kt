@@ -39,6 +39,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material3.Icon
 import com.textmorph.app.data.model.AutomationActionType
 import com.textmorph.app.data.model.AutomationEntity
 
@@ -58,6 +62,7 @@ fun AutomationEditorDialog(
     var promptInstruction by remember { mutableStateOf(initialAutomation?.promptInstruction ?: "") }
     var toastMessage by remember { mutableStateOf(initialAutomation?.toastMessage ?: "") }
     var copyToClipboard by remember { mutableStateOf(initialAutomation?.copyToClipboard ?: false) }
+    var showToolPicker by remember { mutableStateOf(false) }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -183,11 +188,35 @@ fun AutomationEditorDialog(
                         )
                     }
                     AutomationActionType.DEVICE_CONTROL, AutomationActionType.CODE_SCRIPT -> {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Code-as-Action Script",
+                                color = Color(0xFFE5E7EB),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            OutlinedButton(
+                                onClick = { showToolPicker = true },
+                                shape = RoundedCornerShape(8.dp),
+                                border = BorderStroke(1.dp, Color(0xFF3B82F6)),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF60A5FA)),
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                modifier = Modifier.height(30.dp)
+                            ) {
+                                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(13.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Insert Tool", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
                         OutlinedTextField(
                             value = scriptCode,
                             onValueChange = { scriptCode = it },
-                            label = { Text("Code-as-Action Script") },
-                            placeholder = { Text("set_volume(50)\nopen_app(\"Spotify\")") },
+                            placeholder = { Text("wait(1000)\nset_volume(50)\nopen_app(\"Spotify\")") },
                             minLines = 3,
                             colors = editorFieldColors(),
                             modifier = Modifier.fillMaxWidth()
@@ -305,6 +334,15 @@ fun AutomationEditorDialog(
                 }
             }
         }
+    }
+
+    if (showToolPicker) {
+        ScriptToolPickerModal(
+            onDismiss = { showToolPicker = false },
+            onSelectTool = { toolSnippet ->
+                scriptCode = if (scriptCode.isBlank()) toolSnippet else "$scriptCode\n$toolSnippet"
+            }
+        )
     }
 }
 

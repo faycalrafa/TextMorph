@@ -69,6 +69,7 @@ data class AgentAction(
         const val ACTION_OPEN_NOTIFICATIONS = "open_notifications"
         const val ACTION_EXECUTE_TASK = "execute_task"
         const val ACTION_DONE = "done"
+        const val ACTION_WAIT = "wait"
         const val ACTION_GENERAL_QUERY = "general_query"
     }
 }

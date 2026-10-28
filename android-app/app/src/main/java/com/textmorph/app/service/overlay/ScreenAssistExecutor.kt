@@ -33,7 +33,16 @@ object ScreenAssistExecutor {
         val effectiveInstruction = customInstruction?.takeIf { it.isNotBlank() }
             ?: "You are an on-device screen assistant. Analyze the user's active screen and provide a direct, helpful, actionable solution or summary. Strict rule: Output ONLY the clean assistance text with zero conversational filler, zero quotes, and zero reasoning traces."
 
-        // 1. Gather Screen Context
+        // 1. Immediate visual feedback toast
+        withContext(Dispatchers.Main) {
+            try {
+                Toast.makeText(appContext, "🔍 Analyzing screen with AI…", Toast.LENGTH_SHORT).show()
+            } catch (e: Exception) {
+                AppLogger.d(TAG, "Start toast display failed: ${e.message}")
+            }
+        }
+
+        // 2. Gather Screen Context
         val visibleText = service?.extractScreenVisibleText()?.takeIf { it.isNotBlank() }
         val imageBytes = service?.captureScreenBitmapBytes()
 
@@ -44,7 +53,37 @@ object ScreenAssistExecutor {
         }
 
         try {
-            val engine = LiteRtLmEngineManager.getInstance(appContext)
+            val settings = runCatching {
+                com.textmorph.app.data.repository.SettingsRepository.getInstance(appContext).settingsState.value
+            }.getOrNull()
+
+            val engine: com.textmorph.app.llm.LlmEngine = when (settings?.selectedEngine) {
+                com.textmorph.app.data.model.EngineType.CLOUD_OPENAI -> {
+                    val cloud = com.textmorph.app.llm.OpenAiCloudEngine()
+                    cloud.updateConfig(settings.cloudBaseUrl, settings.cloudApiKey, settings.cloudModelId)
+                    cloud
+                }
+                com.textmorph.app.data.model.EngineType.ON_DEVICE_LLAMA_CPP -> {
+                    com.textmorph.app.llm.LlamaCppEngineManager.getInstance(appContext)
+                }
+                else -> {
+                    LiteRtLmEngineManager.getInstance(appContext)
+                }
+            }
+
+            if (!engine.isLoaded()) {
+                val missingMsg = when (settings?.selectedEngine) {
+                    com.textmorph.app.data.model.EngineType.CLOUD_OPENAI -> "Cloud API is not configured. Please check your API URL and Key in Settings."
+                    com.textmorph.app.data.model.EngineType.ON_DEVICE_LLAMA_CPP -> "No GGUF model loaded. Please load a model in Model Hub first."
+                    else -> "No .litertlm model loaded. Please load a model in Model Hub first."
+                }
+                AppLogger.w(TAG, missingMsg)
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(appContext, "⚠️ $missingMsg", Toast.LENGTH_LONG).show()
+                }
+                return@withContext Pair(false, missingMsg)
+            }
+
             val sb = StringBuilder()
 
             val stream = if (imageBytes != null && engine.isVisionCapable) {

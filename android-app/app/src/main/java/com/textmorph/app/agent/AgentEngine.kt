@@ -219,6 +219,13 @@ class AgentEngine(
                     AgentActionResult(action.action, isSuccess, summary)
                 }
 
+                AgentAction.ACTION_WAIT -> {
+                    val ms = action.getIntParamWithAliases("ms", "duration", "duration_ms", "time", default = 1000).toLong()
+                    val clampedMs = ms.coerceIn(50L, 60000L)
+                    kotlinx.coroutines.delay(clampedMs)
+                    AgentActionResult(action.action, true, "Waited ${clampedMs}ms")
+                }
+
                 else -> {
                     AgentActionResult(action.action, true, action.response.ifEmpty { "Completed" })
                 }

@@ -89,7 +89,10 @@ class FloatingToolbarVoiceCoordinator(
                                 context = service,
                                 agentEngine = agentEngineProvider(),
                                 goal = goal,
-                                onProgress = { status -> AppLogger.d(TAG, "Voice mission progress: $status") }
+                                onProgress = { status ->
+                                    AppLogger.d(TAG, "Voice mission progress: $status")
+                                    com.textmorph.app.agent.ui.AgentToastNotifier.showStatusToast(service, status)
+                                }
                             )
                             AppLogger.i(TAG, "Quick agent goal result: $result")
                         }
