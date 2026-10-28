@@ -59,9 +59,12 @@ import com.textmorph.app.data.repository.AutomationRepository
 import com.textmorph.app.service.overlay.TextMorphAccessibilityService
 import com.textmorph.app.service.overlay.VoiceDispatchResult
 import com.textmorph.app.service.overlay.VoiceTriggerDispatcher
+import com.textmorph.app.data.repository.SettingsRepository
+import com.textmorph.app.data.repository.WakeWordRepository
 import com.textmorph.app.ui.automations.components.AiAutomationGeneratorDialog
 import com.textmorph.app.ui.automations.components.AutomationEditorDialog
 import com.textmorph.app.ui.automations.components.AutomationItemCard
+import com.textmorph.app.ui.automations.components.WakeWordOverviewCard
 import com.textmorph.app.util.PermissionUtils
 import kotlinx.coroutines.launch
 
@@ -75,12 +78,17 @@ import kotlinx.coroutines.launch
 fun AutomationsScreen(
     onOpenDrawer: () -> Unit,
     onNavigateToPermissions: () -> Unit,
+    onNavigateToWakeWords: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val autoRepo = remember { AutomationRepository.getInstance(context) }
     val automations by autoRepo.automationsState.collectAsState()
+    val settingsRepo = remember { SettingsRepository.getInstance(context) }
+    val settings by settingsRepo.settingsState.collectAsState()
+    val wakeRepo = remember { WakeWordRepository.getInstance(context) }
+    val wakeWords by wakeRepo.wakeWordsState.collectAsState()
 
     val agentEngine = remember { AgentEngine(context) }
     val voiceDispatcher = remember {
@@ -169,6 +177,20 @@ fun AutomationsScreen(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
+            // Offline Wake-Word Overview Card
+            item {
+                WakeWordOverviewCard(
+                    isEnabled = settings.wakeWordDetectionEnabled,
+                    activeTriggers = wakeWords.filter { it.isEnabled },
+                    onToggleMaster = { isChecked ->
+                        scope.launch {
+                            settingsRepo.updateSettings { it.copy(wakeWordDetectionEnabled = isChecked) }
+                        }
+                    },
+                    onNavigateToStudio = onNavigateToWakeWords
+                )
+            }
+
             // Quick Action Buttons (AI Generator & Create)
             item {
                 FlowRow(

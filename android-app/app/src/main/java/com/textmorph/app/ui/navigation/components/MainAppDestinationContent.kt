@@ -25,6 +25,7 @@ import com.textmorph.app.ui.navigation.AppDestination
 import com.textmorph.app.ui.settings.SettingsContent
 import com.textmorph.app.ui.setup.SetupPermissionsScreen
 import com.textmorph.app.ui.tools.AgentToolsScreen
+import com.textmorph.app.ui.wakeword.WakeWordSettingsScreen
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
@@ -89,7 +90,15 @@ fun MainAppDestinationContent(
         AppDestination.AUTOMATIONS -> {
             AutomationsScreen(
                 onOpenDrawer = onOpenDrawer,
-                onNavigateToPermissions = { onSelectDestination(AppDestination.PERMISSIONS_GUIDE) }
+                onNavigateToPermissions = { onSelectDestination(AppDestination.PERMISSIONS_GUIDE) },
+                onNavigateToWakeWords = { onSelectDestination(AppDestination.WAKE_WORDS) }
+            )
+        }
+
+        AppDestination.WAKE_WORDS -> {
+            WakeWordSettingsScreen(
+                onNavigateBack = { onSelectDestination(AppDestination.AUTOMATIONS) },
+                onOpenDrawer = onOpenDrawer
             )
         }
 

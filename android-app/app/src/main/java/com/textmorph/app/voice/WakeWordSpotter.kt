@@ -124,7 +124,24 @@ class WakeWordSpotter(private val context: Context) {
         }
 
         spotter = newSpotter
-        val newStream = newSpotter.createStream()
+
+        val activeKeywords = try {
+            com.textmorph.app.data.repository.WakeWordRepository.getInstance(context).buildActiveKeywordsString()
+        } catch (t: Throwable) {
+            AppLogger.w(TAG, "Error reading active keywords from repository: ${t.message}")
+            ""
+        }
+
+        val newStream = if (activeKeywords.isNotBlank()) {
+            try {
+                newSpotter.createStream(activeKeywords)
+            } catch (t: Throwable) {
+                AppLogger.w(TAG, "Custom keywords stream creation failed, falling back to default: ${t.message}")
+                newSpotter.createStream()
+            }
+        } else {
+            newSpotter.createStream()
+        }
 
         val streamPtrField = try {
             OnlineStream::class.java.getDeclaredField("ptr").apply { isAccessible = true }
@@ -138,8 +155,35 @@ class WakeWordSpotter(private val context: Context) {
         }
 
         stream = newStream
-        AppLogger.i(TAG, "Sherpa-ONNX KeywordSpotter and OnlineStream initialized successfully.")
+        AppLogger.i(TAG, "Sherpa-ONNX KeywordSpotter and OnlineStream initialized successfully with active keywords.")
     }
+
+    @Synchronized
+    fun updateActiveKeywords(keywordsString: String) {
+        val currentSpotter = spotter ?: return
+        try {
+            val wasPaused = isPaused
+            isPaused = true
+            val newStream = if (keywordsString.isNotBlank()) {
+                currentSpotter.createStream(keywordsString)
+            } else {
+                currentSpotter.createStream()
+            }
+            val oldStream = stream
+            stream = newStream
+            try {
+                oldStream?.release()
+            } catch (t: Throwable) {
+                AppLogger.w(TAG, "Error releasing old stream: ${t.message}")
+            }
+            isPaused = wasPaused
+            AppLogger.i(TAG, "Updated live stream with active keywords.")
+        } catch (t: Throwable) {
+            AppLogger.e(TAG, "Failed updating active keywords on live stream: ${t.message}", t)
+        }
+    }
+
+    fun getKeywordSpotter(): KeywordSpotter? = spotter
 
     @SuppressLint("MissingPermission")
     private fun initAudioRecord() {

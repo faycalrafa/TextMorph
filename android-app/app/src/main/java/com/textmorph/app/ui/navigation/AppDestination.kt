@@ -4,6 +4,7 @@ enum class AppDestination(val title: String) {
     PROMPTS("Custom Prompts"),
     CUSTOM_COMMANDS("Custom Commands"),
     AUTOMATIONS("Voice & Automations"),
+    WAKE_WORDS("Wake-Word Detection"),
     PERMISSIONS_GUIDE("Setup & Permissions"),
     MODEL_HUB("Model Hub"),
     TOOLS("Agent Tools"),

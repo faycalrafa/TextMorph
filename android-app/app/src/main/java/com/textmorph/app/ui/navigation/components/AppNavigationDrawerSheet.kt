@@ -21,6 +21,7 @@ import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.ChatBubbleOutline
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Hearing
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Mic
@@ -163,6 +164,14 @@ fun AppNavigationDrawerSheet(
                     subtitle = "Hotkeys, triggers & AI scripts",
                     isSelected = currentDestination == AppDestination.AUTOMATIONS,
                     onClick = { onSelectDestination(AppDestination.AUTOMATIONS) }
+                )
+
+                DrawerNavItem(
+                    icon = Icons.Default.Hearing,
+                    title = "Wake-Word Studio",
+                    subtitle = "Offline calibration & acoustic test",
+                    isSelected = currentDestination == AppDestination.WAKE_WORDS,
+                    onClick = { onSelectDestination(AppDestination.WAKE_WORDS) }
                 )
 
                 DrawerNavItem(

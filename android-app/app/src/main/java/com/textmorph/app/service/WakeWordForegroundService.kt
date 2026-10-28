@@ -43,6 +43,7 @@ class WakeWordForegroundService : Service() {
         AppLogger.i(TAG, "WakeWordForegroundService onCreate")
 
         try {
+            instance = this
             if (!PermissionUtils.hasRecordAudioPermission(this)) {
                 AppLogger.w(TAG, "RECORD_AUDIO permission missing; cannot start WakeWordForegroundService.")
                 stopSelf()
@@ -50,7 +51,7 @@ class WakeWordForegroundService : Service() {
             }
 
             createNotificationChannel()
-            safeStartForeground("Listening for 'Computer' & 'Hey Tamim'")
+            safeStartForeground("Initializing wake-word detection...")
 
             val spotter = WakeWordSpotter(this)
             wakeWordSpotter = spotter
@@ -62,11 +63,37 @@ class WakeWordForegroundService : Service() {
                 return
             }
 
+            val wakeRepo = com.textmorph.app.data.repository.WakeWordRepository.getInstance(this)
+            wakeRepo.wakeWordsState.onEach { words ->
+                val activeWords = words.filter { it.isEnabled }
+                val activeNames = if (activeWords.isNotEmpty()) {
+                    activeWords.joinToString(" & ") { "'${it.displayName}'" }
+                } else {
+                    "none"
+                }
+                val keywordsStr = wakeRepo.buildActiveKeywordsString()
+                spotter.updateActiveKeywords(keywordsStr)
+                if (!VoiceCommandManager.isDictating.value) {
+                    val status = if (activeWords.isNotEmpty()) {
+                        "Listening for $activeNames"
+                    } else {
+                        "Wake-word detector idle"
+                    }
+                    updateNotification(status)
+                }
+            }.launchIn(serviceScope)
+
             VoiceCommandManager.isDictating.onEach { isDictating ->
+                val activeWords = wakeRepo.wakeWordsState.value.filter { it.isEnabled }
+                val activeNames = if (activeWords.isNotEmpty()) {
+                    activeWords.joinToString(" & ") { "'${it.displayName}'" }
+                } else {
+                    "none"
+                }
                 val status = if (isDictating) {
                     "Processing voice command..."
                 } else {
-                    "Listening for 'Computer' & 'Hey Tamim'"
+                    if (activeWords.isNotEmpty()) "Listening for $activeNames" else "Wake-word detector idle"
                 }
                 updateNotification(status)
             }.launchIn(serviceScope)
@@ -161,6 +188,9 @@ class WakeWordForegroundService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         AppLogger.i(TAG, "WakeWordForegroundService onDestroy: releasing wake-word spotter.")
+        if (instance == this) {
+            instance = null
+        }
         try {
             serviceScope.cancel()
         } catch (t: Throwable) {
@@ -177,6 +207,19 @@ class WakeWordForegroundService : Service() {
     companion object {
         const val CHANNEL_ID = "textmorph_wakeword_channel"
         const val NOTIFICATION_ID = 2002
+
+        @Volatile
+        private var instance: WakeWordForegroundService? = null
+
+        fun getInstance(): WakeWordForegroundService? = instance
+
+        fun pauseListening() {
+            instance?.wakeWordSpotter?.pauseListening()
+        }
+
+        fun resumeListening() {
+            instance?.wakeWordSpotter?.resumeListening()
+        }
 
         fun startService(context: Context) {
             try {
