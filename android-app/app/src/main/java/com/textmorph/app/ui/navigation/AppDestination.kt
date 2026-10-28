@@ -3,6 +3,8 @@ package com.textmorph.app.ui.navigation
 enum class AppDestination(val title: String) {
     PROMPTS("Custom Prompts"),
     CUSTOM_COMMANDS("Custom Commands"),
+    AUTOMATIONS("Voice & Automations"),
+    PERMISSIONS_GUIDE("Setup & Permissions"),
     MODEL_HUB("Model Hub"),
     TOOLS("Agent Tools"),
     CHAT("AI Playground"),

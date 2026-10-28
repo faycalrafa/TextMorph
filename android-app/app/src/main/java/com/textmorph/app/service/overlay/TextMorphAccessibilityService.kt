@@ -84,6 +84,7 @@ class TextMorphAccessibilityService : AccessibilityService() {
                         if (!text.isNullOrBlank() && text != lastCopiedClipText) {
                             lastCopiedClipText = text
                             lastCopiedTimestamp = System.currentTimeMillis()
+                            com.textmorph.app.util.ClipboardHelper.recordExternalCopy(text)
                             AppLogger.d(TAG, "New clipboard copy captured: length=${text.length}")
                         }
                     }
@@ -256,28 +257,8 @@ class TextMorphAccessibilityService : AccessibilityService() {
     }
 
     fun getRecentClipboardText(maxAgeMs: Long = 90_000L): String? {
-        return try {
-            val cm = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return null
-            val clipDesc = cm.primaryClipDescription
-            val clipTimestamp = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                clipDesc?.timestamp ?: 0L
-            } else 0L
-            val effectiveTimestamp = maxOf(lastCopiedTimestamp, clipTimestamp)
-            val now = System.currentTimeMillis()
-            val age = now - effectiveTimestamp
-            if (effectiveTimestamp > 0L && age in 0L..maxAgeMs) {
-                val clip = cm.primaryClip
-                if (clip != null && clip.itemCount > 0) {
-                    val text = clip.getItemAt(0)?.text?.toString()
-                    if (!text.isNullOrBlank() && text != lastConsumedClipText) {
-                        text
-                    } else null
-                } else null
-            } else null
-        } catch (e: Exception) {
-            AppLogger.d(TAG, "Error checking recent clipboard: ${e.message}")
-            null
-        }
+        val text = com.textmorph.app.util.ClipboardHelper.getRecentClipboardText(this, maxAgeMs)
+        return if (!text.isNullOrBlank() && text != lastConsumedClipText) text else null
     }
 
     fun pasteClipboardText(): Boolean {
@@ -321,8 +302,7 @@ class TextMorphAccessibilityService : AccessibilityService() {
                 val success = node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, arguments)
                 if (!success) {
                     AppLogger.w(TAG, "ACTION_SET_TEXT failed, selecting all and falling back to clipboard paste...")
-                    val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                    cm.setPrimaryClip(ClipData.newPlainText("TextMorph", newText))
+                    com.textmorph.app.util.ClipboardHelper.copyText(this, newText, "TextMorph", showToast = false)
                     val textLength = node.text?.length ?: 0
                     val selectionArgs = Bundle().apply {
                         putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, 0)

@@ -23,6 +23,8 @@ import androidx.compose.material.icons.filled.ChatBubbleOutline
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Memory
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.Widgets
@@ -153,6 +155,22 @@ fun AppNavigationDrawerSheet(
                     subtitle = "Quick /commands for input fields",
                     isSelected = currentDestination == AppDestination.CUSTOM_COMMANDS,
                     onClick = { onSelectDestination(AppDestination.CUSTOM_COMMANDS) }
+                )
+
+                DrawerNavItem(
+                    icon = Icons.Default.Mic,
+                    title = "Voice & Automations",
+                    subtitle = "Hotkeys, triggers & AI scripts",
+                    isSelected = currentDestination == AppDestination.AUTOMATIONS,
+                    onClick = { onSelectDestination(AppDestination.AUTOMATIONS) }
+                )
+
+                DrawerNavItem(
+                    icon = Icons.Default.Security,
+                    title = "Setup & Permissions",
+                    subtitle = "Privileges & clipboard diagnostics",
+                    isSelected = currentDestination == AppDestination.PERMISSIONS_GUIDE,
+                    onClick = { onSelectDestination(AppDestination.PERMISSIONS_GUIDE) }
                 )
 
                 DrawerNavItem(

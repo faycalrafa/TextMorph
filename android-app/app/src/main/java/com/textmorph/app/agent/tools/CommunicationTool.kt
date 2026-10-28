@@ -32,7 +32,12 @@ class CommunicationTool(
                 return Result.failure(Exception("No phone number provided or contact not found."))
             }
 
-            val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:$targetNumber")).apply {
+            val action = if (com.textmorph.app.util.PermissionUtils.hasCallPhonePermission(context)) {
+                Intent.ACTION_CALL
+            } else {
+                Intent.ACTION_DIAL
+            }
+            val intent = Intent(action, Uri.parse("tel:$targetNumber")).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
             context.startActivity(intent)

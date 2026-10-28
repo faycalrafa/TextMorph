@@ -254,7 +254,10 @@ fun MainAppScaffold(
         } else {
             Scaffold(
                 topBar = {
-                    if (currentDestination != AppDestination.CHAT && currentDestination != AppDestination.TOOLS) {
+                    if (currentDestination != AppDestination.CHAT &&
+                        currentDestination != AppDestination.TOOLS &&
+                        currentDestination != AppDestination.AUTOMATIONS &&
+                        currentDestination != AppDestination.PERMISSIONS_GUIDE) {
                         TopAppBar(
                             title = {
                                 if (isSearchActive) {
@@ -359,95 +362,35 @@ fun MainAppScaffold(
                         .fillMaxSize()
                         .padding(paddingValues)
                 ) {
-                    when (currentDestination) {
-                        AppDestination.PROMPTS -> {
-                            DashboardHomeScreen(
-                                filteredPrompts = filteredPrompts,
-                                selectedCategoryIndex = selectedCategoryIndex,
-                                onCategorySelected = { selectedCategoryIndex = it },
-                                categories = categories,
-                                searchQuery = searchQuery,
-                                onMovePrompt = { id, direction ->
-                                    scope.launch {
-                                        promptRepository.movePrompt(id, direction)
-                                    }
-                                },
-                                onEditPrompt = { prompt ->
-                                    editingPrompt = prompt
-                                    showPromptEditor = true
-                                },
-                                onDeletePrompt = { prompt ->
-                                    scope.launch {
-                                        promptRepository.deletePrompt(prompt.id)
-                                        Toast.makeText(context, "Deleted: ${prompt.title}", Toast.LENGTH_SHORT).show()
-                                    }
-                                },
-                                onOpenAccessibilityDisclosure = { showProminentDisclosure = true }
-                            )
-                        }
-
-                        AppDestination.CUSTOM_COMMANDS -> {
-                            CustomCommandsContent(
-                                slashCommandRepository = slashCommandRepository
-                            )
-                        }
-
-                        AppDestination.MODEL_HUB -> {
-                            ModelHubContent(
-                                modelRepository = modelRepository,
-                                settingsRepository = settingsRepository,
-                                liteRtEngine = liteRtEngine,
-                                llamaCppEngine = llamaCppEngine,
-                                onNavigateToChat = { currentDestination = AppDestination.CHAT }
-                            )
-                        }
-
-                        AppDestination.CHAT -> {
-                            AiChatContent(
-                                liteRtEngine = liteRtEngine,
-                                settingsRepository = settingsRepository,
-                                modelRepository = modelRepository,
-                                llamaCppEngine = llamaCppEngine,
-                                chatRepository = chatRepository,
-                                onNavigateToModelHub = { currentDestination = AppDestination.MODEL_HUB },
-                                onOpenDrawer = { scope.launch { drawerState.open() } },
-                                onOpenAccessibilityDisclosure = { showProminentDisclosure = true }
-                            )
-                        }
-
-                        AppDestination.SETTINGS -> {
-                            SettingsContent(
-                                settingsRepository = settingsRepository,
-                                updateRepository = updateRepository,
-                                onOpenDevLogs = { currentDestination = AppDestination.DEV_LOGS },
-                                onCheckUpdate = ::triggerUpdateCheck,
-                                onOpenAccessibilityDisclosure = { showProminentDisclosure = true }
-                            )
-                        }
-
-                        AppDestination.ABOUT -> {
-                            AboutContent(
-                                installedVersionName = updateRepository.getCurrentVersionName(),
-                                isCheckingUpdate = isCheckingUpdate,
-                                downloadedApk = updateRepository.getDownloadedApkFile(),
-                                onCheckForUpdates = ::triggerUpdateCheck,
-                                onInstallDownloadedApk = { updateRepository.getDownloadedApkFile()?.let { updateRepository.installApk(it) } },
-                                onSaveApkToPath = { if (activeReleaseInfo != null) showUpdateDialog = true else triggerUpdateCheck() },
-                                onReplayOnboarding = { showProminentDisclosure = true },
-                                onNavigateToDevLogs = { currentDestination = AppDestination.DEV_LOGS },
-                                onNavigateToVersionHistory = { currentDestination = AppDestination.VERSION_HISTORY }
-                            )
-                        }
-
-                        AppDestination.TOOLS -> AgentToolsScreen(onOpenDrawer = { scope.launch { drawerState.open() } })
-
-                        AppDestination.VERSION_HISTORY,
-                        AppDestination.DEV_LOGS,
-                        AppDestination.RAW_LLM_DUMP,
-                        AppDestination.BENCHMARK -> {
-                            // Handled in root Scaffold branch
-                        }
-                    }
+                    com.textmorph.app.ui.navigation.components.MainAppDestinationContent(
+                        currentDestination = currentDestination,
+                        context = context,
+                        scope = scope,
+                        filteredPrompts = filteredPrompts,
+                        selectedCategoryIndex = selectedCategoryIndex,
+                        onCategorySelected = { selectedCategoryIndex = it },
+                        categories = categories,
+                        searchQuery = searchQuery,
+                        promptRepository = promptRepository,
+                        slashCommandRepository = slashCommandRepository,
+                        modelRepository = modelRepository,
+                        settingsRepository = settingsRepository,
+                        liteRtEngine = liteRtEngine,
+                        llamaCppEngine = llamaCppEngine,
+                        chatRepository = chatRepository,
+                        updateRepository = updateRepository,
+                        isCheckingUpdate = isCheckingUpdate,
+                        activeReleaseInfo = activeReleaseInfo,
+                        onOpenAccessibilityDisclosure = { showProminentDisclosure = true },
+                        onEditPrompt = { prompt ->
+                            editingPrompt = prompt
+                            showPromptEditor = true
+                        },
+                        onTriggerUpdateCheck = ::triggerUpdateCheck,
+                        onShowUpdateDialog = { showUpdateDialog = true },
+                        onSelectDestination = { dest -> currentDestination = dest },
+                        onOpenDrawer = { scope.launch { drawerState.open() } }
+                    )
                 }
             }
         }

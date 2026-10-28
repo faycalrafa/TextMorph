@@ -193,6 +193,87 @@ object PermissionUtils {
         }
     }
 
+    fun requestRecordAudioPermission(activity: Activity) {
+        try {
+            ActivityCompat.requestPermissions(activity, arrayOf(Manifest.permission.RECORD_AUDIO), 102)
+        } catch (e: Exception) {
+            AppLogger.e("PermissionUtils", "Failed requesting audio permission: ${e.message}", e)
+        }
+    }
+
+    fun requestCameraPermission(activity: Activity) {
+        try {
+            ActivityCompat.requestPermissions(activity, arrayOf(Manifest.permission.CAMERA), 103)
+        } catch (e: Exception) {
+            AppLogger.e("PermissionUtils", "Failed requesting camera permission: ${e.message}", e)
+        }
+    }
+
+    /**
+     * Checks if READ_CONTACTS is granted for voice call & contact resolution.
+     */
+    fun hasContactsPermission(context: Context): Boolean {
+        return try {
+            ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED
+        } catch (e: Exception) {
+            AppLogger.e("PermissionUtils", "Error checking contacts permission: ${e.message}", e)
+            false
+        }
+    }
+
+    fun requestContactsPermission(activity: Activity) {
+        try {
+            ActivityCompat.requestPermissions(activity, arrayOf(Manifest.permission.READ_CONTACTS), 104)
+        } catch (e: Exception) {
+            AppLogger.e("PermissionUtils", "Failed requesting contacts permission: ${e.message}", e)
+        }
+    }
+
+    /**
+     * Checks if CALL_PHONE is granted for instant direct voice calls.
+     */
+    fun hasCallPhonePermission(context: Context): Boolean {
+        return try {
+            ContextCompat.checkSelfPermission(context, Manifest.permission.CALL_PHONE) == PackageManager.PERMISSION_GRANTED
+        } catch (e: Exception) {
+            AppLogger.e("PermissionUtils", "Error checking call phone permission: ${e.message}", e)
+            false
+        }
+    }
+
+    fun requestCallPhonePermission(activity: Activity) {
+        try {
+            ActivityCompat.requestPermissions(activity, arrayOf(Manifest.permission.CALL_PHONE), 105)
+        } catch (e: Exception) {
+            AppLogger.e("PermissionUtils", "Failed requesting call phone permission: ${e.message}", e)
+        }
+    }
+
+    /**
+     * Checks if WRITE_SETTINGS is granted for brightness/volume automation.
+     */
+    fun canWriteSystemSettings(context: Context): Boolean {
+        return try {
+            Settings.System.canWrite(context)
+        } catch (e: Exception) {
+            AppLogger.e("PermissionUtils", "Error checking write settings permission: ${e.message}", e)
+            false
+        }
+    }
+
+    fun openWriteSettings(context: Context) {
+        try {
+            val intent = Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS).apply {
+                data = Uri.parse("package:${context.packageName}")
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(intent)
+            AppLogger.i("PermissionUtils", "Opened manage write settings")
+        } catch (e: Exception) {
+            AppLogger.e("PermissionUtils", "Failed to open manage write settings: ${e.message}", e)
+        }
+    }
+
     fun openAppSettings(context: Context) {
         try {
             val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {

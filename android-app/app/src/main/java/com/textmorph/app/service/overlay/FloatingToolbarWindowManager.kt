@@ -94,6 +94,7 @@ class FloatingToolbarWindowManager(
         )
     }
     private val voiceInputHelper = VoiceInputHelper(service)
+    val voiceTriggerDispatcher by lazy { VoiceTriggerDispatcher(service, { service }, { agentEngine }) }
 
     init {
         windowScope.launch {
@@ -180,13 +181,18 @@ class FloatingToolbarWindowManager(
                 transitionTo(OverlayDisplayState.AUTOMATING_ACTION)
                 windowScope.launch {
                     try {
-                        val result = VoiceAgentMissionCoordinator.executeMission(
-                            context = service,
-                            agentEngine = agentEngine,
-                            goal = goal,
-                            onProgress = { status -> AppLogger.d(TAG, "Voice mission progress: $status") }
-                        )
-                        AppLogger.i(TAG, "Quick agent goal result: $result")
+                        val dispatchRes = voiceTriggerDispatcher.dispatchVoiceInput(goal)
+                        if (dispatchRes is VoiceDispatchResult.Handled) {
+                            AppLogger.i(TAG, "Direct trigger handled: ${dispatchRes.title} (success=${dispatchRes.success})")
+                        } else {
+                            val result = VoiceAgentMissionCoordinator.executeMission(
+                                context = service,
+                                agentEngine = agentEngine,
+                                goal = goal,
+                                onProgress = { status -> AppLogger.d(TAG, "Voice mission progress: $status") }
+                            )
+                            AppLogger.i(TAG, "Quick agent goal result: $result")
+                        }
                     } catch (e: Exception) {
                         AppLogger.e(TAG, "Quick agent goal execution failed: ${e.message}", e)
                     } finally {
