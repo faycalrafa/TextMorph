@@ -45,6 +45,7 @@ fun ToolbarSettingsSection(
     onSetQuickFixEnabled: (Boolean) -> Unit,
     onSetGuessNextWordEnabled: (Boolean) -> Unit = {},
     onSetAutoSendVoiceInput: (Boolean) -> Unit = {},
+    onSetWakeWordDetectionEnabled: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -238,6 +239,29 @@ fun ToolbarSettingsSection(
                 Switch(
                     checked = settings.autoSendVoiceInput,
                     onCheckedChange = onSetAutoSendVoiceInput
+                )
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Offline Wake-Word Detection", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                    Text("Listen for 'Computer' and 'Hey Tamim' via Sherpa-ONNX to automatically launch voice listening", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Switch(
+                    checked = settings.wakeWordDetectionEnabled,
+                    onCheckedChange = { enabled ->
+                        if (enabled && !PermissionUtils.hasRecordAudioPermission(context)) {
+                            PermissionUtils.openAppSettings(context)
+                        } else {
+                            onSetWakeWordDetectionEnabled(enabled)
+                        }
+                    }
                 )
             }
         }

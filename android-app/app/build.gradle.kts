@@ -9,17 +9,17 @@ android {
     compileSdk = 36
     val appVersionName = providers.environmentVariable("APP_VERSION_NAME")
         .orElse(providers.gradleProperty("appVersionName"))
-        .getOrElse("4.0.0")
+        .getOrElse("4.1.0")
 
     defaultConfig {
         applicationId = "com.textmorph.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 59
+        versionCode = 60
         versionName = appVersionName
 
         ndk {
-            abiFilters += listOf("arm64-v8a", "x86_64")
+            abiFilters.addAll(listOf("arm64-v8a"))
         }
     }
 
@@ -137,6 +137,9 @@ dependencies {
 
   // llama.cpp native on-device runtime (ARM64 NEON/dotprod/i8mm & x86_64 JNI)
   implementation(libs.llamacpp.android)
+
+  // Sherpa-ONNX runtime for offline Keyword Spotting (KWS)
+  implementation("com.k2fsa.sherpa.onnx:sherpa-onnx:1.10.40")
 
   // WorkManager for background model downloading
   implementation(libs.androidx.work.runtime.ktx)

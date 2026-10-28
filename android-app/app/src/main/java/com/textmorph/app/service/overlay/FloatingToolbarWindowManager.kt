@@ -25,7 +25,6 @@ import com.textmorph.app.llm.LlamaCppEngineManager
 import com.textmorph.app.llm.OpenAiCloudEngine
 import com.textmorph.app.service.overlay.components.FloatingEdgePill
 import com.textmorph.app.theme.TextMorphTheme
-import com.textmorph.app.ui.chat.components.VoiceInputHelper
 import com.textmorph.app.util.AppLogger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -93,10 +92,23 @@ class FloatingToolbarWindowManager(
             engineProvider = { getActiveEngine() }
         )
     }
-    private val voiceInputHelper = VoiceInputHelper(service)
-    val voiceTriggerDispatcher by lazy { VoiceTriggerDispatcher(service, { service }, { agentEngine }) }
+    val voiceCoordinator by lazy {
+        FloatingToolbarVoiceCoordinator(
+            service = service,
+            windowScope = windowScope,
+            agentEngineProvider = { agentEngine },
+            transitionTo = { state -> transitionTo(state) },
+            getCurrentDisplayState = { displayState },
+            ensureOverlayShowing = {
+                if (!isShowingActive) {
+                    show(autoExpand = false, onTakeScreenshot = { cb -> service.captureScreenContext(cb) }, onExtractTranscript = { service.extractConversationTranscript() })
+                }
+            }
+        )
+    }
 
     init {
+        voiceCoordinator.init()
         windowScope.launch {
             com.textmorph.app.agent.coordinator.TaskExecutionCoordinator.state.collect { taskState ->
                 if (taskState.isRunning) {
@@ -139,7 +151,7 @@ class FloatingToolbarWindowManager(
                 if (displayState == OverlayDisplayState.EXPANDED_TOOLBAR) {
                     collapseHandler?.invoke() ?: transitionTo(OverlayDisplayState.COLLAPSED_BUBBLE)
                 } else if (displayState == OverlayDisplayState.LISTENING_REQUEST) {
-                    voiceInputHelper.stopListening()
+                    voiceCoordinator.stopListening()
                     transitionTo(OverlayDisplayState.COLLAPSED_BUBBLE)
                 }
             } catch (e: Exception) {
@@ -148,62 +160,9 @@ class FloatingToolbarWindowManager(
         }
     }
 
-    fun startQuickAgentListening() {
-        service.mainHandler.post {
-            try {
-                if (displayState == OverlayDisplayState.LISTENING_REQUEST) {
-                    voiceInputHelper.stopListening()
-                    transitionTo(OverlayDisplayState.COLLAPSED_BUBBLE)
-                    return@post
-                }
-                transitionTo(OverlayDisplayState.LISTENING_REQUEST)
-                voiceInputHelper.startListening { spokenText ->
-                    service.mainHandler.post {
-                        if (spokenText.isNotBlank()) {
-                            AppLogger.i(TAG, "Quick agent captured speech input: '$spokenText'")
-                            executeAgentGoal(spokenText)
-                        } else {
-                            transitionTo(OverlayDisplayState.COLLAPSED_BUBBLE)
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                AppLogger.e(TAG, "Error starting voice recognition: ${e.message}", e)
-                transitionTo(OverlayDisplayState.COLLAPSED_BUBBLE)
-            }
-        }
-    }
+    fun startQuickAgentListening() = voiceCoordinator.startQuickAgentListening()
 
-    fun executeAgentGoal(goal: String) {
-        service.mainHandler.post {
-            try {
-                voiceInputHelper.stopListening()
-                transitionTo(OverlayDisplayState.AUTOMATING_ACTION)
-                windowScope.launch {
-                    try {
-                        val dispatchRes = voiceTriggerDispatcher.dispatchVoiceInput(goal)
-                        if (dispatchRes is VoiceDispatchResult.Handled) {
-                            AppLogger.i(TAG, "Direct trigger handled: ${dispatchRes.title} (success=${dispatchRes.success})")
-                        } else {
-                            val result = VoiceAgentMissionCoordinator.executeMission(
-                                context = service,
-                                agentEngine = agentEngine,
-                                goal = goal,
-                                onProgress = { status -> AppLogger.d(TAG, "Voice mission progress: $status") }
-                            )
-                            AppLogger.i(TAG, "Quick agent goal result: $result")
-                        }
-                    } catch (e: Exception) {
-                        AppLogger.e(TAG, "Quick agent goal execution failed: ${e.message}", e)
-                    } finally {
-                        transitionTo(OverlayDisplayState.COLLAPSED_BUBBLE)
-                    }
-                }
-            } catch (e: Exception) {
-                AppLogger.e(TAG, "Failed executing quick agent goal: ${e.message}", e)
-            }
-        }
-    }
+    fun executeAgentGoal(goal: String) = voiceCoordinator.executeAgentGoal(goal)
 
     private fun applyLayoutForState(state: OverlayDisplayState, params: WindowManager.LayoutParams, bounds: OverlayLayoutParamsHelper.ScreenBounds) {
         val anchorX = bubbleAnchorX ?: bounds.maxX
@@ -302,7 +261,7 @@ class FloatingToolbarWindowManager(
                         OverlayDisplayState.COLLAPSED_BUBBLE -> handleCollapsedBubbleClick()
                         OverlayDisplayState.EXPANDED_TOOLBAR -> singleTapHandler?.invoke() ?: transitionTo(OverlayDisplayState.COLLAPSED_BUBBLE)
                         OverlayDisplayState.LISTENING_REQUEST -> {
-                            voiceInputHelper.stopListening()
+                            voiceCoordinator.stopListening()
                             transitionTo(OverlayDisplayState.COLLAPSED_BUBBLE)
                         }
                         OverlayDisplayState.AUTOMATING_ACTION -> {
@@ -353,7 +312,7 @@ class FloatingToolbarWindowManager(
                                         state = FloatingButtonState.LISTENING,
                                         isDragging = isDraggingState.value,
                                         onClick = {
-                                            voiceInputHelper.stopListening()
+                                            voiceCoordinator.stopListening()
                                             transitionTo(OverlayDisplayState.COLLAPSED_BUBBLE)
                                         }
                                     )
@@ -470,7 +429,7 @@ class FloatingToolbarWindowManager(
         if (!isShowing || overlayContainer == null) return
         try {
             userNavigatedBackHandler?.invoke()
-            voiceInputHelper.stopListening()
+            voiceCoordinator.stopListening()
             isDraggingState.value = false
             displayState = OverlayDisplayState.COLLAPSED_BUBBLE
             singleTapHandler = null
@@ -489,7 +448,7 @@ class FloatingToolbarWindowManager(
     }
 
     fun destroy() {
-        voiceInputHelper.stopListening()
+        voiceCoordinator.destroy()
         hide()
         windowScope.cancel()
     }

@@ -22,6 +22,9 @@ dependencyResolutionManagement {
             }
         }
         mavenCentral()
+        maven {
+            url = uri("${rootDir}/repo")
+        }
     }
 }
 

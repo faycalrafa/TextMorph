@@ -23,6 +23,9 @@ import com.textmorph.app.theme.TextMorphTheme
 import com.textmorph.app.ui.dashboard.DashboardScreen
 import com.textmorph.app.util.AppLogger
 import com.textmorph.app.util.PermissionUtils
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
+import com.textmorph.app.service.WakeWordForegroundService
 
 class MainActivity : ComponentActivity() {
 
@@ -38,6 +41,9 @@ class MainActivity : ComponentActivity() {
     ) { results ->
         results.forEach { (permission, granted) ->
             AppLogger.i(TAG, "Startup permission result for $permission: granted=$granted")
+        }
+        if (settingsRepository.settingsState.value.wakeWordDetectionEnabled && PermissionUtils.hasRecordAudioPermission(this)) {
+            WakeWordForegroundService.startService(applicationContext)
         }
     }
 
@@ -61,6 +67,17 @@ class MainActivity : ComponentActivity() {
             LlmForegroundService.startService(applicationContext)
         } catch (e: Exception) {
             AppLogger.e(TAG, "Failed to start LlmForegroundService: ${e.message}", e)
+        }
+
+        // Manage Wake-Word Foreground Service according to user preferences and permissions
+        lifecycleScope.launch {
+            settingsRepository.settingsState.collect { settings ->
+                if (settings.wakeWordDetectionEnabled && PermissionUtils.hasRecordAudioPermission(this@MainActivity)) {
+                    WakeWordForegroundService.startService(applicationContext)
+                } else if (!settings.wakeWordDetectionEnabled) {
+                    WakeWordForegroundService.stopService(applicationContext)
+                }
+            }
         }
 
         setContent {

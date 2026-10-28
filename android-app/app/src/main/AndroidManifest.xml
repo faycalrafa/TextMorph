@@ -13,6 +13,7 @@
     <!-- Persistent Background Engine & Wake Lock -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
@@ -144,6 +145,12 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Hosting on-device local multimodal LLM engine and embedded local inference server." />
         </service>
+
+        <!-- Offline Multi-Wake-Word Detection Service (Sherpa-ONNX KWS) -->
+        <service
+            android:name=".service.WakeWordForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
 
         <!-- Native Hardware Acceleration Libraries (OpenCL, Hexagon CDSP, EdgeTPU) -->
         <uses-native-library android:name="libvndksupport.so" android:required="false"/>

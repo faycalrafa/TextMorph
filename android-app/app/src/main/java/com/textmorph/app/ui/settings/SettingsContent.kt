@@ -214,7 +214,8 @@ fun SettingsContent(
             onSetAlwaysOpenBarWithKeyboard = { enabled -> scope.launch { settingsRepository.setAlwaysOpenBarWithKeyboard(enabled) } },
             onSetCompactChipsMode = { enabled -> scope.launch { settingsRepository.setCompactChipsMode(enabled) } },
             onSetQuickFixEnabled = { enabled -> scope.launch { settingsRepository.setQuickFixEnabled(enabled) } },
-            onSetAutoSendVoiceInput = { enabled -> scope.launch { settingsRepository.setAutoSendVoiceInput(enabled) } }
+            onSetAutoSendVoiceInput = { enabled -> scope.launch { settingsRepository.setAutoSendVoiceInput(enabled) } },
+            onSetWakeWordDetectionEnabled = { enabled -> scope.launch { settingsRepository.setWakeWordDetectionEnabled(enabled) } }
         )
 
         // Appearance & Diagnostics
