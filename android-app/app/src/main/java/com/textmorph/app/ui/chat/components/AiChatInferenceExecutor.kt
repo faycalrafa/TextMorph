@@ -44,14 +44,21 @@ object AiChatInferenceExecutor {
         val priorMessages = chatRepository.currentMessages.value.filter { msg ->
             if (isAgent) msg.isAgentTurn else !msg.isAgentTurn
         }
-        val systemPrompt = if (isAgent) {
+        val baseSystemPrompt = if (isAgent) {
             settings?.agentSystemPrompt?.takeIf { it.isNotBlank() }
                 ?: settings?.let { com.textmorph.app.agent.prompts.AgentPrompts.getAgentSystemPrompt(it.actionCommandSyntax) }
                 ?: ChatCompactor.AGENT_SYSTEM_PROMPT
         } else {
-            settings?.defaultSystemPrompt?.takeIf { it.isNotBlank() }
-                ?: ChatCompactor.DEFAULT_SYSTEM_PROMPT
+            val userPrompt = settings?.defaultSystemPrompt
+            if (userPrompt.isNullOrBlank() || userPrompt.contains("concise AI writing assistant")) {
+                com.textmorph.app.agent.prompts.AgentPrompts.CHAT_SYSTEM_PROMPT
+            } else {
+                userPrompt
+            }
         }
+        val inAppTools = com.textmorph.app.agent.tools.registry.AgentToolRegistry.getInAppTools()
+        val jsTools = context?.let { com.textmorph.app.agent.tools.registry.AgentToolRegistry.getJsTools(it) } ?: emptyList()
+        val systemPrompt = com.textmorph.app.agent.prompts.AgentPrompts.resolveSystemPrompt(baseSystemPrompt, inAppTools, jsTools)
 
         // Assemble sliding-window multi-turn inference prompt with compressed history & session state
         val assembledPrompt = ChatCompactor.assembleInferencePrompt(
@@ -144,9 +151,67 @@ object AiChatInferenceExecutor {
                     )
                 }
 
-                val finalOutput = sb.toString().trim()
-                val (thought, answer) = extractThought(finalOutput)
-                val effectiveFinalContent = if (thought != null) answer else finalOutput
+                var finalOutput = sb.toString().trim()
+                var (thought, answer) = extractThought(finalOutput)
+                var effectiveFinalContent = if (thought != null) answer else finalOutput
+
+                // Detect and execute in-chat tool calls (search_web, fetch_page, JS tools)
+                val toolCall = if (!isAgent && context != null) {
+                    ChatToolExecutionHandler.detectToolInvocation(effectiveFinalContent, context)
+                } else null
+
+                if (toolCall != null && context != null) {
+                    val statusMsg = when (toolCall.action) {
+                        com.textmorph.app.agent.model.AgentAction.ACTION_SEARCH_WEB ->
+                            "Searching DuckDuckGo for \"${toolCall.getStringParamWithAliases("query", "q")}\"…"
+                        com.textmorph.app.agent.model.AgentAction.ACTION_FETCH_PAGE ->
+                            "Fetching webpage content…"
+                        else -> "Executing ${toolCall.action}…"
+                    }
+                    chatRepository.setGenerationStatus(statusMsg)
+                    val (_, toolOutput) = ChatToolExecutionHandler.executeTool(toolCall, context)
+                    val obsPrompt = ChatToolExecutionHandler.formatObservationPrompt(toolCall, toolOutput)
+
+                    val resumedPrompt = ChatCompactor.assembleInferencePrompt(
+                        systemPrompt = systemPrompt,
+                        sessionSummary = activeSession?.summary,
+                        sessionState = activeSession?.sessionState,
+                        historyMessages = priorMessages + listOf(
+                            ChatMessageEntity(sessionId = sessionId, role = "user", content = prompt),
+                            ChatMessageEntity(sessionId = sessionId, role = "assistant", content = effectiveFinalContent)
+                        ),
+                        currentPrompt = obsPrompt,
+                        documentText = null,
+                        maxContextTokens = engine.maxContextTokens
+                    )
+
+                    val resumedSb = StringBuilder()
+                    val rFlow = when (engine) {
+                        is LiteRtLmEngine -> engine.generateStreamWithMetrics(resumedPrompt, null) { lastMetrics = it }
+                        is LlamaCppEngine -> engine.generateStreamWithMetrics(resumedPrompt, null) { lastMetrics = it }
+                        is com.textmorph.app.llm.OpenAiCloudEngine -> engine.generateStreamWithMetrics(resumedPrompt, null) { lastMetrics = it }
+                        else -> engine.generateStream(resumedPrompt, null)
+                    }
+
+                    rFlow.collect { chunk ->
+                        chatRepository.setGenerationStatus(null)
+                        resumedSb.append(chunk)
+                        val (rThought, rAnswer) = extractThought(resumedSb.toString())
+                        chatRepository.updateLastAssistantMessage(
+                            sessionId = sessionId,
+                            content = if (rThought != null) rAnswer else resumedSb.toString(),
+                            thoughtContent = rThought,
+                            rawNakedOutput = resumedSb.toString(),
+                            systemPrompt = systemPrompt
+                        )
+                    }
+
+                    val rOut = resumedSb.toString().trim()
+                    val (rThought, rAnswer) = extractThought(rOut)
+                    finalOutput = rOut
+                    thought = rThought
+                    effectiveFinalContent = if (rThought != null) rAnswer else rOut
+                }
 
                 val endNow = System.currentTimeMillis()
                 val totalDuration = (endNow - streamStartTime).coerceAtLeast(1L)

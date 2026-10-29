@@ -9,13 +9,13 @@ android {
     compileSdk = 36
     val appVersionName = providers.environmentVariable("APP_VERSION_NAME")
         .orElse(providers.gradleProperty("appVersionName"))
-        .getOrElse("4.2.1")
+        .getOrElse("4.2.2")
 
     defaultConfig {
         applicationId = "com.textmorph.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 63
+        versionCode = 64
         versionName = appVersionName
 
         ndk {
@@ -124,6 +124,10 @@ dependencies {
 
   // Markdown rendering
   implementation(libs.markwon.core)
+
+  // Web Browsing & HTML Parsing (OkHttp + Jsoup)
+  implementation(libs.okhttp)
+  implementation(libs.jsoup)
 
   // Embedded Ktor Server for localhost OpenAI API (127.0.0.1:8080)
   implementation(libs.ktor.server.core)

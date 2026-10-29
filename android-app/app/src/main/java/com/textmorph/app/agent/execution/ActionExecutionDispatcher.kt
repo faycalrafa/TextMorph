@@ -14,7 +14,7 @@ class ActionExecutionDispatcher(
     private val screenTool: ScreenAutomationTool
 ) {
 
-    fun executeAction(action: AgentAction): Pair<Boolean, String> {
+    suspend fun executeAction(action: AgentAction): Pair<Boolean, String> {
         return when (action.action) {
             "click_text" -> {
                 val text = action.getStringParamWithAliases("text", "label")
@@ -62,9 +62,29 @@ class ActionExecutionDispatcher(
                 val res = appLauncher.openApp(app)
                 Pair(res.isSuccess, if (res.isSuccess) "Opened $app" else "Failed opening $app")
             }
+            "search_web" -> {
+                val query = action.getStringParamWithAliases("query", "q", "search")
+                val results = com.textmorph.app.agent.tools.web.WebTools.searchWeb(query)
+                val summary = com.textmorph.app.agent.tools.web.WebTools.formatSearchResults(query, results)
+                Pair(results.isNotEmpty(), summary)
+            }
+            "fetch_page" -> {
+                val url = action.getStringParamWithAliases("url", "link", "target")
+                val limit = action.getIntParamWithAliases("char_limit", "limit", default = 3000)
+                val markdown = com.textmorph.app.agent.tools.web.WebTools.fetchPage(url, limit)
+                Pair(!markdown.startsWith("Error:"), markdown)
+            }
             "wait" -> Pair(true, "Waited")
             "done" -> Pair(true, "Task complete")
-            else -> Pair(false, "Unknown action: ${action.action}")
+            else -> {
+                val jsTool = com.textmorph.app.agent.tools.js.JsToolRepository.getInstance(appLauncher.context).getToolById(action.action)
+                if (jsTool != null) {
+                    val runner = com.textmorph.app.agent.tools.js.JsToolRunner(appLauncher.context)
+                    runner.execute(jsTool, action.params)
+                } else {
+                    Pair(false, "Unknown action: ${action.action}")
+                }
+            }
         }
     }
 
@@ -129,6 +149,9 @@ class ActionExecutionDispatcher(
             AgentAction.ACTION_SWIPE -> "Swiping on screen"
             AgentAction.ACTION_PRESS_BACK -> "Pressing Back"
             AgentAction.ACTION_PRESS_HOME -> "Pressing Home"
+            AgentAction.ACTION_SEARCH_WEB -> "Searching web for \"${action.getStringParamWithAliases("query", "q")}\""
+            AgentAction.ACTION_FETCH_PAGE -> "Fetching webpage \"${action.getStringParamWithAliases("url", "link")}\""
+            AgentAction.ACTION_CREATE_JS_TOOL -> "Creating JS tool \"${action.getStringParamWithAliases("name", "id")}\""
             AgentAction.ACTION_DONE -> "Task finished"
             else -> "Executing ${action.action}"
         }

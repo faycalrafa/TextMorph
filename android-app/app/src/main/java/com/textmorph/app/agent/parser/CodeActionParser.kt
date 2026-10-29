@@ -319,7 +319,53 @@ object CodeActionParser {
                 )
             }
 
-            else -> null
+            "search_web", "web_search", "google", "ddg" -> {
+                val query = getArg(0, "query", "q", "search")
+                AgentAction(
+                    action = AgentAction.ACTION_SEARCH_WEB,
+                    params = toJsonParams(mapOf("query" to query)),
+                    response = "Searching web for '$query'"
+                )
+            }
+
+            "fetch_page", "fetch_url", "crawl_url", "read_page" -> {
+                val url = getArg(0, "url", "link", "target")
+                val charLimit = getArg(1, "char_limit", "limit", default = "3000")
+                AgentAction(
+                    action = AgentAction.ACTION_FETCH_PAGE,
+                    params = toJsonParams(mapOf("url" to url, "char_limit" to charLimit)),
+                    response = "Fetching webpage $url"
+                )
+            }
+
+            "create_js_tool", "add_js_tool" -> {
+                val id = getArg(0, "id", "tool_id", "name")
+                val name = getArg(1, "name", "tool_name", default = id)
+                val desc = getArg(2, "description", "desc")
+                val sig = getArg(3, "signature", "code_signature", default = "$id()")
+                val code = getArg(4, "code", "script")
+                AgentAction(
+                    action = AgentAction.ACTION_CREATE_JS_TOOL,
+                    params = toJsonParams(mapOf("id" to id, "name" to name, "description" to desc, "signature" to sig, "code" to code)),
+                    response = "Creating custom JavaScript tool '$name'"
+                )
+            }
+
+            else -> {
+                val toolDef = com.textmorph.app.agent.tools.registry.AgentToolRegistry.findTool(funcName)
+                if (toolDef != null) {
+                    val paramsMap = mutableMapOf<String, String>()
+                    toolDef.parameters.forEachIndexed { idx, param ->
+                        val value = getArg(idx, param.name, default = param.defaultValue)
+                        if (value.isNotBlank()) paramsMap[param.name] = value
+                    }
+                    AgentAction(
+                        action = toolDef.id,
+                        params = toJsonParams(paramsMap),
+                        response = "Executing ${toolDef.name}"
+                    )
+                } else null
+            }
         }
     }
 

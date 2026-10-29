@@ -71,6 +71,12 @@ data class AgentAction(
         const val ACTION_DONE = "done"
         const val ACTION_WAIT = "wait"
         const val ACTION_GENERAL_QUERY = "general_query"
+        const val ACTION_SEARCH_WEB = "search_web"
+        const val ACTION_FETCH_PAGE = "fetch_page"
+        const val ACTION_REQUEST_USER_APPROVAL = "request_user_approval"
+        const val ACTION_SUGGEST_NEXT_ACTIONS = "suggest_next_actions"
+        const val ACTION_PRESENT_INTERACTIVE_VIEW = "present_interactive_view"
+        const val ACTION_CREATE_JS_TOOL = "create_js_tool"
     }
 }
 

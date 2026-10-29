@@ -224,22 +224,90 @@ object AgentToolRegistry {
             parameters = listOf(
                 AgentToolParameter("summary", "Completion Summary", defaultValue = "Task completed successfully.")
             )
+        ),
+        AgentToolDefinition(
+            id = AgentAction.ACTION_SEARCH_WEB,
+            name = "Search Web",
+            category = AgentToolCategory.APPS_AND_WEB,
+            description = "Searches the live web via DuckDuckGo without requiring any API keys.",
+            codeSignature = "search_web(\"Android 16 features\")",
+            parameters = listOf(
+                AgentToolParameter("query", "Search Query", defaultValue = "Android 16 features", description = "Web search terms")
+            )
+        ),
+        AgentToolDefinition(
+            id = AgentAction.ACTION_FETCH_PAGE,
+            name = "Fetch Webpage",
+            category = AgentToolCategory.APPS_AND_WEB,
+            description = "Crawls a webpage, removes HTML/CSS/JS clutter, and returns clean Markdown.",
+            codeSignature = "fetch_page(\"https://news.ycombinator.com\")",
+            parameters = listOf(
+                AgentToolParameter("url", "Webpage URL", defaultValue = "https://news.ycombinator.com", description = "Target HTTP/HTTPS address"),
+                AgentToolParameter("char_limit", "Character Limit", type = "number", defaultValue = "3000", isRequired = false, description = "Maximum characters to extract")
+            )
+        ),
+        AgentToolDefinition(
+            id = AgentAction.ACTION_REQUEST_USER_APPROVAL,
+            name = "Human-in-the-Loop Confirmation",
+            category = AgentToolCategory.INTERACTIVE,
+            description = "Requests confirmation, clarification, or prompts the user to select from multiple choices.",
+            codeSignature = "request_user_approval(\"Which style do you prefer?\", [\"Modern\", \"Classic\"])",
+            parameters = listOf(
+                AgentToolParameter("question", "Question", defaultValue = "Do you confirm?", description = "Clarification prompt or question"),
+                AgentToolParameter("options", "Options", defaultValue = "[\"Yes\", \"No\"]", description = "List of choices for the user")
+            )
+        ),
+        AgentToolDefinition(
+            id = AgentAction.ACTION_SUGGEST_NEXT_ACTIONS,
+            name = "Follow-Up Action Suggesters",
+            category = AgentToolCategory.INTERACTIVE,
+            description = "Offers proactive follow-up suggestions or next questions at the end of a response.",
+            codeSignature = "suggest_next_actions([\"Show code example\", \"Explain trade-offs\"])",
+            parameters = listOf(
+                AgentToolParameter("suggestions", "Suggestions", defaultValue = "[\"Tell me more\", \"Show next step\"]", description = "Array of follow-up suggestion chips")
+            )
+        ),
+        AgentToolDefinition(
+            id = AgentAction.ACTION_PRESENT_INTERACTIVE_VIEW,
+            name = "Interactive Artifact Renderer",
+            category = AgentToolCategory.INTERACTIVE,
+            description = "Renders an interactive, single-file HTML widget, animation, or simulation directly in chat.",
+            codeSignature = "present_interactive_view(\"Solar System\", \"<h1>Simulation</h1>...\")",
+            parameters = listOf(
+                AgentToolParameter("title", "View Title", defaultValue = "Interactive Simulation", description = "Title of the interactive view"),
+                AgentToolParameter("html", "HTML Code", defaultValue = "<h1>Preview</h1>", description = "Self-contained HTML with CSS and JS")
+            )
         )
     )
 
-    fun getAllTools(): List<AgentToolDefinition> = builtInTools
+    fun getInAppTools(): List<AgentToolDefinition> = builtInTools
 
-    fun getToolsByCategory(category: AgentToolCategory): List<AgentToolDefinition> {
-        return builtInTools.filter { it.category == category }
+    fun getJsTools(context: android.content.Context): List<AgentToolDefinition> {
+        return try {
+            com.textmorph.app.agent.tools.js.JsToolRepository.getInstance(context)
+                .getEnabledTools()
+                .map { it.toAgentToolDefinition() }
+        } catch (_: Throwable) {
+            emptyList()
+        }
     }
 
-    fun getToolById(id: String): AgentToolDefinition? {
-        return builtInTools.firstOrNull { it.id == id }
+    fun getAllTools(context: android.content.Context? = null): List<AgentToolDefinition> {
+        val jsTools = context?.let { getJsTools(it) } ?: emptyList()
+        return builtInTools + jsTools
     }
 
-    fun findTool(query: String): AgentToolDefinition? {
+    fun getToolsByCategory(category: AgentToolCategory, context: android.content.Context? = null): List<AgentToolDefinition> {
+        return getAllTools(context).filter { it.category == category }
+    }
+
+    fun getToolById(id: String, context: android.content.Context? = null): AgentToolDefinition? {
+        return getAllTools(context).firstOrNull { it.id.equals(id, ignoreCase = true) }
+    }
+
+    fun findTool(query: String, context: android.content.Context? = null): AgentToolDefinition? {
         val trimmed = query.trim().lowercase()
-        return builtInTools.firstOrNull { tool ->
+        return getAllTools(context).firstOrNull { tool ->
             tool.id.equals(trimmed, ignoreCase = true) ||
             tool.name.equals(trimmed, ignoreCase = true) ||
             tool.codeSignature.lowercase().startsWith("$trimmed(") ||
