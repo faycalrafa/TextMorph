@@ -1,5 +1,17 @@
 package com.textmorph.app.ui.chat.components
 
+import android.content.Context
+import com.textmorph.app.agent.AgentEngine
+import com.textmorph.app.agent.guardrails.ExecutionGuardrail
+import com.textmorph.app.agent.guardrails.ToolValidator
+import com.textmorph.app.agent.parser.CodeActionParser
+import com.textmorph.app.agent.prompts.AgentPrompts
+import com.textmorph.app.agent.router.AgentPhase
+import com.textmorph.app.agent.router.ChatCommandRouter
+import com.textmorph.app.agent.router.CommandRouteResult
+import com.textmorph.app.agent.tools.registry.AgentToolRegistry
+import com.textmorph.app.agent.tools.registry.ToolFilter
+import com.textmorph.app.data.model.ChatAttachment
 import com.textmorph.app.data.model.ChatMessageEntity
 import com.textmorph.app.data.model.InteractionTriggerSource
 import com.textmorph.app.data.repository.ChatSessionRepository
@@ -15,11 +27,13 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 /**
- * Handles inference streaming, context window assembly, and persistence of chat turns for AiChatScreen.
+ * Handles unified chat inference turns, pre-inference slash routing,
+ * dynamic phase tool filtering, and multi-turn Code-as-Action guardrail loops.
  */
 object AiChatInferenceExecutor {
 
     private const val TAG = "AiChatInference"
+    private const val MAX_TOOL_HOPS = 5
 
     fun executeTurn(
         sessionId: String,
@@ -32,42 +46,91 @@ object AiChatInferenceExecutor {
         onStart: () -> Unit,
         onComplete: () -> Unit,
         setJob: (Job) -> Unit,
-        agentEngine: com.textmorph.app.agent.AgentEngine? = null,
-        attachments: List<com.textmorph.app.data.model.ChatAttachment> = emptyList(),
+        agentEngine: AgentEngine? = null,
+        attachments: List<ChatAttachment> = emptyList(),
         settings: com.textmorph.app.data.model.AppSettings? = null,
-        context: android.content.Context? = null
+        context: Context? = null
     ) {
         onStart()
 
         val effectiveSettings = settings ?: com.textmorph.app.data.model.AppSettings()
-        val isFused = effectiveSettings.fuseChatAndAgent
-        val activeSession = chatRepository.getActiveSession()
-        val isAgent = if (isFused) true else (activeSession?.isAgentMode == true)
-        val priorMessages = if (isFused) {
-            chatRepository.currentMessages.value
-        } else {
-            chatRepository.currentMessages.value.filter { msg ->
-                if (isAgent) msg.isAgentTurn else !msg.isAgentTurn
-            }
-        }
-        val baseSystemPrompt = if (isFused) {
-            com.textmorph.app.agent.prompts.AgentPrompts.getUnifiedSystemPrompt(effectiveSettings.actionCommandSyntax)
-        } else if (isAgent) {
-            effectiveSettings.agentSystemPrompt.takeIf { it.isNotBlank() }
-                ?: com.textmorph.app.agent.prompts.AgentPrompts.getAgentSystemPrompt(effectiveSettings.actionCommandSyntax)
-        } else {
-            val userPrompt = effectiveSettings.defaultSystemPrompt
-            if (userPrompt.isNullOrBlank() || userPrompt.contains("concise AI writing assistant")) {
-                com.textmorph.app.agent.prompts.AgentPrompts.CHAT_SYSTEM_PROMPT
-            } else {
-                userPrompt
-            }
-        }
-        val inAppTools = com.textmorph.app.agent.tools.registry.AgentToolRegistry.getInAppTools()
-        val jsTools = context?.let { com.textmorph.app.agent.tools.registry.AgentToolRegistry.getJsTools(it) } ?: emptyList()
-        val systemPrompt = com.textmorph.app.agent.prompts.AgentPrompts.resolveSystemPrompt(baseSystemPrompt, inAppTools, jsTools)
+        val commandResult = ChatCommandRouter.route(prompt)
 
-        // Assemble sliding-window multi-turn inference prompt with compressed history & session state
+        // Handle pre-inference non-LLM commands (/workers, /benchmark)
+        when (commandResult) {
+            is CommandRouteResult.SetWorkersCommand -> {
+                scope.launch(Dispatchers.Main) {
+                    val userMsg = ChatMessageEntity(sessionId = sessionId, role = "user", content = prompt)
+                    val reply = ChatMessageEntity(
+                        sessionId = sessionId,
+                        role = "assistant",
+                        content = commandResult.message
+                    )
+                    chatRepository.appendMessage(userMsg)
+                    chatRepository.appendMessage(reply)
+                    onComplete()
+                }
+                return
+            }
+            is CommandRouteResult.BenchmarkCommand -> {
+                scope.launch(Dispatchers.Main) {
+                    val userMsg = ChatMessageEntity(sessionId = sessionId, role = "user", content = prompt)
+                    val reply = ChatMessageEntity(
+                        sessionId = sessionId,
+                        role = "assistant",
+                        content = "To run the Agentic Readiness Suite, open the Benchmark screen from the sidebar or Model Hub."
+                    )
+                    chatRepository.appendMessage(userMsg)
+                    chatRepository.appendMessage(reply)
+                    onComplete()
+                }
+                return
+            }
+            is CommandRouteResult.PlanCommand -> {
+                if (context != null) {
+                    AiChatPlanExecutionHandler.executePlanOrDeepSearch(
+                        scope = scope,
+                        sessionId = sessionId,
+                        goal = commandResult.goal,
+                        workerCount = commandResult.workersOverride,
+                        userPrompt = prompt,
+                        engine = engine,
+                        chatRepository = chatRepository,
+                        context = context,
+                        onComplete = onComplete
+                    )
+                    return
+                }
+            }
+            is CommandRouteResult.DeepSearchCommand -> {
+                if (context != null) {
+                    AiChatPlanExecutionHandler.executePlanOrDeepSearch(
+                        scope = scope,
+                        sessionId = sessionId,
+                        goal = commandResult.query,
+                        workerCount = commandResult.workersOverride,
+                        userPrompt = prompt,
+                        engine = engine,
+                        chatRepository = chatRepository,
+                        context = context,
+                        onComplete = onComplete
+                    )
+                    return
+                }
+            }
+            else -> {}
+        }
+
+        val phase = if (commandResult is CommandRouteResult.StandardTurn) commandResult.phase else ChatCommandRouter.classifyPhase(prompt)
+        val allowedTools = ToolFilter.getToolsForPhase(phase, context)
+
+        val activeSession = chatRepository.getActiveSession()
+        val priorMessages = chatRepository.currentMessages.value
+
+        val baseSystemPrompt = effectiveSettings.defaultSystemPrompt.takeIf { !it.isNullOrBlank() }
+            ?: AgentPrompts.CHAT_SYSTEM_PROMPT
+        val systemPrompt = AgentPrompts.resolvePhaseSystemPrompt(baseSystemPrompt, phase, context)
+
         val assembledPrompt = ChatCompactor.assembleInferencePrompt(
             systemPrompt = systemPrompt,
             sessionSummary = activeSession?.summary,
@@ -83,14 +146,13 @@ object AiChatInferenceExecutor {
             role = "user",
             content = prompt,
             attachmentsJson = ChatMessageEntity.serializeAttachments(attachments),
-            isAgentMode = isAgent
+            isAgentMode = true
         )
-
         val aiPlaceholder = ChatMessageEntity(
             sessionId = sessionId,
             role = "assistant",
             content = "",
-            isAgentMode = isAgent
+            isAgentMode = true
         )
 
         val job = scope.launch(Dispatchers.Main) {
@@ -105,116 +167,149 @@ object AiChatInferenceExecutor {
             chatRepository.setGenerationStatus(if (!isModelLoaded) "Loading model into memory…" else "Thinking…")
 
             try {
-                val sb = StringBuilder()
+                var currentPromptForInference = assembledPrompt
+                var currentImagePayload: ByteArray? = imageBytes
+                val guardrail = ExecutionGuardrail(maxHops = MAX_TOOL_HOPS)
+                var hop = 0
+                var finalOutput = ""
+                var effectiveFinalContent = ""
+                var thought: String? = null
+                var executedActionName: String? = null
                 var lastMetrics: com.textmorph.app.llm.InferenceMetrics? = null
                 val streamStartTime = System.currentTimeMillis()
                 var firstTokenTime: Long? = null
                 var streamTokens = 0
 
-                val flow = streamFromEngine(engine, assembledPrompt, imageBytes) { lastMetrics = it }
+                val turnHistory = mutableListOf<ChatMessageEntity>()
 
-                flow.collect { chunk ->
-                    chatRepository.setGenerationStatus(null)
-                    val now = System.currentTimeMillis()
-                    if (firstTokenTime == null && chunk.isNotBlank()) {
-                        firstTokenTime = now
+                while (hop < MAX_TOOL_HOPS) {
+                    val sb = StringBuilder()
+                    val flow = AiChatInferenceUtils.streamFromEngine(engine, currentPromptForInference, currentImagePayload) {
+                        lastMetrics = it
                     }
-                    val words = chunk.split(Regex("\\s+")).filter { it.isNotEmpty() }.size
-                    streamTokens += words.coerceAtLeast(1)
-                    sb.append(chunk)
 
-                    val elapsedSec = ((now - (firstTokenTime ?: streamStartTime)) / 1000.0).coerceAtLeast(0.001)
-                    val fallbackTps = (streamTokens / elapsedSec).toFloat()
-
-                    val currentText = sb.toString()
-                    val isEmittingToolToken = currentText.contains("<|tool_call") || currentText.contains("<tool_call")
-                    if (isEmittingToolToken) {
-                        chatRepository.setGenerationStatus("Preparing tool call…")
-                    }
-                    val (thought, answer) = extractThought(currentText)
-                    val effectiveContent = if (isEmittingToolToken) "" else (if (thought != null) answer else currentText)
-                    chatRepository.updateLastAssistantMessage(
-                        sessionId = sessionId,
-                        content = effectiveContent,
-                        thoughtContent = thought,
-                        rawNakedOutput = currentText,
-                        systemPrompt = systemPrompt,
-                        tokensPerSecond = lastMetrics?.tokensPerSecond ?: fallbackTps,
-                        totalTokens = lastMetrics?.tokenCount ?: streamTokens,
-                        durationMs = lastMetrics?.totalDurationMs ?: (now - streamStartTime)
-                    )
-                }
-
-                var finalOutput = sb.toString().trim()
-                var (thought, answer) = extractThought(finalOutput)
-                var effectiveFinalContent = if (thought != null) answer else finalOutput
-
-                // Detect and execute information tool calls (search_web, fetch_page, JS tools) in Chat and Agent modes
-                val toolCall = if (context != null) {
-                    if (!isAgent) {
-                        ChatToolExecutionHandler.detectToolInvocation(effectiveFinalContent, context)
-                    } else {
-                        val candidate = com.textmorph.app.agent.parser.AgentActionParser.parseAction(effectiveFinalContent)
-                        if (candidate != null && ChatToolExecutionHandler.isInformationTool(candidate, context)) candidate else null
-                    }
-                } else null
-
-                if (toolCall != null && context != null) {
-                    val statusMsg = ChatToolExecutionHandler.formatToolStatus(toolCall, context)
-                    chatRepository.setGenerationStatus(statusMsg)
-                    chatRepository.updateLastAssistantMessage(
-                        sessionId = sessionId,
-                        content = "",
-                        actionPayloadJson = toolCall.action,
-                        actionStatus = "running"
-                    )
-                    val (_, toolOutput) = ChatToolExecutionHandler.executeTool(toolCall, context)
-                    val toolName = ChatToolExecutionHandler.getToolDisplayName(toolCall, context)
-                    chatRepository.setGenerationStatus("$toolName finished! Thinking & synthesizing answer…")
-                    chatRepository.updateLastAssistantMessage(
-                        sessionId = sessionId,
-                        content = "",
-                        actionPayloadJson = toolCall.action,
-                        actionStatus = "success"
-                    )
-                    val obsPrompt = ChatToolExecutionHandler.formatObservationPrompt(toolCall, toolOutput)
-
-                    val resumedPrompt = ChatCompactor.assembleInferencePrompt(
-                        systemPrompt = systemPrompt,
-                        sessionSummary = activeSession?.summary,
-                        sessionState = activeSession?.sessionState,
-                        historyMessages = priorMessages + listOf(
-                            ChatMessageEntity(sessionId = sessionId, role = "user", content = prompt),
-                            ChatMessageEntity(sessionId = sessionId, role = "assistant", content = effectiveFinalContent)
-                        ),
-                        currentPrompt = obsPrompt,
-                        documentText = null,
-                        maxContextTokens = engine.maxContextTokens
-                    )
-
-                    val resumedSb = StringBuilder()
-                    val rFlow = streamFromEngine(engine, resumedPrompt, null) { lastMetrics = it }
-
-                    rFlow.collect { chunk ->
+                    flow.collect { chunk ->
                         chatRepository.setGenerationStatus(null)
-                        resumedSb.append(chunk)
-                        val (rThought, rAnswer) = extractThought(resumedSb.toString())
+                        val now = System.currentTimeMillis()
+                        if (firstTokenTime == null && chunk.isNotBlank()) firstTokenTime = now
+                        val words = chunk.split(Regex("\\s+")).filter { it.isNotEmpty() }.size
+                        streamTokens += words.coerceAtLeast(1)
+                        sb.append(chunk)
+
+                        val elapsedSec = ((now - (firstTokenTime ?: streamStartTime)) / 1000.0).coerceAtLeast(0.001)
+                        val fallbackTps = (streamTokens / elapsedSec).toFloat()
+
+                        val currentText = sb.toString()
+                        val (curThought, curAnswer) = AiChatInferenceUtils.extractThought(currentText)
+                        val effectiveChunkContent = if (curThought != null) curAnswer else currentText
                         chatRepository.updateLastAssistantMessage(
                             sessionId = sessionId,
-                            content = if (rThought != null) rAnswer else resumedSb.toString(),
-                            thoughtContent = rThought,
-                            rawNakedOutput = resumedSb.toString(),
+                            content = effectiveChunkContent,
+                            thoughtContent = curThought,
+                            rawNakedOutput = currentText,
                             systemPrompt = systemPrompt,
-                            actionPayloadJson = toolCall.action,
-                            actionStatus = "success"
+                            tokensPerSecond = lastMetrics?.tokensPerSecond ?: fallbackTps,
+                            totalTokens = lastMetrics?.tokenCount ?: streamTokens,
+                            durationMs = lastMetrics?.totalDurationMs ?: (now - streamStartTime)
                         )
                     }
 
-                    val rOut = resumedSb.toString().trim()
-                    val (rThought, rAnswer) = extractThought(rOut)
-                    finalOutput = rOut
-                    thought = rThought
-                    effectiveFinalContent = if (rThought != null) rAnswer else rOut
+                    finalOutput = sb.toString().trim()
+                    val (th, ans) = AiChatInferenceUtils.extractThought(finalOutput)
+                    thought = th
+                    effectiveFinalContent = if (th != null) ans else finalOutput
+
+                    // Check if output contains a Code-as-Action call
+                    val action = CodeActionParser.parse(effectiveFinalContent)
+                    if (action == null) {
+                        // Pure conversational output; tool loop terminates cleanly
+                        break
+                    }
+
+                    // Pre-Flight Validation
+                    val validation = ToolValidator.validate(action, allowedTools)
+                    if (!validation.isValid) {
+                        AppLogger.w(TAG, "Tool pre-flight validation failed: ${validation.error}. Triggering self-correction retry.")
+                        val correctionPrompt = ToolValidator.synthesizeCorrectionPrompt(action, validation.error)
+                        chatRepository.setGenerationStatus("Validating tool parameters… self-correcting…")
+
+                        turnHistory.add(ChatMessageEntity(sessionId = sessionId, role = "assistant", content = effectiveFinalContent))
+                        currentPromptForInference = ChatCompactor.assembleInferencePrompt(
+                            systemPrompt = systemPrompt,
+                            sessionSummary = activeSession?.summary,
+                            sessionState = activeSession?.sessionState,
+                            historyMessages = priorMessages + turnHistory,
+                            currentPrompt = correctionPrompt,
+                            documentText = null,
+                            maxContextTokens = engine.maxContextTokens
+                        )
+                        currentImagePayload = null
+                        hop++
+                        continue
+                    }
+
+                    // Execution Guardrail & Loop Detection
+                    val guardrailDecision = guardrail.evaluate(action.action, action.params)
+                    if (!guardrailDecision.allowed) {
+                        AppLogger.w(TAG, "Execution circuit breaker fired: ${guardrailDecision.reason}")
+                        effectiveFinalContent = "${effectiveFinalContent}\n\n[Guardrail Notice: ${guardrailDecision.reason}]"
+                        break
+                    }
+
+                    executedActionName = action.action
+
+                    // Execute tool if it is an information tool
+                    if (context != null && ChatToolExecutionHandler.isInformationTool(action, context)) {
+                        val statusMsg = ChatToolExecutionHandler.formatToolStatus(action, context)
+                        chatRepository.setGenerationStatus(statusMsg)
+                        chatRepository.updateLastAssistantMessage(
+                            sessionId = sessionId,
+                            content = "",
+                            actionPayloadJson = action.action,
+                            actionStatus = "running"
+                        )
+
+                        val (_, toolOutput) = ChatToolExecutionHandler.executeTool(action, context)
+                        val toolName = ChatToolExecutionHandler.getToolDisplayName(action, context)
+                        chatRepository.setGenerationStatus("$toolName finished! Thinking & synthesizing answer…")
+                        chatRepository.updateLastAssistantMessage(
+                            sessionId = sessionId,
+                            content = "",
+                            actionPayloadJson = action.action,
+                            actionStatus = "success"
+                        )
+
+                        val obsPrompt = ChatToolExecutionHandler.formatObservationPrompt(action, toolOutput)
+                        turnHistory.add(ChatMessageEntity(sessionId = sessionId, role = "assistant", content = effectiveFinalContent))
+
+                        currentPromptForInference = ChatCompactor.assembleInferencePrompt(
+                            systemPrompt = systemPrompt,
+                            sessionSummary = activeSession?.summary,
+                            sessionState = activeSession?.sessionState,
+                            historyMessages = priorMessages + turnHistory,
+                            currentPrompt = obsPrompt,
+                            documentText = null,
+                            maxContextTokens = engine.maxContextTokens
+                        )
+                        currentImagePayload = null
+                        hop++
+                    } else if (agentEngine != null) {
+                        // Autonomous device-level action
+                        AiChatAutonomousActionHandler.handleAutonomousAction(
+                            action = action,
+                            userPrompt = prompt,
+                            sessionId = sessionId,
+                            systemPrompt = systemPrompt,
+                            thought = thought,
+                            finalOutput = finalOutput,
+                            agentEngine = agentEngine,
+                            chatRepository = chatRepository,
+                            scope = scope
+                        )
+                        break
+                    } else {
+                        break
+                    }
                 }
 
                 val endNow = System.currentTimeMillis()
@@ -232,8 +327,8 @@ object AiChatInferenceExecutor {
                     thoughtContent = thought,
                     rawNakedOutput = finalOutput,
                     systemPrompt = systemPrompt,
-                    actionPayloadJson = toolCall?.action,
-                    actionStatus = if (toolCall != null) "success" else null,
+                    actionPayloadJson = executedActionName,
+                    actionStatus = if (executedActionName != null) "success" else null,
                     tokensPerSecond = finalTps,
                     totalTokens = finalTokens,
                     durationMs = finalDuration
@@ -244,7 +339,7 @@ object AiChatInferenceExecutor {
                     try {
                         LlmInteractionRepository.getInstance(context).recordInteraction(
                             source = InteractionTriggerSource.CHAT_CONVERSATION,
-                            title = if (isAgent) "Agent Conversation" else "Chat Turn",
+                            title = "Chat Turn",
                             userPrompt = prompt,
                             systemPrompt = systemPrompt,
                             rawOutput = finalOutput,
@@ -259,155 +354,7 @@ object AiChatInferenceExecutor {
                     }
                 }
 
-                // If in Agent mode, check if LLM returned an autonomous device tool action
-                if (isAgent && agentEngine != null && toolCall == null) {
-                    val parsedAction = com.textmorph.app.agent.parser.AgentActionParser.parseAction(effectiveFinalContent)
-                    val isPresentationAction = parsedAction != null && (
-                        parsedAction.action == com.textmorph.app.agent.model.AgentAction.ACTION_PRESENT_INTERACTIVE_VIEW ||
-                        parsedAction.action == com.textmorph.app.agent.model.AgentAction.ACTION_REQUEST_USER_APPROVAL ||
-                        parsedAction.action == com.textmorph.app.agent.model.AgentAction.ACTION_SUGGEST_NEXT_ACTIONS
-                    )
-                    if (parsedAction != null && !isPresentationAction) {
-                        val effectiveAction = if (parsedAction.action == com.textmorph.app.agent.model.AgentAction.ACTION_OPEN_APP &&
-                            isMultiStepIntent(prompt, parsedAction.response)
-                        ) {
-                            AppLogger.i(TAG, "Auto-escalated standalone open_app to execute_task for multi-step prompt: '$prompt'")
-                            com.textmorph.app.agent.model.AgentAction(
-                                action = com.textmorph.app.agent.model.AgentAction.ACTION_EXECUTE_TASK,
-                                params = mapOf("goal" to kotlinx.serialization.json.JsonPrimitive(prompt)),
-                                response = "Executing multi-step task: $prompt"
-                            )
-                        } else if (parsedAction.action == com.textmorph.app.agent.model.AgentAction.ACTION_EXECUTE_TASK) {
-                            val existingGoal = parsedAction.getStringParam("goal")
-                                .ifEmpty { parsedAction.getStringParam("task") }
-                                .ifEmpty { parsedAction.getStringParam("prompt") }
-                            val effectiveGoal = if (existingGoal.isBlank() || existingGoal == "Executing execute_task" || existingGoal == "execute_task") {
-                                prompt
-                            } else {
-                                existingGoal
-                            }
-                            parsedAction.copy(
-                                params = parsedAction.params + ("goal" to kotlinx.serialization.json.JsonPrimitive(effectiveGoal)),
-                                response = "Executing multi-step task: $effectiveGoal"
-                            )
-                        } else {
-                            parsedAction
-                        }
-
-                        AppLogger.i(TAG, "Executing autonomous agent action: ${effectiveAction.action}")
-                        // Standalone actions must not inherit stale failure state from previous multi-step tasks
-                        if (effectiveAction.action != com.textmorph.app.agent.model.AgentAction.ACTION_EXECUTE_TASK) {
-                            com.textmorph.app.agent.coordinator.TaskExecutionCoordinator.reset()
-                        }
-                        chatRepository.updateLastAssistantMessage(
-                            sessionId = sessionId,
-                            content = effectiveAction.response.ifEmpty { "Executing ${effectiveAction.action}…" },
-                            thoughtContent = thought,
-                            rawNakedOutput = finalOutput,
-                            systemPrompt = systemPrompt,
-                            actionPayloadJson = effectiveAction.action,
-                            actionStatus = "running"
-                        )
-                        try {
-                            val result = agentEngine.execute(
-                                action = effectiveAction,
-                                onProgress = { statusUpdate ->
-                                    chatRepository.setGenerationStatus(statusUpdate)
-                                },
-                                onStepsUpdated = { steps ->
-                                    val isInterrupted = com.textmorph.app.agent.coordinator.TaskExecutionCoordinator.state.value.isInterrupted
-                                    val hasFailed = steps.any { it.status == com.textmorph.app.agent.model.AgentStepStatus.FAILED }
-                                    val currentStatus = when {
-                                        isInterrupted -> "interrupted"
-                                        hasFailed -> "failed"
-                                        else -> "running"
-                                    }
-                                    scope.launch(Dispatchers.IO) {
-                                        chatRepository.updateLastAssistantMessage(
-                                            sessionId = sessionId,
-                                            content = effectiveAction.response.ifEmpty { "Executing ${effectiveAction.action}…" },
-                                            thoughtContent = thought,
-                                            rawNakedOutput = finalOutput,
-                                            systemPrompt = systemPrompt,
-                                            actionPayloadJson = effectiveAction.action,
-                                            actionStatus = currentStatus,
-                                            actionStepsJson = com.textmorph.app.agent.model.AgentTaskStep.serializeList(steps)
-                                        )
-                                    }
-                                }
-                            )
-                            val isExecuteTask = effectiveAction.action == com.textmorph.app.agent.model.AgentAction.ACTION_EXECUTE_TASK
-                            val taskState = com.textmorph.app.agent.coordinator.TaskExecutionCoordinator.state.value
-                            val isInterrupted = if (isExecuteTask) taskState.isInterrupted else false
-                            val isSuccess = if (isExecuteTask) {
-                                result.success && !taskState.isInterrupted && !taskState.isFailed
-                            } else {
-                                result.success
-                            }
-                            val finalContent = when {
-                                isInterrupted -> "Task stopped by user."
-                                isSuccess -> effectiveAction.response.ifEmpty { result.details }
-                                result.details.startsWith("Task Failed:") ||
-                                    result.details.startsWith("Error:") ||
-                                    result.details.startsWith("Action Failed:") -> result.details
-                                else -> "Action Failed: ${result.details}"
-                            }
-                            val finalSteps = if (isExecuteTask) {
-                                taskState.stepsHistory
-                            } else {
-                                val stepStatus = when {
-                                    isInterrupted -> com.textmorph.app.agent.model.AgentStepStatus.INTERRUPTED
-                                    isSuccess -> com.textmorph.app.agent.model.AgentStepStatus.COMPLETED
-                                    else -> com.textmorph.app.agent.model.AgentStepStatus.FAILED
-                                }
-                                listOf(
-                                    com.textmorph.app.agent.model.AgentTaskStep(
-                                        stepIndex = 1,
-                                        actionType = parsedAction.action,
-                                        title = parsedAction.response.ifEmpty { "Executing ${parsedAction.action}…" },
-                                        detail = result.details,
-                                        status = stepStatus
-                                    )
-                                )
-                            }
-                            chatRepository.updateLastAssistantMessage(
-                                sessionId = sessionId,
-                                content = finalContent,
-                                rawNakedOutput = agentEngine.taskExecutor.lastRawOutput.ifBlank { finalOutput },
-                                actionStatus = if (isInterrupted) "interrupted" else if (isSuccess) "success" else "failed",
-                                actionStepsJson = com.textmorph.app.agent.model.AgentTaskStep.serializeList(finalSteps)
-                            )
-                            if (!isSuccess && !isInterrupted) {
-                                AppLogger.w(TAG, "Agent action '${parsedAction.action}' failed: $finalContent (details='${result.details}')")
-                            } else if (isSuccess) {
-                                AppLogger.i(TAG, "Agent action '${parsedAction.action}' succeeded: ${result.details}")
-                            } else {
-                                AppLogger.i(TAG, "Agent action '${parsedAction.action}' interrupted by user.")
-                            }
-                        } catch (ce: kotlinx.coroutines.CancellationException) {
-                            AppLogger.i(TAG, "Agent action execution cancelled by user.")
-                            com.textmorph.app.agent.coordinator.TaskExecutionCoordinator.interrupt()
-                            agentEngine.cancelRunningTask()
-                            chatRepository.updateLastAssistantMessage(
-                                sessionId = sessionId,
-                                content = "Task stopped by user.",
-                                actionStatus = "interrupted"
-                            )
-                            throw ce
-                        } catch (actEx: Exception) {
-                            AppLogger.e(TAG, "Agent action '${parsedAction.action}' threw exception: ${actEx.message}", actEx)
-                            chatRepository.updateLastAssistantMessage(
-                                sessionId = sessionId,
-                                content = "Error: ${actEx.message}",
-                                actionStatus = "failed"
-                            )
-                        } finally {
-                            chatRepository.setGenerationStatus(null)
-                        }
-                    }
-                }
-
-                // Trigger background rolling summarization if message history exceeds trigger count
+                // Rolling summarization
                 val allMessages = chatRepository.currentMessages.value
                 if (allMessages.size >= ChatCompactor.SUMMARY_TRIGGER_MESSAGE_COUNT) {
                     scope.launch(Dispatchers.IO) {
@@ -450,16 +397,4 @@ object AiChatInferenceExecutor {
 
     fun isMultiStepIntent(userPrompt: String, modelResponse: String = ""): Boolean =
         AiChatInferenceUtils.isMultiStepIntent(userPrompt, modelResponse)
-
-    fun extractThought(rawText: String): Pair<String?, String> =
-        AiChatInferenceUtils.extractThought(rawText)
-
-    private fun streamFromEngine(
-        engine: LlmEngine,
-        prompt: String,
-        imageBytes: ByteArray? = null,
-        onMetrics: ((com.textmorph.app.llm.InferenceMetrics) -> Unit)? = null
-    ): kotlinx.coroutines.flow.Flow<String> =
-        AiChatInferenceUtils.streamFromEngine(engine, prompt, imageBytes, onMetrics)
 }
-

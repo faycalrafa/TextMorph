@@ -56,7 +56,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.textmorph.app.agent.AgentEngine
 import com.textmorph.app.agent.model.AgentActionResult
-import com.textmorph.app.agent.parser.AgentActionParser
+import com.textmorph.app.agent.parser.CodeActionParser
 import com.textmorph.app.agent.tools.js.JsToolEntity
 import com.textmorph.app.agent.tools.js.JsToolRepository
 import com.textmorph.app.agent.tools.registry.AgentToolCategory
@@ -227,7 +227,7 @@ fun AgentToolsScreen(
                                     scope.launch {
                                         commandRunning = true
                                         commandOutput = null
-                                        val parsed = AgentActionParser.parseAction(commandInput)
+                                        val parsed = CodeActionParser.parse(commandInput)
                                         if (parsed == null) {
                                             commandOutput = "Failed: Could not parse command '$commandInput'."
                                             commandRunning = false

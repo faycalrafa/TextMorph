@@ -35,7 +35,9 @@ data class AgentToolParameter(
     val defaultValue: String = "",
     val isRequired: Boolean = true,
     val description: String = ""
-)
+) {
+    val required: Boolean get() = isRequired
+}
 
 /**
  * Complete definition for a device or screen action executable by the AI agent.
@@ -48,5 +50,7 @@ data class AgentToolDefinition(
     val description: String,
     val codeSignature: String,
     val parameters: List<AgentToolParameter> = emptyList(),
-    val source: ToolSource = ToolSource.BUILT_IN
+    val source: ToolSource = ToolSource.BUILT_IN,
+    val isReadOnly: Boolean = false,
+    val requiresApproval: Boolean = false
 )

@@ -4,8 +4,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.widget.Toast
-import com.textmorph.app.agent.parser.AgentActionParser
-import com.textmorph.app.agent.parser.GemmaToolCallParser
+import com.textmorph.app.agent.parser.CodeActionParser
 import com.textmorph.app.data.model.InteractionTriggerSource
 import com.textmorph.app.data.repository.LlmInteractionRepository
 import com.textmorph.app.llm.LiteRtLmSessionDelegate
@@ -92,7 +91,7 @@ class ToolbarGenerationDelegate(
                     }
 
                     rawNaked = sb.toString()
-                    val candidateAction = GemmaToolCallParser.parse(rawNaked) ?: AgentActionParser.parseAction(rawNaked)
+                    val candidateAction = com.textmorph.app.agent.parser.CodeActionParser.parse(rawNaked)
                     if (candidateAction != null) {
                         lastAction = candidateAction
                     }
@@ -114,7 +113,7 @@ class ToolbarGenerationDelegate(
                     } else {
                         // Standard generation finished
                         finalOutput = LiteRtLmSessionDelegate.sanitizeNoThinking(rawNaked.trim())
-                        finalOutput = GemmaToolCallParser.stripGemmaToolCall(finalOutput)
+                        finalOutput = com.textmorph.app.agent.parser.CodeActionParser.stripActionPayload(finalOutput)
                         break
                     }
                 }
@@ -248,9 +247,9 @@ class ToolbarGenerationDelegate(
         fun trimForInputField(text: String): String {
             if (text.isBlank()) return ""
             var result = text
-            // Strip tool calls like <|tool_call|>...<|call_end|> or <|tool_call|>...<tool_call|>
-            result = result.replace(Regex("""(?is)<\|?tool_call\|?>[\s\S]*?(?:<\|?call_end\|?>|<\/tool_call>|<tool_call\|?>|$)"""), "")
-            result = GemmaToolCallParser.stripGemmaToolCall(result)
+            result = result.replace(Regex("""<\|tool_call\|>[\s\S]*?(?:<\|call_end\|>|<tool_call\|>)"""), "")
+            result = result.replace(Regex("""<tool_call>[\s\S]*?</tool_call>"""), "")
+            result = CodeActionParser.stripActionPayload(result)
             // Strip code action patterns like suggest_next_actions(...) or request_user_approval(...)
             result = result.replace(Regex("""(?s)(?:call:)?(?:suggest_next_actions|request_user_approval|present_interactive_view)\s*\([^)]*\)"""), "")
             // Strip trailing follow-up suggestion blocks (e.g. "Follow-up suggestions:", "Next steps:", etc.)

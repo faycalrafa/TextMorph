@@ -8,7 +8,12 @@ import com.textmorph.app.agent.memory.SkillMemoryService
 import com.textmorph.app.agent.model.AgentAction
 import com.textmorph.app.agent.model.AgentTaskStep
 import com.textmorph.app.agent.navigation.NavigationShortcutHelper
-import com.textmorph.app.agent.parser.AgentActionParser
+import com.textmorph.app.agent.guardrails.ExecutionGuardrail
+import com.textmorph.app.agent.guardrails.GuardrailDecision
+import com.textmorph.app.agent.guardrails.ToolValidator
+import com.textmorph.app.agent.guardrails.ValidationResult
+import com.textmorph.app.agent.parser.CodeActionParser
+import com.textmorph.app.agent.router.AgentPhase
 import com.textmorph.app.agent.prompts.AgentPrompts
 import com.textmorph.app.agent.recovery.RecoveryAction
 import com.textmorph.app.agent.recovery.RecoveryEngine
@@ -52,6 +57,8 @@ class TaskExecutor(
         ActionExecutionDispatcher(appLauncher, screenTool)
     }
 
+    private val guardrail = ExecutionGuardrail(maxHops = 15)
+
     @Volatile
     private var isCancelled = false
 
@@ -72,6 +79,7 @@ class TaskExecutor(
     ): String = withContext(Dispatchers.IO) {
         isCancelled = false
         lastRawOutput = ""
+        guardrail.reset()
         AppLogger.i(TAG, "executeTask() called with goal: '$goal' (maxSteps=$maxSteps)")
 
         if (!screenTool.isAccessibilityReady()) {
@@ -231,16 +239,17 @@ class TaskExecutor(
                     return@withContext "Task cancelled."
                 }
 
-                // 4. Parse action with 1-attempt retry
-                var action = AgentActionParser.parseAction(rawOutput)
+                // 4. Parse action with 1-attempt self-correction retry
+                var action = CodeActionParser.parse(rawOutput)
                 if (action == null) {
                     AppLogger.w(TAG, "=== PARSE FAILED, RETRYING === Raw: $rawOutput")
                     onProgress(step + 1, "Retrying step ${step + 1}...\n(Failed to parse action)")
-                    delay(2000)
-                    val retryOutput = queryLlm(prompt, imageBytes, taskSystemPrompt)
+                    delay(1500)
+                    val correctionQuery = "$prompt\n\n[Instruction]: Respond with ONLY a single Code-as-Action command (e.g. click_text(\"Submit\"), scroll(\"down\"), open_app(\"YouTube\"))."
+                    val retryOutput = queryLlm(correctionQuery, imageBytes, taskSystemPrompt)
                     rawOutput = retryOutput
                     lastRawOutput = retryOutput
-                    action = AgentActionParser.parseAction(retryOutput)
+                    action = CodeActionParser.parse(retryOutput)
 
                     if (action == null) {
                         val errorMsg = "I could not understand the AI response. Please try again."
@@ -254,6 +263,16 @@ class TaskExecutor(
                     }
                 }
 
+                // Pre-flight validation
+                val validation = ToolValidator.validate(action, AgentPhase.PHASE_AUTOMATION, appLauncher.context)
+                if (validation is ValidationResult.Invalid) {
+                    AppLogger.w(TAG, "Tool validation failed: ${validation.reason}, requesting self-correction")
+                    val retryOutput = queryLlm("$prompt\n\n${validation.correctionPrompt}", imageBytes, taskSystemPrompt)
+                    rawOutput = retryOutput
+                    lastRawOutput = retryOutput
+                    action = CodeActionParser.parse(retryOutput) ?: action
+                }
+
                 TaskExecutionCoordinator.setThinking(false)
                 val reasoning = action.reasoning ?: action.response
                 val title = dispatcher.formatActionTitle(action)
@@ -262,16 +281,10 @@ class TaskExecutor(
                 onProgress(step + 1, "Step ${step + 1}: $reasoning")
                 AgentToastNotifier.showStepToast(appLauncher.context, step + 1, maxSteps, title)
 
-                // Anti-repetition check
-                sameActionCount = if (action.action == lastAction) sameActionCount + 1 else 1
-                val repeatLimit = when (action.action) {
-                    "press_enter" -> 2
-                    "scroll", "swipe" -> 3
-                    else -> 1000
-                }
-
-                if (sameActionCount > repeatLimit) {
-                    val blockedResult = "Blocked repeated ${action.action} action. Use a different action on the visible screen."
+                // Call-signature loop breaker & anti-repetition check
+                val guardrailDecision = guardrail.evaluate(action)
+                if (guardrailDecision is GuardrailDecision.LoopDetected) {
+                    val blockedResult = "Blocked repeated ${action.action} call. Choose a different visible element or action."
                     results.add(blockedResult)
                     onProgress(step + 1, blockedResult)
                     consecutiveFailures = 3

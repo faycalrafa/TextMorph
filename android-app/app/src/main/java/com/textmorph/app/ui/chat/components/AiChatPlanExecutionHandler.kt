@@ -1,0 +1,90 @@
+package com.textmorph.app.ui.chat.components
+
+import android.content.Context
+import com.textmorph.app.agent.orchestration.DeepPlanEngine
+import com.textmorph.app.data.model.ChatMessageEntity
+import com.textmorph.app.data.repository.ChatSessionRepository
+import com.textmorph.app.llm.LlmEngine
+import com.textmorph.app.util.AppLogger
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+
+/**
+ * Delegates the asynchronous execution of /plan and /deepsearch commands within
+ * the unified chat interface, streaming progress notifications and persisting
+ * assembled markdown artifacts.
+ */
+object AiChatPlanExecutionHandler {
+
+    private const val TAG = "AiChatPlanExecutionHandler"
+
+    fun executePlanOrDeepSearch(
+        scope: CoroutineScope,
+        sessionId: String,
+        goal: String,
+        workerCount: Int?,
+        userPrompt: String,
+        engine: LlmEngine,
+        chatRepository: ChatSessionRepository,
+        context: Context,
+        onComplete: () -> Unit
+    ) {
+        scope.launch(Dispatchers.Main) {
+            val userMsg = ChatMessageEntity(
+                sessionId = sessionId,
+                role = "user",
+                content = userPrompt,
+                isAgentMode = true
+            )
+            val assistantPlaceholder = ChatMessageEntity(
+                sessionId = sessionId,
+                role = "assistant",
+                content = "Initializing deep plan…",
+                isAgentMode = true
+            )
+            chatRepository.appendMessage(userMsg)
+            chatRepository.appendMessage(assistantPlaceholder)
+            chatRepository.setGenerationStatus("Decomposing plan into sections…")
+
+            try {
+                val planEngine = DeepPlanEngine(context, engine)
+                val result = planEngine.execute(
+                    goal = goal.ifBlank { userPrompt },
+                    sessionId = sessionId,
+                    workerOverride = workerCount,
+                    onProgress = { statusMsg ->
+                        scope.launch(Dispatchers.Main) {
+                            chatRepository.setGenerationStatus(statusMsg)
+                            chatRepository.updateLastAssistantMessage(
+                                sessionId = sessionId,
+                                content = "*Generating research report…*\n\n> $statusMsg"
+                            )
+                        }
+                    }
+                )
+
+                chatRepository.setGenerationStatus(null)
+                chatRepository.updateLastAssistantMessage(
+                    sessionId = sessionId,
+                    content = result.artifactContent,
+                    totalTokens = (result.artifactContent.length / 4).coerceAtLeast(1),
+                    durationMs = result.durationMs
+                )
+            } catch (ce: CancellationException) {
+                AppLogger.i(TAG, "Deep plan execution cancelled.")
+                chatRepository.setGenerationStatus(null)
+            } catch (t: Throwable) {
+                AppLogger.e(TAG, "Deep plan execution encountered an error: ${t.message}", t)
+                chatRepository.setGenerationStatus(null)
+                chatRepository.updateLastAssistantMessage(
+                    sessionId = sessionId,
+                    content = "Deep plan execution encountered an error: ${t.message ?: "Unknown error"}"
+                )
+            } finally {
+                onComplete()
+            }
+        }
+    }
+}

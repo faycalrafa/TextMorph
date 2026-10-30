@@ -245,7 +245,7 @@ fun MainAppScaffold(
             val activeModelName = if (isLlamaActive) llamaSession.modelName else liteRtSession.modelName
             val activeBackend = if (isLlamaActive) llamaSession.backend else liteRtSession.backend
 
-            com.textmorph.app.ui.modelhub.AgentBenchmarkScreen(
+            com.textmorph.app.ui.modelhub.AgenticReadinessScreen(
                 engine = activeEngine,
                 modelName = if (activeModelName.isNotBlank()) activeModelName else curSettings.activeModelName,
                 backend = activeBackend,

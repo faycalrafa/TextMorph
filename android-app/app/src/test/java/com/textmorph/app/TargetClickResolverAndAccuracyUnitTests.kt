@@ -2,7 +2,6 @@ package com.textmorph.app
 
 import android.graphics.Rect
 import com.textmorph.app.agent.model.AgentAction
-import com.textmorph.app.agent.parser.AgentActionParser
 import com.textmorph.app.agent.parser.CodeActionParser
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -42,7 +41,7 @@ class TargetClickResolverAndAccuracyUnitTests {
     @Test
     fun testParseClickElementJsonAction() {
         val json = """{"action": "click_element", "params": {"id": 8}, "reasoning": "Tapping search"}"""
-        val parsed = AgentActionParser.parseAction(json)
+        val parsed = CodeActionParser.parseAction(json)
         assertNotNull(parsed)
         assertEquals(AgentAction.ACTION_CLICK_ELEMENT, parsed?.action)
         assertEquals(8, parsed?.getIntParamWithAliases("element_id", "id"))

@@ -1,7 +1,6 @@
 package com.textmorph.app
 
 import com.textmorph.app.agent.model.AgentAction
-import com.textmorph.app.agent.parser.AgentActionParser
 import com.textmorph.app.agent.parser.CodeActionParser
 import com.textmorph.app.agent.tools.registry.AgentToolCategory
 import com.textmorph.app.agent.tools.registry.AgentToolRegistry
@@ -155,7 +154,7 @@ class CodeAsActionUnitTests {
     fun testDualSyntaxRouterPrefersCodeActionThenJson() {
         // 1. Code-as-action
         val codeAction = "open_app(\"Camera\")"
-        val parsedCode = AgentActionParser.parse(codeAction)
+        val parsedCode = CodeActionParser.parse(codeAction)
         assertNotNull(parsedCode)
         assertEquals("open_app", parsedCode?.action)
         assertEquals("Camera", parsedCode?.getStringParam("name"))
@@ -171,7 +170,7 @@ class CodeAsActionUnitTests {
             }
             ```
         """.trimIndent()
-        val parsedJson = AgentActionParser.parse(jsonAction)
+        val parsedJson = CodeActionParser.parse(jsonAction)
         assertNotNull(parsedJson)
         assertEquals("open_app", parsedJson?.action)
         assertEquals("Camera", parsedJson?.getStringParam("name"))
@@ -181,13 +180,13 @@ class CodeAsActionUnitTests {
     fun testStripActionPayloadRemovesBothSyntaxes() {
         // Strip code action
         val codeText = "I will dial Nouh now.\ncall(\"nouh\")"
-        val strippedCode = AgentActionParser.stripActionPayload(codeText)
+        val strippedCode = CodeActionParser.stripActionPayload(codeText)
         assertEquals("I will dial Nouh now.", strippedCode)
         assertFalse(strippedCode.contains("call(\"nouh\")"))
 
         // Strip json action
         val jsonText = "Opening settings.\n{\"action\": \"open_app\", \"parameters\": {\"name\": \"Settings\"}}"
-        val strippedJson = AgentActionParser.stripActionPayload(jsonText)
+        val strippedJson = CodeActionParser.stripActionPayload(jsonText)
         assertEquals("Opening settings.", strippedJson)
         assertFalse(strippedJson.contains("open_app"))
     }

@@ -1,7 +1,7 @@
 package com.textmorph.app
 
 import android.graphics.Rect
-import com.textmorph.app.agent.parser.AgentActionParser
+import com.textmorph.app.agent.parser.CodeActionParser
 import com.textmorph.app.agent.prompts.AgentPrompts
 import com.textmorph.app.data.model.ActionCommandSyntax
 import com.textmorph.app.data.model.AppSettings
@@ -145,30 +145,30 @@ class PrivateAgentUiInteractionUnitTests {
     }
 
     @Test
-    fun testAgentActionParserSupportsCodeAsActionAndJson() {
+    fun testCodeActionParserSupportsCodeAsActionAndJson() {
         // 1. Code-as-action
-        val codeAction = AgentActionParser.parseAction("click_text(\"Confirm Order\")")
+        val codeAction = CodeActionParser.parseAction("click_text(\"Confirm Order\")")
         assertNotNull(codeAction)
         assertEquals("click_text", codeAction?.action)
         assertEquals("Confirm Order", codeAction?.getStringParamWithAliases("text", "label"))
 
-        val typeAction = AgentActionParser.parseAction("type_text(\"best headphones\", hint=\"Search\")")
+        val typeAction = CodeActionParser.parseAction("type_text(\"best headphones\", hint=\"Search\")")
         assertNotNull(typeAction)
         assertEquals("type_text", typeAction?.action)
         assertEquals("best headphones", typeAction?.getStringParamWithAliases("text", "content"))
 
-        val pressEnter = AgentActionParser.parseAction("press_enter()")
+        val pressEnter = CodeActionParser.parseAction("press_enter()")
         assertNotNull(pressEnter)
         assertEquals("press_enter", pressEnter?.action)
 
-        val clickAt = AgentActionParser.parseAction("click_at(540, 1200)")
+        val clickAt = CodeActionParser.parseAction("click_at(540, 1200)")
         assertNotNull(clickAt)
         assertEquals("click_at", clickAt?.action)
         assertEquals(540, clickAt?.getIntParam("x"))
         assertEquals(1200, clickAt?.getIntParam("y"))
 
         // 2. JSON
-        val jsonAction = AgentActionParser.parseAction("""{"action": "click_text", "params": {"text": "Submit"}}""")
+        val jsonAction = CodeActionParser.parseAction("""{"action": "click_text", "params": {"text": "Submit"}}""")
         assertNotNull(jsonAction)
         assertEquals("click_text", jsonAction?.action)
         assertEquals("Submit", jsonAction?.getStringParam("text"))
@@ -203,7 +203,7 @@ class PrivateAgentUiInteractionUnitTests {
     @Test
     fun testExecuteTaskGoalFallback() {
         // When model emits execute_task() without arguments
-        val action = AgentActionParser.parseAction("execute_task()")
+        val action = CodeActionParser.parseAction("execute_task()")
         assertNotNull(action)
         assertEquals("execute_task", action?.action)
         val goalParam = action?.getStringParam("goal")?.ifEmpty { action.getStringParam("task") } ?: ""

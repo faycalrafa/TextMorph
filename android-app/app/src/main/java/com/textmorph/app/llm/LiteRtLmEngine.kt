@@ -176,44 +176,34 @@ class LiteRtLmEngine(private val context: Context) : LlmEngine {
                         )
                         true
                     } else {
-                        addProgressLog("[FAILED] Model could not be loaded into memory on any backend.")
-                        _loadingProgress.update { it.copy(isLoading = false, success = false, error = "Hardware initialization failed") }
-                        _sessionState.value = ModelSessionState(
-                            isLoaded = false,
-                            modelName = currentModelName,
-                            backend = "Standby (Simulated)"
-                        )
+                        handleInitFailure("Hardware initialization failed", "[FAILED] Model could not be loaded into memory on any backend.")
                         false
                     }
                 } else {
                     val msg = "Model path or URI is invalid or inaccessible: $modelPath"
-                    addProgressLog("[WARN] $msg. Assistant is in standby mode.")
                     currentModelPath = modelPath
                     currentModelName = effectiveName
-                    unloadInternal()
-                    isSessionActive = false
-                    _loadingProgress.update { it.copy(isLoading = false, success = false, error = msg) }
-                    _sessionState.value = ModelSessionState(
-                        isLoaded = false,
-                        modelName = currentModelName,
-                        backend = "Standby (Simulated)"
-                    )
+                    handleInitFailure(msg, "[WARN] $msg. Assistant is in standby mode.")
                     false
                 }
             } catch (e: Throwable) {
                 AppLogger.e(TAG, "Fatal error initializing LiteRT-LM engine: ${e.message}", e)
-                addProgressLog("[FATAL] Exception: ${e.message}")
-                unloadInternal()
-                isSessionActive = false
-                _loadingProgress.update { it.copy(isLoading = false, success = false, error = e.message) }
-                _sessionState.value = ModelSessionState(
-                    isLoaded = false,
-                    modelName = currentModelName,
-                    backend = "Standby (Simulated)"
-                )
+                handleInitFailure(e.message, "[FATAL] Exception: ${e.message}")
                 false
             }
         }
+    }
+
+    private fun handleInitFailure(errorMsg: String?, logMsg: String) {
+        addProgressLog(logMsg)
+        unloadInternal()
+        isSessionActive = false
+        _loadingProgress.update { it.copy(isLoading = false, success = false, error = errorMsg) }
+        _sessionState.value = ModelSessionState(
+            isLoaded = false,
+            modelName = currentModelName,
+            backend = "Standby (Simulated)"
+        )
     }
 
 
@@ -277,6 +267,8 @@ class LiteRtLmEngine(private val context: Context) : LlmEngine {
                     contents.add(Content.Text(userText))
 
                     val completionDeferred = CompletableDeferred<Unit>()
+                    val streamBuffer = StringBuilder()
+                    var isEarlyTerminated = false
 
                     var usedConversation = false
                     try {
@@ -301,19 +293,23 @@ class LiteRtLmEngine(private val context: Context) : LlmEngine {
                             object : MessageCallback {
                                 override fun onMessage(message: Message) {
                                     val now = System.currentTimeMillis()
-                                    if (firstTokenTime == null) {
-                                        firstTokenTime = now
-                                    }
+                                    if (firstTokenTime == null) firstTokenTime = now
                                     tokenCount++
                                     val sanitized = LiteRtLmSessionDelegate.sanitizeControlTokens(message.toString())
                                     if (sanitized.isNotEmpty()) {
                                         trySend(sanitized)
+                                        streamBuffer.append(sanitized)
+                                        if (!isEarlyTerminated && com.textmorph.app.agent.parser.CodeActionParser.hasCompleteAction(streamBuffer.toString())) {
+                                            isEarlyTerminated = true
+                                            AppLogger.i(TAG, "Early stream termination: complete Code-as-Action detected.")
+                                            try { conversation.cancelProcess() } catch (ignored: Exception) {}
+                                            completionDeferred.complete(Unit)
+                                        }
                                     }
 
                                     val ft = firstTokenTime ?: now
                                     val elapsed = (now - ft).coerceAtLeast(1L)
                                     val tps = if (tokenCount > 1) (tokenCount - 1) / (elapsed / 1000f) else 0f
-
                                     onMetricsUpdated?.invoke(
                                         InferenceMetrics(
                                             timeToFirstTokenMs = ft - startTime,
@@ -331,6 +327,10 @@ class LiteRtLmEngine(private val context: Context) : LlmEngine {
                                 }
 
                                 override fun onError(throwable: Throwable) {
+                                    if (isEarlyTerminated) {
+                                        completionDeferred.complete(Unit)
+                                        return
+                                    }
                                     if (throwable is java.util.concurrent.CancellationException || throwable is kotlinx.coroutines.CancellationException) {
                                         AppLogger.d(TAG, "Conversation stream cancelled: ${throwable.message}")
                                     } else {
@@ -353,19 +353,23 @@ class LiteRtLmEngine(private val context: Context) : LlmEngine {
                         session.generateContentStream(inputs, object : ResponseCallback {
                             override fun onNext(response: String) {
                                 val now = System.currentTimeMillis()
-                                if (firstTokenTime == null) {
-                                    firstTokenTime = now
-                                }
+                                if (firstTokenTime == null) firstTokenTime = now
                                 tokenCount++
                                 val sanitized = LiteRtLmSessionDelegate.sanitizeControlTokens(response)
                                 if (sanitized.isNotEmpty()) {
                                     trySend(sanitized)
+                                    streamBuffer.append(sanitized)
+                                    if (!isEarlyTerminated && com.textmorph.app.agent.parser.CodeActionParser.hasCompleteAction(streamBuffer.toString())) {
+                                        isEarlyTerminated = true
+                                        AppLogger.i(TAG, "Early stream termination: complete Code-as-Action detected.")
+                                        try { session.cancelProcess() } catch (ignored: Exception) {}
+                                        completionDeferred.complete(Unit)
+                                    }
                                 }
 
                                 val ft = firstTokenTime ?: now
                                 val elapsed = (now - ft).coerceAtLeast(1L)
                                 val tps = if (tokenCount > 1) (tokenCount - 1) / (elapsed / 1000f) else 0f
-
                                 onMetricsUpdated?.invoke(
                                     InferenceMetrics(
                                         timeToFirstTokenMs = ft - startTime,
@@ -383,6 +387,10 @@ class LiteRtLmEngine(private val context: Context) : LlmEngine {
                             }
 
                             override fun onError(throwable: Throwable) {
+                                if (isEarlyTerminated) {
+                                    completionDeferred.complete(Unit)
+                                    return
+                                }
                                 if (throwable is java.util.concurrent.CancellationException || throwable is kotlinx.coroutines.CancellationException) {
                                     AppLogger.d(TAG, "Native stream cancelled: ${throwable.message}")
                                 } else {
@@ -444,22 +452,16 @@ class LiteRtLmEngine(private val context: Context) : LlmEngine {
         imageBytes: ByteArray?
     ): String = withContext(Dispatchers.IO) {
         val sb = StringBuilder()
-        generateStream(prompt, systemInstruction, imageBytes).collect { token ->
-            sb.append(token)
-        }
+        generateStream(prompt, systemInstruction, imageBytes).collect { sb.append(it) }
         sb.toString()
     }
 
     override fun isLoaded(): Boolean = isSessionActive && nativeEngine != null
-
     fun getActiveBackend(): String = activeBackend
-
     fun getActiveModelName(): String = currentModelName
 
     override suspend fun unload() = withContext(Dispatchers.IO) {
-        inferenceMutex.withLock {
-            unloadInternal()
-        }
+        inferenceMutex.withLock { unloadInternal() }
     }
 
     private fun unloadInternal() {
@@ -469,14 +471,8 @@ class LiteRtLmEngine(private val context: Context) : LlmEngine {
             nativeEngine = null
             activePfd?.close()
             activePfd = null
-            createdSymlinkFile?.let { link ->
-                try {
-                    if (link.exists()) link.delete()
-                } catch (e: Exception) {
-                    AppLogger.w(TAG, "Error cleaning symlink: ${e.message}")
-                }
-                createdSymlinkFile = null
-            }
+            createdSymlinkFile?.let { link -> runCatching { if (link.exists()) link.delete() } }
+            createdSymlinkFile = null
             isSessionActive = false
             currentModelPath = null
             _sessionState.value = ModelSessionState()

@@ -14,7 +14,11 @@ Key architectural boundaries:
   - `AgentEngine` & `TaskExecutor`: Autonomous task planning and execution loop.
   - Tri-modal perception: Accessibility tree dump, silent hardware screenshot capture, and query-targeted semantic mapping.
   - 4-pass click disambiguation (`TargetClickResolver`) protecting input boxes from erroneous search result clicks.
-  - Code-as-Action syntax (`click_text()`, `type_text()`, `press_enter()`, `scroll()`, `open_app()`, `done()`) with dual-syntax recovery (`AgentActionParser`, `GemmaToolCallParser`).
+  - Pure Code-as-Action syntax (`click_text()`, `type_text()`, `press_enter()`, `scroll()`, `open_app()`, `done()`, `search_web()`, `fetch_page()`, `write_section()`) parsed via `CodeActionParser` and `CodeActionMapper`.
+  - Unified single Chat mode with pre-inference command routing (`ChatCommandRouter`), 0-tool fast exit for casual chit-chat, and dynamic phase tool filtering (`ToolFilter`).
+  - Pre-flight schema validation (`ToolValidator`) and loop-breaker execution guardrails (`ExecutionGuardrail`).
+  - Bounded Plan-Execute-Append pipeline: `BoundedWorkerPool` (Semaphore concurrency = 2), `GpuInferenceGate` (two-tier GPU locking), and `ArtifactAssemblyStore` (temp disk staging & Kotlin quality gate).
+  - Controlled Agentic Readiness Suite: 5-scenario offline capability and telemetry test suite (`AgenticReadinessSuite`) and Charcoal Slate UI (`AgenticReadinessScreen`).
   - Extensible tool execution: In-app device actions, JavaScript sandboxing via `JsToolRunner`, and web search/scraping via `WebTools`.
   - Self-healing recovery: anti-loop caps, keyboard dismissals, loading spinner detection, and navigation back-out.
 - **Voice & Wake Word Subsystem (`voice`)**:
@@ -63,6 +67,7 @@ Key architectural boundaries:
 | F23 | JavaScript Tool Sandbox & Web Tools | Rhino/WebView JS runner with network/eval sandbox, plus OkHttp + Jsoup web search & extraction | M11 | **DONE** |
 | F24 | Interactive HTML Chat Sandboxing | Live HTML/CSS/JS preview in chat with GIF export and default browser launching | M11 | **DONE** |
 | F25 | Visual & Semantic Agent Benchmarks | Automated visual screen generation and multi-step action evaluation engine with GIF recordings | M12 | **DONE** |
+| F26 | On-Device Agent Harness & Readiness Suite | Unified chat mode, Code-as-Action standardization, Bounded Plan-Execute-Append pipeline, and 5-scenario Agentic Readiness Suite | M13 | **DONE** |
 
 ---
 
@@ -82,10 +87,11 @@ Key architectural boundaries:
 | **M10**| **llama.cpp GGUF Dual Engine Integration** | F22 | M3, M8 | **DONE** |
 | **M11**| **JavaScript Tool Sandbox & Web Tools** | F23, F24 | M8, M10 | **DONE** |
 | **M12**| **Visual Agent Benchmarks & Quality Polish** | F25 | M8, M11 | **DONE** |
+| **M13**| **On-Device Agent Harness & Readiness Suite** | F26 | M11, M12 | **DONE** |
 
 ---
 
 ## Verification & Build Results
-- **Unit Tests**: `testDebugUnitTest` executed and passed with exit code `0` (236 unit tests across 27 test suites).
+- **Unit Tests**: `testDebugUnitTest` executed and passed with exit code `0` (234 unit tests across 28 test suites).
 - **Release Build**: `assembleRelease` executed with signed release APK and native runtime bindings.
-- **Application Version**: `v4.2.6` (versionCode `68`).
+- **Application Version**: `v4.3.0` (versionCode `69`).

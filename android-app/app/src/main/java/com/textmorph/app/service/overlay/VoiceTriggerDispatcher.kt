@@ -5,7 +5,7 @@ import android.os.Handler
 import android.os.Looper
 import android.widget.Toast
 import com.textmorph.app.agent.AgentEngine
-import com.textmorph.app.agent.parser.AgentActionParser
+import com.textmorph.app.agent.parser.CodeActionParser
 import com.textmorph.app.data.model.AutomationActionType
 import com.textmorph.app.data.model.AutomationEntity
 import com.textmorph.app.data.repository.AutomationRepository
@@ -93,7 +93,7 @@ class VoiceTriggerDispatcher(
 
                 AutomationActionType.DEVICE_CONTROL -> {
                     val script = automation.scriptCode?.trim().orEmpty()
-                    val action = AgentActionParser.parse(script)
+                    val action = CodeActionParser.parse(script)
                     val res = if (action != null) {
                         agentEngine.execute(action)
                     } else {
@@ -109,7 +109,7 @@ class VoiceTriggerDispatcher(
                     val summaries = mutableListOf<String>()
 
                     for (line in lines) {
-                        val action = AgentActionParser.parse(line.trim())
+                        val action = CodeActionParser.parse(line.trim())
                         if (action != null) {
                             val res = agentEngine.execute(action)
                             summaries.add(res.details)

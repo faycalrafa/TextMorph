@@ -2,7 +2,7 @@ package com.textmorph.app.ui.chat.components
 
 import android.content.Context
 import com.textmorph.app.agent.model.AgentAction
-import com.textmorph.app.agent.parser.AgentActionParser
+import com.textmorph.app.agent.parser.CodeActionParser
 import com.textmorph.app.agent.tools.js.JsToolEntity
 import com.textmorph.app.agent.tools.js.JsToolRepository
 import com.textmorph.app.agent.tools.js.JsToolRunner
@@ -27,8 +27,8 @@ object ChatToolExecutionHandler {
         val trimmed = content.trim()
         if (trimmed.isBlank()) return null
 
-        // Parse Code-as-Action or JSON
-        val parsed = AgentActionParser.parseAction(trimmed)
+        // Parse Code-as-Action
+        val parsed = CodeActionParser.parseAction(trimmed)
         if (parsed != null) {
             when (parsed.action) {
                 AgentAction.ACTION_SEARCH_WEB,
@@ -52,7 +52,7 @@ object ChatToolExecutionHandler {
      */
     suspend fun executeTool(
         action: AgentAction,
-        context: Context
+        context: Context? = null
     ): Pair<Boolean, String> = withContext(Dispatchers.IO) {
         AppLogger.i(TAG, "Executing chat tool: ${action.action}")
         try {
@@ -102,6 +102,9 @@ object ChatToolExecutionHandler {
                         isPreinstalled = false
                     )
 
+                    if (context == null) {
+                        return@withContext Pair(false, "Tool requires application context.")
+                    }
                     val ok = JsToolRepository.getInstance(context).saveTool(toolEntity)
                     if (ok) {
                         Pair(true, "JavaScript tool '${toolEntity.name}' (${toolEntity.codeSignature}) was created and is now active!")
@@ -111,12 +114,16 @@ object ChatToolExecutionHandler {
                 }
 
                 else -> {
+                    if (context == null) {
+                        return@withContext Pair(false, "Tool '${action.action}' requires application context.")
+                    }
                     val jsRepo = JsToolRepository.getInstance(context)
                     val jsTool = jsRepo.getToolById(action.action)
                     if (jsTool != null && jsTool.isEnabled) {
                         val runner = JsToolRunner.getInstance(context)
                         val (ok, res) = runner.execute(jsTool, action.params)
-                        Pair(ok, "Output of ${jsTool.name}:\n$res")
+                        val cappedRes = if (res.length > 3000) res.take(3000) + "\n...[truncated to 3000 chars]" else res
+                        Pair(ok, "Output of ${jsTool.name}:\n$cappedRes")
                     } else {
                         Pair(false, "Tool '${action.action}' is not supported or is disabled.")
                     }
@@ -136,7 +143,7 @@ object ChatToolExecutionHandler {
             [Tool Result for ${action.action}]:
             $toolOutput
 
-            INSTRUCTION: Now review the tool output above and provide your comprehensive, final response to the user.
+            INSTRUCTION: Review the tool output above. If further information is needed, call the next required tool via code block. Otherwise, provide your comprehensive final response to the user.
             Remember to offer helpful follow-up suggestions using suggest_next_actions(...) if there are natural next steps.
         """.trimIndent()
     }

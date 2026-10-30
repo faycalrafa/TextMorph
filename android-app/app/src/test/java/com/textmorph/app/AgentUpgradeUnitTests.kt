@@ -1,7 +1,7 @@
 package com.textmorph.app
 
 import com.textmorph.app.agent.model.AgentAction
-import com.textmorph.app.agent.parser.AgentActionParser
+import com.textmorph.app.agent.parser.CodeActionParser
 import com.textmorph.app.agent.prompts.AgentPrompts
 import com.textmorph.app.data.repository.PromptRepository
 import com.textmorph.app.ui.navigation.AppDestination
@@ -28,7 +28,7 @@ class AgentUpgradeUnitTests {
             ```
         """.trimIndent()
 
-        val parsed = AgentActionParser.parse(output)
+        val parsed = CodeActionParser.parse(output)
         assertNotNull(parsed)
         assertEquals("open_app", parsed?.action)
         assertEquals("youtube", parsed?.getStringParam("name"))
@@ -40,7 +40,7 @@ class AgentUpgradeUnitTests {
             {"action": "set_volume", "parameters": {"level": 75}}
         """.trimIndent()
 
-        val parsed = AgentActionParser.parse(output)
+        val parsed = CodeActionParser.parse(output)
         assertNotNull(parsed)
         assertEquals("set_volume", parsed?.action)
         assertEquals(75, parsed?.getIntParam("level"))
@@ -49,7 +49,7 @@ class AgentUpgradeUnitTests {
     @Test
     fun testParseNonActionConversationalText() {
         val output = "Hello! How can I help you today?"
-        val parsed = AgentActionParser.parse(output)
+        val parsed = CodeActionParser.parse(output)
         assertNull(parsed)
     }
 
@@ -62,7 +62,7 @@ class AgentUpgradeUnitTests {
             ```
         """.trimIndent()
 
-        val cleaned = AgentActionParser.cleanResponse(output)
+        val cleaned = CodeActionParser.cleanResponse(output)
         assertEquals("I am opening Settings for you.", cleaned)
         assertFalse(cleaned.contains("open_app"))
         assertFalse(cleaned.contains("```"))
@@ -134,7 +134,7 @@ class AgentUpgradeUnitTests {
             }
         """.trimIndent()
 
-        val parsed = AgentActionParser.parse(malformed)
+        val parsed = CodeActionParser.parse(malformed)
         assertNotNull("Should recover from unclosed params brace", parsed)
         assertEquals("type_text", parsed?.action)
         assertEquals("youtube.com", parsed?.getStringParam("text"))
@@ -149,7 +149,7 @@ class AgentUpgradeUnitTests {
             "reasoning": "Type 'cats' into the search box to search for cats.", "is_complete": false}
         """.trimIndent()
 
-        val parsed = AgentActionParser.parse(malformed)
+        val parsed = CodeActionParser.parse(malformed)
         assertNotNull("Should recover from extra brace after params", parsed)
         assertEquals("type_text", parsed?.action)
         assertEquals("catalogs", parsed?.getStringParam("text"))
@@ -162,7 +162,7 @@ class AgentUpgradeUnitTests {
             "action": "type_text", "params": {"text": "c" : "}, " "reason": "I need to type 'cats' into the search box, which is likely the 'youtube.com' field.", "is_complete": false}
         """.trimIndent()
 
-        val parsed = AgentActionParser.parse(malformed)
+        val parsed = CodeActionParser.parse(malformed)
         assertNotNull("Should recover via regex heuristic", parsed)
         assertEquals("type_text", parsed?.action)
         assertEquals("c", parsed?.getStringParam("text"))
@@ -171,7 +171,7 @@ class AgentUpgradeUnitTests {
     @Test
     fun testParseCodeAsActionStepCommand() {
         val command = "type_text(\"cats\", hint=\"Search\")"
-        val parsed = AgentActionParser.parse(command)
+        val parsed = CodeActionParser.parse(command)
         assertNotNull("Should parse Code-as-Action step command", parsed)
         assertEquals("type_text", parsed?.action)
         assertEquals("cats", parsed?.getStringParam("text"))

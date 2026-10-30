@@ -101,7 +101,14 @@ flowchart TD
 - **Global Error Interception**: Uncaught exceptions must be routed to `AppErrorBus.postError()` to surface interactive diagnostic dialogs.
 
 ### F. Mobile Agent UI Interaction & Perception Architecture
-- **Pure Code-as-Action Prompts (Default)**: `AGENT_SYSTEM_PROMPT` and `TASK_SYSTEM_PROMPT` default strictly to Code-as-Action syntax (`click_text(...)`, `click_at(...)`, `type_text(...)`, `press_enter()`, `scroll(...)`, `open_app(...)`, `done(...)`) to reduce token consumption and eliminate JSON syntax failures on smaller on-device SLMs. A toggle in `AiModelConfigDialog` allows instant switching to JSON-based syntax. `AgentActionParser` maintains full dual-syntax decoding and error recovery.
+- **Pure Code-as-Action Prompts (Exclusively Standardized)**: `AGENT_SYSTEM_PROMPT` and `TASK_SYSTEM_PROMPT` strictly enforce Code-as-Action syntax (`click_text(...)`, `click_at(...)`, `type_text(...)`, `press_enter()`, `scroll(...)`, `open_app(...)`, `done(...)`) to eliminate token bloat and prevent JSON formatting failures on on-device 1B–2B SLMs. All tool parsing is standardized on `CodeActionParser.kt` and `CodeActionMapper.kt`.
+- **Unified Single Chat Mode & Dynamic Routing**: Single default Chat mode eliminates the legacy Chat vs Agent split. `ChatCommandRouter` deterministically classifies phases (`PHASE_CHAT` fast-exits with 0 tools injected, `/plan`, `/deepsearch`, research, or automation) before LLM invocation.
+- **Guardrail Execution Loop**: Bounded multi-turn tool loops with pre-flight schema validation (`ToolValidator`), SHA-256 parameter hashing loop prevention (`ExecutionGuardrail`), and self-correction prompt synthesis.
+- **Bounded Plan-Execute-Append Pipeline (`/plan` & `/deepsearch`)**:
+  - `BoundedWorkerPool` bounds concurrent sub-task execution with `Semaphore(maxConcurrentWorkers)` (default 2, safe clamp 1..4).
+  - `GpuInferenceGate` enforces two-tier locking: serializes native GPU/LLM forward passes while allowing concurrent web scraping and tool I/O on `Dispatchers.IO`.
+  - `ArtifactAssemblyStore` manages order-preserving incremental assembly with temp cache disk staging and a deterministic Kotlin quality gate.
+- **Controlled Agentic Readiness Suite**: Complete replacement of naive legacy benchmarks with a deterministic, offline-capable test suite (`AgenticReadinessSuite.kt` at `temperature = 0.0`) evaluating 5 controlled scenarios (Tool Picking & Irrelevance Detection, Schema Strictness & Self-Correction, Context Grounding & Loop Resistance, `/plan` Decomposition Quality, Hardware & Runtime Telemetry).
 - **Tri-Modal Screen Perception**:
   1. *Accessibility Tree Dump (Default)*: Fast sub-200ms semantic hierarchy with spatial bounds, element roles, and indentation.
   2. *Screen Capture with Bitmap*: Clean hardware screenshot capture (all floating toolbars and interaction cues temporarily hidden with a 120ms SurfaceFlinger settling delay) passed as raw image bytes to multimodal engines (`LiteRtLmEngine`, `LlamaCppEngine`, `OpenAiCloudEngine`).

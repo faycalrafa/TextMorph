@@ -109,18 +109,7 @@ fun AiChatContent(
     }
     val messages by chatRepository.currentMessages.collectAsState()
     val activeGenerationStatus by chatRepository.activeGenerationStatus.collectAsState()
-    val isFused = settings.fuseChatAndAgent
-    val isAgentMode = if (isFused) true else (currentSession?.isAgentMode == true)
-
-    val visibleMessages = remember(messages, isAgentMode, isFused) {
-        if (isFused) {
-            messages
-        } else {
-            messages.filter { msg ->
-                if (isAgentMode) msg.isAgentTurn else !msg.isAgentTurn
-            }
-        }
-    }
+    val visibleMessages = messages
 
     fun getActiveEngine(): com.textmorph.app.llm.LlmEngine {
         return when (settings.selectedEngine) {
@@ -295,7 +284,7 @@ fun AiChatContent(
         ) {
             if (visibleMessages.isEmpty()) {
                 com.textmorph.app.ui.chat.components.ChatEmptyStateStarters(
-                    isAgentMode = isAgentMode,
+                    isAgentMode = true,
                     activeModelName = activeModelName,
                     onSelectStarter = { starter ->
                         handleSend(starter)
@@ -363,16 +352,6 @@ fun AiChatContent(
                     }
                 }
             }
-        }
-
-        // Chat / Agent Mode Pill Switcher (Gemini Style) - only shown when split mode is active
-        if (!isFused) {
-            com.textmorph.app.ui.chat.components.ChatAgentModeToggleRow(
-                isAgentMode = isAgentMode,
-                onModeChanged = { newAgentMode ->
-                    scope.launch { chatRepository.switchMode(newAgentMode) }
-                }
-            )
         }
 
         // Detached Rounded Input Bar
