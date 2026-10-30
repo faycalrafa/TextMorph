@@ -215,7 +215,8 @@ fun SettingsContent(
             onSetCompactChipsMode = { enabled -> scope.launch { settingsRepository.setCompactChipsMode(enabled) } },
             onSetQuickFixEnabled = { enabled -> scope.launch { settingsRepository.setQuickFixEnabled(enabled) } },
             onSetAutoSendVoiceInput = { enabled -> scope.launch { settingsRepository.setAutoSendVoiceInput(enabled) } },
-            onSetWakeWordDetectionEnabled = { enabled -> scope.launch { settingsRepository.setWakeWordDetectionEnabled(enabled) } }
+            onSetWakeWordDetectionEnabled = { enabled -> scope.launch { settingsRepository.setWakeWordDetectionEnabled(enabled) } },
+            onSetFuseChatAndAgent = { enabled -> scope.launch { settingsRepository.setFuseChatAndAgent(enabled) } }
         )
 
         // Appearance & Diagnostics

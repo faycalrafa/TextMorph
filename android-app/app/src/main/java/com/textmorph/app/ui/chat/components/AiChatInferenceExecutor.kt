@@ -39,17 +39,24 @@ object AiChatInferenceExecutor {
     ) {
         onStart()
 
+        val effectiveSettings = settings ?: com.textmorph.app.data.model.AppSettings()
+        val isFused = effectiveSettings.fuseChatAndAgent
         val activeSession = chatRepository.getActiveSession()
-        val isAgent = activeSession?.isAgentMode == true
-        val priorMessages = chatRepository.currentMessages.value.filter { msg ->
-            if (isAgent) msg.isAgentTurn else !msg.isAgentTurn
-        }
-        val baseSystemPrompt = if (isAgent) {
-            settings?.agentSystemPrompt?.takeIf { it.isNotBlank() }
-                ?: settings?.let { com.textmorph.app.agent.prompts.AgentPrompts.getAgentSystemPrompt(it.actionCommandSyntax) }
-                ?: ChatCompactor.AGENT_SYSTEM_PROMPT
+        val isAgent = if (isFused) true else (activeSession?.isAgentMode == true)
+        val priorMessages = if (isFused) {
+            chatRepository.currentMessages.value
         } else {
-            val userPrompt = settings?.defaultSystemPrompt
+            chatRepository.currentMessages.value.filter { msg ->
+                if (isAgent) msg.isAgentTurn else !msg.isAgentTurn
+            }
+        }
+        val baseSystemPrompt = if (isFused) {
+            com.textmorph.app.agent.prompts.AgentPrompts.getUnifiedSystemPrompt(effectiveSettings.actionCommandSyntax)
+        } else if (isAgent) {
+            effectiveSettings.agentSystemPrompt.takeIf { it.isNotBlank() }
+                ?: com.textmorph.app.agent.prompts.AgentPrompts.getAgentSystemPrompt(effectiveSettings.actionCommandSyntax)
+        } else {
+            val userPrompt = effectiveSettings.defaultSystemPrompt
             if (userPrompt.isNullOrBlank() || userPrompt.contains("concise AI writing assistant")) {
                 com.textmorph.app.agent.prompts.AgentPrompts.CHAT_SYSTEM_PROMPT
             } else {
@@ -153,7 +160,7 @@ object AiChatInferenceExecutor {
                 } else null
 
                 if (toolCall != null && context != null) {
-                    val statusMsg = ChatToolExecutionHandler.formatToolStatus(toolCall)
+                    val statusMsg = ChatToolExecutionHandler.formatToolStatus(toolCall, context)
                     chatRepository.setGenerationStatus(statusMsg)
                     chatRepository.updateLastAssistantMessage(
                         sessionId = sessionId,
@@ -162,6 +169,14 @@ object AiChatInferenceExecutor {
                         actionStatus = "running"
                     )
                     val (_, toolOutput) = ChatToolExecutionHandler.executeTool(toolCall, context)
+                    val toolName = ChatToolExecutionHandler.getToolDisplayName(toolCall, context)
+                    chatRepository.setGenerationStatus("$toolName finished! Thinking & synthesizing answer…")
+                    chatRepository.updateLastAssistantMessage(
+                        sessionId = sessionId,
+                        content = "",
+                        actionPayloadJson = toolCall.action,
+                        actionStatus = "success"
+                    )
                     val obsPrompt = ChatToolExecutionHandler.formatObservationPrompt(toolCall, toolOutput)
 
                     val resumedPrompt = ChatCompactor.assembleInferencePrompt(
@@ -247,7 +262,12 @@ object AiChatInferenceExecutor {
                 // If in Agent mode, check if LLM returned an autonomous device tool action
                 if (isAgent && agentEngine != null && toolCall == null) {
                     val parsedAction = com.textmorph.app.agent.parser.AgentActionParser.parseAction(effectiveFinalContent)
-                    if (parsedAction != null) {
+                    val isPresentationAction = parsedAction != null && (
+                        parsedAction.action == com.textmorph.app.agent.model.AgentAction.ACTION_PRESENT_INTERACTIVE_VIEW ||
+                        parsedAction.action == com.textmorph.app.agent.model.AgentAction.ACTION_REQUEST_USER_APPROVAL ||
+                        parsedAction.action == com.textmorph.app.agent.model.AgentAction.ACTION_SUGGEST_NEXT_ACTIONS
+                    )
+                    if (parsedAction != null && !isPresentationAction) {
                         val effectiveAction = if (parsedAction.action == com.textmorph.app.agent.model.AgentAction.ACTION_OPEN_APP &&
                             isMultiStepIntent(prompt, parsedAction.response)
                         ) {
@@ -428,50 +448,18 @@ object AiChatInferenceExecutor {
         setJob(job)
     }
 
-    fun isMultiStepIntent(userPrompt: String, modelResponse: String = ""): Boolean {
-        val lowerPrompt = userPrompt.lowercase()
-        val lowerResponse = modelResponse.lowercase()
-        val conjunctions = listOf(" and ", " then ", " to ", " so that ", " after ")
-        val actionVerbs = listOf(
-            "search", "find", "look for", "play", "send", "type", "check",
-            "see ", "turn on", "turn off", "toggle", "browse", "select", "click", "watch", "listen"
-        )
-        val hasConjunction = conjunctions.any { lowerPrompt.contains(it) }
-        val hasActionVerb = actionVerbs.any { lowerPrompt.contains(it) }
-        val responseHasIntent = listOf(
-            "while i search", "while i find", "while i check", "searching for",
-            "will search", "will find", "will check", "looking for"
-        ).any { lowerResponse.contains(it) }
-        return (hasConjunction && hasActionVerb) || responseHasIntent
-    }
+    fun isMultiStepIntent(userPrompt: String, modelResponse: String = ""): Boolean =
+        AiChatInferenceUtils.isMultiStepIntent(userPrompt, modelResponse)
 
-    fun extractThought(rawText: String): Pair<String?, String> {
-        val (openTag, closeTag) = when {
-            rawText.contains("<think>") -> "<think>" to "</think>"
-            rawText.contains("<thought>") -> "<thought>" to "</thought>"
-            else -> return null to rawText
-        }
-        val start = rawText.indexOf(openTag)
-        val end = rawText.indexOf(closeTag)
-        return if (end != -1) {
-            val thought = rawText.substring(start + openTag.length, end).trim()
-            val pre = rawText.substring(0, start).trim()
-            val post = rawText.substring(end + closeTag.length).trim()
-            thought to listOf(pre, post).filter { it.isNotEmpty() }.joinToString("\n\n")
-        } else {
-            rawText.substring(start + openTag.length).trim() to rawText.substring(0, start).trim()
-        }
-    }
+    fun extractThought(rawText: String): Pair<String?, String> =
+        AiChatInferenceUtils.extractThought(rawText)
 
     private fun streamFromEngine(
         engine: LlmEngine,
         prompt: String,
         imageBytes: ByteArray? = null,
         onMetrics: ((com.textmorph.app.llm.InferenceMetrics) -> Unit)? = null
-    ): kotlinx.coroutines.flow.Flow<String> = when (engine) {
-        is LiteRtLmEngine -> engine.generateStreamWithMetrics(prompt = prompt, imageBytes = imageBytes, onMetricsUpdated = { onMetrics?.invoke(it) })
-        is LlamaCppEngine -> engine.generateStreamWithMetrics(prompt = prompt, imageBytes = imageBytes, onMetricsUpdated = { onMetrics?.invoke(it) })
-        is com.textmorph.app.llm.OpenAiCloudEngine -> engine.generateStreamWithMetrics(prompt = prompt, imageBytes = imageBytes, onMetricsUpdated = { onMetrics?.invoke(it) })
-        else -> engine.generateStream(prompt = prompt, imageBytes = imageBytes)
-    }
+    ): kotlinx.coroutines.flow.Flow<String> =
+        AiChatInferenceUtils.streamFromEngine(engine, prompt, imageBytes, onMetrics)
 }
+

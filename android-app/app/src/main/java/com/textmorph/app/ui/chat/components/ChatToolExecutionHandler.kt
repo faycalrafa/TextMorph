@@ -158,9 +158,28 @@ object ChatToolExecutionHandler {
     }
 
     /**
+     * Returns a human-friendly display name for the tool.
+     */
+    fun getToolDisplayName(action: AgentAction, context: Context? = null): String {
+        return when (action.action) {
+            AgentAction.ACTION_SEARCH_WEB -> "Web Search"
+            AgentAction.ACTION_FETCH_PAGE -> "Webpage Reader"
+            AgentAction.ACTION_CREATE_JS_TOOL -> "Custom JS Tool Creator"
+            "get_weather" -> "Live Weather"
+            "unit_converter" -> "Unit Converter"
+            else -> {
+                if (context != null) {
+                    val jsTool = JsToolRepository.getInstance(context).getToolById(action.action)
+                    jsTool?.name ?: action.action
+                } else action.action
+            }
+        }
+    }
+
+    /**
      * Provides a user-friendly status message while the tool is executing.
      */
-    fun formatToolStatus(action: AgentAction): String {
+    fun formatToolStatus(action: AgentAction, context: Context? = null): String {
         return when (action.action) {
             AgentAction.ACTION_SEARCH_WEB -> {
                 val q = action.getStringParamWithAliases("query", "q", "search")
@@ -175,7 +194,16 @@ object ChatToolExecutionHandler {
                 val loc = action.getStringParamWithAliases("location", "city", "place", default = "Paris")
                 "Checking live weather for $loc…"
             }
-            else -> "Executing ${action.action}…"
+            "unit_converter" -> {
+                val v = action.getStringParamWithAliases("value", default = "")
+                val from = action.getStringParamWithAliases("from_unit", default = "")
+                val to = action.getStringParamWithAliases("to_unit", default = "")
+                if (v.isNotBlank()) "Converting $v $from to $to…" else "Converting units…"
+            }
+            else -> {
+                val name = getToolDisplayName(action, context)
+                "Executing $name…"
+            }
         }
     }
 }

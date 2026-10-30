@@ -64,6 +64,7 @@ class ToolbarGenerationDelegate(
                 val maxTurns = 3
                 var finalOutput = ""
                 var rawNaked = ""
+                var lastAction: com.textmorph.app.agent.model.AgentAction? = null
 
                 while (turn < maxTurns) {
                     turn++
@@ -92,6 +93,9 @@ class ToolbarGenerationDelegate(
 
                     rawNaked = sb.toString()
                     val candidateAction = GemmaToolCallParser.parse(rawNaked) ?: AgentActionParser.parseAction(rawNaked)
+                    if (candidateAction != null) {
+                        lastAction = candidateAction
+                    }
 
                     if (candidateAction != null && ChatToolExecutionHandler.isInformationTool(candidateAction, context)) {
                         AppLogger.i(TAG, "Floating toolbar intercepted tool call: ${candidateAction.action}")
@@ -123,12 +127,27 @@ class ToolbarGenerationDelegate(
                 }
 
                 if (finalOutput.isNotEmpty()) {
-                    onInsertText(finalOutput, false)
+                    val cleanForInput = trimForInputField(finalOutput)
+                    onInsertText(cleanForInput, false)
                     try {
                         val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
-                        cm?.setPrimaryClip(ClipData.newPlainText("TextMorph Output", finalOutput))
+                        cm?.setPrimaryClip(ClipData.newPlainText("TextMorph Output", cleanForInput))
                     } catch (e: Exception) {
                         AppLogger.d(TAG, "Secondary clipboard cache: ${e.message}")
+                    }
+                    if (directExecute) {
+                        try {
+                            com.textmorph.app.data.repository.ChatSessionRepository.getInstance(context).recordDiagnosticTurn(
+                                userPrompt = input,
+                                systemPrompt = effectiveInstruction,
+                                rawOutput = finalOutput,
+                                thoughtContent = null,
+                                actionPayloadJson = lastAction?.action,
+                                actionStatus = if (lastAction != null) "success" else null
+                            )
+                        } catch (chatEx: Exception) {
+                            AppLogger.w(TAG, "Failed syncing toolbar execute to ChatSessionRepository: ${chatEx.message}")
+                        }
                     }
                     try {
                         val triggerSource = if (directExecute) InteractionTriggerSource.CUSTOM_COMMANDS else InteractionTriggerSource.CUSTOM_PROMPTS
@@ -139,7 +158,7 @@ class ToolbarGenerationDelegate(
                             userPrompt = input,
                             systemPrompt = effectiveInstruction,
                             rawOutput = rawNaked,
-                            cleanOutput = finalOutput
+                            cleanOutput = cleanForInput
                         )
                     } catch (logEx: Exception) {
                         AppLogger.w(TAG, "Failed recording toolbar diagnostic turn: ${logEx.message}")
@@ -219,5 +238,28 @@ class ToolbarGenerationDelegate(
             }
         }
         onActiveJobChanged(activeJob)
+    }
+
+    companion object {
+        /**
+         * Strips tool-call syntaxes, interactive presentation actions, and trailing follow-up lists
+         * so text can be directly inserted into an active input field cleanly.
+         */
+        fun trimForInputField(text: String): String {
+            if (text.isBlank()) return ""
+            var result = text
+            // Strip tool calls like <|tool_call|>...<|call_end|> or <|tool_call|>...<tool_call|>
+            result = result.replace(Regex("""(?is)<\|?tool_call\|?>[\s\S]*?(?:<\|?call_end\|?>|<\/tool_call>|<tool_call\|?>|$)"""), "")
+            result = GemmaToolCallParser.stripGemmaToolCall(result)
+            // Strip code action patterns like suggest_next_actions(...) or request_user_approval(...)
+            result = result.replace(Regex("""(?s)(?:call:)?(?:suggest_next_actions|request_user_approval|present_interactive_view)\s*\([^)]*\)"""), "")
+            // Strip trailing follow-up suggestion blocks (e.g. "Follow-up suggestions:", "Next steps:", etc.)
+            val followUpPattern = Regex("""(?i)\n+\s*(?:Follow-up suggestions?|Next steps?|Suggested actions?|Follow-up questions?|Suggestions?):\s*(?:[\r\n]+(?:\s*[-*•\d.]+[^\n]+)+|\s*$)""")
+            result = result.replace(followUpPattern, "")
+            // Strip trailing "Would you like me to..." prompts often added by models
+            val wouldYouLikePattern = Regex("""(?i)\n+\s*Would you like (?:me to|to)\s+[^?\n]+(?:\?|$)""")
+            result = result.replace(wouldYouLikePattern, "")
+            return result.trim()
+        }
     }
 }

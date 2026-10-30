@@ -31,6 +31,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.ContentCopy
@@ -222,6 +223,20 @@ fun HtmlSandboxPreviewCard(
                                 )
                             }
                         }
+
+                        IconButton(
+                            onClick = {
+                                HtmlArtifactShareHelper.openInDefaultBrowser(context, htmlContent)
+                            },
+                            modifier = Modifier.size(28.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.OpenInNew,
+                                contentDescription = "Open in Default Browser",
+                                tint = Color(0xFF60A5FA),
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
                     }
 
                     IconButton(
@@ -353,6 +368,7 @@ fun HtmlSandboxPreviewCard(
                 }
             } else {
                 // Live Sandboxed WebView
+                val preparedHtml = remember(htmlContent) { prepareSandboxHtml(htmlContent) }
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -368,13 +384,13 @@ fun HtmlSandboxPreviewCard(
                                 settings.useWideViewPort = true
                                 settings.setSupportZoom(false)
                                 webViewClient = WebViewClient()
-                                loadDataWithBaseURL(null, htmlContent, "text/html", "UTF-8", null)
+                                loadDataWithBaseURL(null, preparedHtml, "text/html", "UTF-8", null)
                                 webViewRef = this
                             }
                         },
                         update = { webView ->
                             webViewRef = webView
-                            webView.loadDataWithBaseURL(null, htmlContent, "text/html", "UTF-8", null)
+                            webView.loadDataWithBaseURL(null, preparedHtml, "text/html", "UTF-8", null)
                         },
                         modifier = Modifier.fillMaxWidth().height(280.dp)
                     )
@@ -383,3 +399,63 @@ fun HtmlSandboxPreviewCard(
         }
     }
 }
+
+/**
+ * Injects responsive viewport metadata, full-bleed auto-centering CSS,
+ * and dynamic canvas window resize handlers into HTML artifacts before rendering.
+ */
+fun prepareSandboxHtml(rawHtml: String): String {
+    val html = rawHtml.trim()
+    val hasViewport = html.contains("name=\"viewport\"", ignoreCase = true) || html.contains("name='viewport'", ignoreCase = true)
+    val viewportTag = if (!hasViewport) {
+        "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no\">\n"
+    } else ""
+
+    val responsiveStyle = """
+        <style id="textmorph-canvas-helper">
+          html, body {
+            margin: 0 !important;
+            padding: 0 !important;
+            width: 100vw !important;
+            height: 100vh !important;
+            overflow: hidden !important;
+            display: flex !important;
+            justify-content: center !important;
+            align-items: center !important;
+            box-sizing: border-box !important;
+          }
+          canvas, svg {
+            max-width: 100vw !important;
+            max-height: 100vh !important;
+            display: block !important;
+          }
+        </style>
+        <script id="textmorph-resize-helper">
+          window.addEventListener('DOMContentLoaded', () => {
+            const fitCanvases = () => {
+              document.querySelectorAll('canvas').forEach(c => {
+                if (!c.getAttribute('data-fixed')) {
+                  c.width = window.innerWidth;
+                  c.height = window.innerHeight;
+                }
+              });
+            };
+            fitCanvases();
+            window.addEventListener('resize', fitCanvases);
+          });
+        </script>
+    """.trimIndent()
+
+    return when {
+        html.contains("<head>", ignoreCase = true) -> {
+            html.replaceFirst(Regex("<head>", RegexOption.IGNORE_CASE), "<head>\n$viewportTag$responsiveStyle\n")
+        }
+        html.contains("<html>", ignoreCase = true) -> {
+            html.replaceFirst(Regex("<html>", RegexOption.IGNORE_CASE), "<html>\n<head>\n$viewportTag$responsiveStyle\n</head>\n")
+        }
+        else -> {
+            "<!DOCTYPE html>\n<html>\n<head>\n$viewportTag$responsiveStyle\n</head>\n<body>\n$html\n</body>\n</html>"
+        }
+    }
+}
+

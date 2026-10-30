@@ -104,14 +104,21 @@ fun AiChatContent(
     val availableModels by modelRepository.availableModels.collectAsState()
     val sessions by chatRepository.sessions.collectAsState()
     val activeSessionId by chatRepository.activeSessionId.collectAsState()
+    val currentSession = remember(sessions, activeSessionId) {
+        sessions.firstOrNull { it.id == activeSessionId }
+    }
     val messages by chatRepository.currentMessages.collectAsState()
     val activeGenerationStatus by chatRepository.activeGenerationStatus.collectAsState()
-    val currentSession = sessions.find { it.id == activeSessionId }
-    val isAgentMode = currentSession?.isAgentMode == true
+    val isFused = settings.fuseChatAndAgent
+    val isAgentMode = if (isFused) true else (currentSession?.isAgentMode == true)
 
-    val visibleMessages = remember(messages, isAgentMode) {
-        messages.filter { msg ->
-            if (isAgentMode) msg.isAgentTurn else !msg.isAgentTurn
+    val visibleMessages = remember(messages, isAgentMode, isFused) {
+        if (isFused) {
+            messages
+        } else {
+            messages.filter { msg ->
+                if (isAgentMode) msg.isAgentTurn else !msg.isAgentTurn
+            }
         }
     }
 
@@ -358,13 +365,15 @@ fun AiChatContent(
             }
         }
 
-        // Chat / Agent Mode Pill Switcher (Gemini Style)
-        com.textmorph.app.ui.chat.components.ChatAgentModeToggleRow(
-            isAgentMode = isAgentMode,
-            onModeChanged = { newAgentMode ->
-                scope.launch { chatRepository.switchMode(newAgentMode) }
-            }
-        )
+        // Chat / Agent Mode Pill Switcher (Gemini Style) - only shown when split mode is active
+        if (!isFused) {
+            com.textmorph.app.ui.chat.components.ChatAgentModeToggleRow(
+                isAgentMode = isAgentMode,
+                onModeChanged = { newAgentMode ->
+                    scope.launch { chatRepository.switchMode(newAgentMode) }
+                }
+            )
+        }
 
         // Detached Rounded Input Bar
         ChatInputBar(

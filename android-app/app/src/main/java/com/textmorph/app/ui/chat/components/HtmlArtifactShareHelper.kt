@@ -158,4 +158,30 @@ object HtmlArtifactShareHelper {
             }
         }
     }
+
+    /**
+     * Writes the HTML artifact to a temporary cache file and opens it directly in the user's default web browser.
+     */
+    fun openInDefaultBrowser(context: Context, htmlContent: String) {
+        try {
+            val dir = File(context.cacheDir, "shared_artifacts").apply { if (!exists()) mkdirs() }
+            val file = File(dir, "interactive_preview_${System.currentTimeMillis()}.html")
+            file.writeText(htmlContent, Charsets.UTF_8)
+
+            val uri: Uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+            val viewIntent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, "text/html")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            val chooser = Intent.createChooser(viewIntent, "Open in Browser").apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(chooser)
+            AppLogger.i(TAG, "Launched default browser for HTML artifact: ${file.name}")
+        } catch (e: Exception) {
+            AppLogger.e(TAG, "Failed launching default browser for HTML artifact: ${e.message}", e)
+            Toast.makeText(context, "Could not open in browser: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+    }
 }
+

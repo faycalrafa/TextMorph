@@ -46,6 +46,7 @@ fun ToolbarSettingsSection(
     onSetGuessNextWordEnabled: (Boolean) -> Unit = {},
     onSetAutoSendVoiceInput: (Boolean) -> Unit = {},
     onSetWakeWordDetectionEnabled: (Boolean) -> Unit = {},
+    onSetFuseChatAndAgent: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -264,6 +265,24 @@ fun ToolbarSettingsSection(
                     }
                 )
             }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Unified Chat & Agent Mode", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                    Text("Unify conversation and autonomous agent into a single seamless assistant. Automatically routes between direct answers, web & JS tools, and device automation.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Switch(
+                    checked = settings.fuseChatAndAgent,
+                    onCheckedChange = onSetFuseChatAndAgent
+                )
+            }
         }
     }
 }
+

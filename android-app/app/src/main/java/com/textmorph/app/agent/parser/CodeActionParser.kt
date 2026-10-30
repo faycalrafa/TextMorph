@@ -30,7 +30,10 @@ object CodeActionParser {
             val rawArgs = match.groupValues[2].trim()
 
             // If it matches common non-action programming keywords, skip
-            if (rawFunc in listOf("if", "for", "while", "return", "val", "var", "def", "function")) {
+            if (rawFunc in listOf(
+                    "if", "for", "while", "return", "val", "var", "def", "function",
+                    "println", "print", "console", "log", "import", "package", "class", "interface", "fun"
+                )) {
                 return null
             }
 
@@ -353,18 +356,29 @@ object CodeActionParser {
 
             else -> {
                 val toolDef = com.textmorph.app.agent.tools.registry.AgentToolRegistry.findTool(funcName)
+                val paramsMap = mutableMapOf<String, String>()
                 if (toolDef != null) {
-                    val paramsMap = mutableMapOf<String, String>()
                     toolDef.parameters.forEachIndexed { idx, param ->
                         val value = getArg(idx, param.name, default = param.defaultValue)
                         if (value.isNotBlank()) paramsMap[param.name] = value
                     }
-                    AgentAction(
-                        action = toolDef.id,
-                        params = toJsonParams(paramsMap),
-                        response = "Executing ${toolDef.name}"
-                    )
-                } else null
+                } else {
+                    named.forEach { (k, v) -> paramsMap[k] = v }
+                    positional.forEachIndexed { idx, v ->
+                        paramsMap["arg$idx"] = v
+                    }
+                    if (positional.isNotEmpty()) {
+                        if (!paramsMap.containsKey("query")) paramsMap["query"] = positional[0]
+                        if (!paramsMap.containsKey("location")) paramsMap["location"] = positional[0]
+                        if (!paramsMap.containsKey("value")) paramsMap["value"] = positional[0]
+                        if (!paramsMap.containsKey("text")) paramsMap["text"] = positional[0]
+                    }
+                }
+                AgentAction(
+                    action = toolDef?.id ?: funcName,
+                    params = toJsonParams(paramsMap),
+                    response = "Executing ${toolDef?.name ?: funcName}"
+                )
             }
         }
     }
