@@ -32,12 +32,12 @@ object WebTools {
     private const val TAG = "WebTools"
     private const val DDG_HTML_ENDPOINT = "https://html.duckduckgo.com/html/"
     private const val DEFAULT_USER_AGENT =
-        "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
 
     private val httpClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
             .connectTimeout(15, TimeUnit.SECONDS)
-            .readTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(20, TimeUnit.SECONDS)
             .writeTimeout(15, TimeUnit.SECONDS)
             .followRedirects(true)
             .followSslRedirects(true)
@@ -64,8 +64,14 @@ object WebTools {
                 val request = Request.Builder()
                     .url(DDG_HTML_ENDPOINT)
                     .header("User-Agent", DEFAULT_USER_AGENT)
-                    .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-                    .header("Accept-Language", "en-US,en;q=0.5")
+                    .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8")
+                    .header("Accept-Language", "en-US,en;q=0.9")
+                    .header("Referer", "https://html.duckduckgo.com/")
+                    .header("Sec-Fetch-Dest", "document")
+                    .header("Sec-Fetch-Mode", "navigate")
+                    .header("Sec-Fetch-Site", "same-origin")
+                    .header("Sec-Fetch-User", "?1")
+                    .header("Upgrade-Insecure-Requests", "1")
                     .post(formBody)
                     .build()
 
@@ -163,19 +169,43 @@ object WebTools {
     }
 
     /**
+     * Cleans, unescapes, and normalizes URLs from LLM tool outputs (markdown links, quotes, trailing dots).
+     */
+    fun sanitizeUrl(rawUrl: String): String {
+        var u = rawUrl.trim()
+        if (u.isBlank()) return ""
+
+        // Extract URL if wrapped in markdown link: [text](https://example.com)
+        val mdMatch = Regex("""\[.*?\]\(\s*(https?://[^\s\)]+)\s*\)""").find(u)
+        if (mdMatch != null) {
+            u = mdMatch.groupValues[1]
+        }
+
+        // Strip surrounding angle brackets <...>, parentheses (...), or quotes
+        u = u.removeSurrounding("<", ">").removeSurrounding("(", ")")
+            .removeSurrounding("\"", "\"").removeSurrounding("'", "'").trim()
+
+        // Strip trailing punctuation often emitted by LLMs (e.g. "https://site.com).", "https://site.com,")
+        u = u.replace(Regex("""[.,;)]+$"""), "").trim()
+
+        // Normalize protocol
+        if (u.startsWith("//")) {
+            u = "https:$u"
+        } else if (!u.startsWith("http://", ignoreCase = true) && !u.startsWith("https://", ignoreCase = true)) {
+            u = "https://$u"
+        }
+
+        return u
+    }
+
+    /**
      * HTTP GETs target URL, strips DOM clutter, extracts readable content, and returns clean Markdown.
      */
     suspend fun fetchPage(url: String, charLimit: Int = 3000): String =
         withContext(Dispatchers.IO) {
-            val targetUrl = url.trim()
-            if (targetUrl.isBlank()) {
-                return@withContext "Error: URL is empty."
-            }
-
-            val validUrl = if (!targetUrl.startsWith("http://") && !targetUrl.startsWith("https://")) {
-                "https://$targetUrl"
-            } else {
-                targetUrl
+            val validUrl = sanitizeUrl(url)
+            if (validUrl.isBlank() || validUrl == "https://" || validUrl == "http://") {
+                return@withContext "Error: Webpage URL is empty or invalid."
             }
 
             AppLogger.d(TAG, "Fetching webpage: '$validUrl' (charLimit=$charLimit)")
@@ -183,7 +213,12 @@ object WebTools {
                 val request = Request.Builder()
                     .url(validUrl)
                     .header("User-Agent", DEFAULT_USER_AGENT)
-                    .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                    .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8")
+                    .header("Accept-Language", "en-US,en;q=0.9")
+                    .header("Upgrade-Insecure-Requests", "1")
+                    .header("Sec-Fetch-Dest", "document")
+                    .header("Sec-Fetch-Mode", "navigate")
+                    .header("Sec-Fetch-Site", "none")
                     .get()
                     .build()
 
@@ -223,7 +258,6 @@ object WebTools {
                 ?: doc.selectFirst("main")
                 ?: doc.selectFirst("[role=main]")
                 ?: doc.body()
-                ?: doc
 
             val pageTitle = doc.title().trim().ifBlank { "Web Page" }
             val sb = StringBuilder()

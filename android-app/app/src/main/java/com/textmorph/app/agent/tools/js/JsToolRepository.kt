@@ -62,7 +62,16 @@ class JsToolRepository private constructor(private val context: Context) {
                     getShowcaseTools()
                 }
 
-                _tools.value = if (loaded.isEmpty()) getShowcaseTools() else loaded
+                val migrated = loaded.map { tool ->
+                    if (tool.id == "calculate_tip") {
+                        getShowcaseTools().first { it.id == "get_weather" }
+                    } else tool
+                }
+                val finalTools = if (migrated.isEmpty()) getShowcaseTools() else migrated
+                if (finalTools != loaded) {
+                    saveToDiskLocked(finalTools)
+                }
+                _tools.value = finalTools
                 AppLogger.d(TAG, "Loaded ${_tools.value.size} JS tools from storage")
             } catch (t: Throwable) {
                 AppLogger.e(TAG, "Error loading JS tools: ${t.message}", t)
@@ -152,28 +161,26 @@ class JsToolRepository private constructor(private val context: Context) {
     private fun getShowcaseTools(): List<JsToolEntity> {
         return listOf(
             JsToolEntity(
-                id = "calculate_tip",
-                name = "Calculate Tip & Split",
-                description = "Computes bill tip amount, total bill, and per-person split with formatted breakdown.",
-                codeSignature = "calculate_tip(bill=50, tip_percent=15, split=1)",
+                id = "get_weather",
+                name = "Live Weather Forecast",
+                description = "Checks current weather conditions, temperature, humidity, and wind for any specified city or place.",
+                codeSignature = "get_weather(location=\"Paris\")",
                 script = """
                     /**
-                     * @tool calculate_tip
-                     * @name Calculate Tip & Split
-                     * @description Computes bill tip amount, total bill, and per-person split with formatted breakdown.
-                     * @signature calculate_tip(bill=50, tip_percent=15, split=1)
-                     * @param {number} bill Total bill amount before tip
-                     * @param {number} tip_percent Tip percentage to add
-                     * @param {number} split Number of people splitting the bill
+                     * @tool get_weather
+                     * @name Live Weather Forecast
+                     * @description Checks current weather conditions, temperature, humidity, and wind for any specified city or place.
+                     * @signature get_weather(location="Paris")
+                     * @param {string} location Name of the city or place (e.g. "Tokyo", "London", "New York")
                      */
-                    function run(params) {
-                      const b = parseFloat(params.bill) || 0;
-                      const tp = parseFloat(params.tip_percent) || 15;
-                      const s = Math.max(1, parseInt(params.split) || 1);
-                      const tip = (b * tp) / 100;
-                      const total = b + tip;
-                      const perPerson = total / s;
-                      return `Bill: $${'$'}{b.toFixed(2)} | Tip (${'$'}{tp}%): $${'$'}{tip.toFixed(2)} | Total: $${'$'}{total.toFixed(2)} | Split (${'$'}{s} ways): $${'$'}{perPerson.toFixed(2)} per person`;
+                    async function run(params) {
+                      const loc = encodeURIComponent(String(params.location || params.city || params.place || 'Paris').trim());
+                      const url = `https://wttr.in/${'$'}{loc}?format=%l:+%C+%t+(feels+like+%f),+Wind:+%w,+Humidity:+%h`;
+                      if (typeof TextMorphHost !== 'undefined' && typeof TextMorphHost.httpGet === 'function') {
+                        return TextMorphHost.httpGet(url);
+                      }
+                      const res = await fetch(url);
+                      return await res.text();
                     }
                 """.trimIndent(),
                 isEnabled = true,

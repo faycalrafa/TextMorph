@@ -306,21 +306,25 @@ class ChatAndAutomationUpgradeUnitTests {
         val sessionMessages = listOf(
             ChatMessageEntity(id = "1", sessionId = "s1", role = "user", content = "Explain gravity", isAgentMode = false),
             ChatMessageEntity(id = "2", sessionId = "s1", role = "assistant", content = "Gravity is a fundamental force...", isAgentMode = false),
-            ChatMessageEntity(id = "3", sessionId = "s1", role = "user", content = "open settings and check battery", isAgentMode = true),
-            ChatMessageEntity(id = "4", sessionId = "s1", role = "assistant", content = "Opening settings...", isAgentMode = true, actionPayloadJson = "open_app")
+            ChatMessageEntity(id = "3", sessionId = "s1", role = "user", content = "search web for kotlin", isAgentMode = false),
+            ChatMessageEntity(id = "4", sessionId = "s1", role = "assistant", content = "Kotlin is modern...", isAgentMode = false, actionPayloadJson = "search_web"),
+            ChatMessageEntity(id = "5", sessionId = "s1", role = "user", content = "open settings and check battery", isAgentMode = true),
+            ChatMessageEntity(id = "6", sessionId = "s1", role = "assistant", content = "Opening settings...", isAgentMode = true, actionPayloadJson = "open_app")
         )
 
-        // When in Chat mode: only non-agent turns are visible
+        // When in Chat mode: only non-agent turns are visible (including chat tool turns)
         val chatVisible = sessionMessages.filter { !it.isAgentTurn }
-        assertEquals(2, chatVisible.size)
+        assertEquals(4, chatVisible.size)
         assertEquals("1", chatVisible[0].id)
         assertEquals("2", chatVisible[1].id)
+        assertEquals("3", chatVisible[2].id)
+        assertEquals("4", chatVisible[3].id)
 
         // When in Agent mode: only agent turns are visible
         val agentVisible = sessionMessages.filter { it.isAgentTurn }
         assertEquals(2, agentVisible.size)
-        assertEquals("3", agentVisible[0].id)
-        assertEquals("4", agentVisible[1].id)
+        assertEquals("5", agentVisible[0].id)
+        assertEquals("6", agentVisible[1].id)
     }
 
     @Test

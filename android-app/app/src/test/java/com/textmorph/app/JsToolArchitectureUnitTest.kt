@@ -81,11 +81,11 @@ class JsToolArchitectureUnitTest {
         )
         val jsTools = listOf(
             AgentToolDefinition(
-                id = "calculate_tip",
-                name = "Calculate Tip",
+                id = "get_weather",
+                name = "Live Weather Forecast",
                 category = AgentToolCategory.APPS_AND_WEB,
-                description = "Computes bill tip",
-                codeSignature = "calculate_tip(bill=50)",
+                description = "Checks current weather",
+                codeSignature = "get_weather(location=\"Paris\")",
                 source = ToolSource.IMPORTED_JS
             )
         )
@@ -96,7 +96,7 @@ class JsToolArchitectureUnitTest {
         assertFalse(resolved.contains("[in app tools]"))
         assertFalse(resolved.contains("[js tools]"))
         assertTrue(resolved.contains("search_web(\"query\") : Searches web via DuckDuckGo"))
-        assertTrue(resolved.contains("calculate_tip(bill=50) : Computes bill tip"))
+        assertTrue(resolved.contains("get_weather(location=\"Paris\") : Checks current weather"))
     }
 
     @Test

@@ -61,7 +61,7 @@ fun JsToolTesterDialog(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val runner = remember { JsToolRunner(context) }
+    val runner = remember { JsToolRunner.getInstance(context) }
     val jsonParser = remember { Json { ignoreUnknownKeys = true; isLenient = true } }
 
     val defaultParamsJson = remember(tool) {
@@ -71,6 +71,7 @@ fun JsToolTesterDialog(
         }
         if (map.isEmpty()) {
             when (tool.id) {
+                "get_weather" -> "{\"location\": \"Paris\"}"
                 "calculate_tip" -> "{\"bill\": 65.50, \"tip_percent\": 18, \"split\": 2}"
                 "unit_converter" -> "{\"value\": 25, \"from_unit\": \"c\", \"to_unit\": \"f\"}"
                 else -> "{}"

@@ -27,7 +27,7 @@ data class ChatMessageEntity(
     val durationMs: Long? = null
 ) {
     val isAgentTurn: Boolean
-        get() = isAgentMode || actionPayloadJson != null || actionStepsJson != null
+        get() = isAgentMode || actionStepsJson != null
 
     fun getActionSteps(): List<AgentTaskStep> {
         return AgentTaskStep.deserializeList(actionStepsJson)

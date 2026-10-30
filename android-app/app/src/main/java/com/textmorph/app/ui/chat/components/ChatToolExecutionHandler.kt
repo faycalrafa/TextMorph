@@ -68,7 +68,13 @@ object ChatToolExecutionHandler {
                 }
 
                 AgentAction.ACTION_FETCH_PAGE -> {
-                    val url = action.getStringParamWithAliases("url", "link", "target")
+                    var url = action.getStringParamWithAliases("url", "link", "target", "uri", "page", "website", "site", "href", "address", "query")
+                    if (url.isBlank()) {
+                        url = action.params.values.firstOrNull { elem ->
+                            val s = elem.toString().removeSurrounding("\"").trim()
+                            s.startsWith("http://") || s.startsWith("https://") || s.startsWith("//") || s.contains(".com") || s.contains(".org")
+                        }?.toString()?.removeSurrounding("\"")?.trim().orEmpty()
+                    }
                     val limit = action.getIntParamWithAliases("char_limit", "limit", default = 3000)
                     if (url.isBlank()) {
                         return@withContext Pair(false, "Webpage URL is empty.")
@@ -108,7 +114,7 @@ object ChatToolExecutionHandler {
                     val jsRepo = JsToolRepository.getInstance(context)
                     val jsTool = jsRepo.getToolById(action.action)
                     if (jsTool != null && jsTool.isEnabled) {
-                        val runner = JsToolRunner(context)
+                        val runner = JsToolRunner.getInstance(context)
                         val (ok, res) = runner.execute(jsTool, action.params)
                         Pair(ok, "Output of ${jsTool.name}:\n$res")
                     } else {
@@ -165,6 +171,10 @@ object ChatToolExecutionHandler {
                 if (u.isNotBlank()) "Fetching $u…" else "Fetching webpage content…"
             }
             AgentAction.ACTION_CREATE_JS_TOOL -> "Creating custom JavaScript tool…"
+            "get_weather" -> {
+                val loc = action.getStringParamWithAliases("location", "city", "place", default = "Paris")
+                "Checking live weather for $loc…"
+            }
             else -> "Executing ${action.action}…"
         }
     }

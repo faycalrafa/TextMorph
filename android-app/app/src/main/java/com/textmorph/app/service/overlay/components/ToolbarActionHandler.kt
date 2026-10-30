@@ -43,14 +43,20 @@ class ToolbarActionHandler(
 ) {
     private val TAG = "ToolbarActionHandler"
 
-    private var activeJob: Job? = null
     private var quickFixJob: Job? = null
+    private val generationDelegate = ToolbarGenerationDelegate(
+        context = context,
+        scope = scope,
+        engineProvider = engineProvider,
+        getLiveInputText = getLiveInputText,
+        onInsertText = onInsertText,
+        onSnapshotOriginalText = onSnapshotOriginalText,
+        onStateChanged = onStateChanged,
+        onActiveJobChanged = onActiveJobChanged
+    )
 
     fun cancelActiveJob() {
-        activeJob?.cancel()
-        activeJob = null
-        onActiveJobChanged(null)
-        onStateChanged(FloatingButtonState.REVERT_WINDOW)
+        generationDelegate.cancelActiveJob()
     }
 
     fun cancelQuickFix() {
@@ -163,139 +169,11 @@ class ToolbarActionHandler(
     }
 
     fun startVisionGenerationWithBytes(instruction: String, imageBytes: ByteArray, overrideInput: String? = null) {
-        val rawInput = overrideInput ?: getLiveInputText().ifBlank { "Analyze this image" }
-        onSnapshotOriginalText(getLiveInputText())
-
-        onStateChanged(FloatingButtonState.GENERATING)
-        activeJob?.cancel()
-        activeJob = scope.launch {
-            try {
-                val engine = engineProvider()
-                val sb = StringBuilder()
-                var lastStreamFlushTime = 0L
-
-                engine.generateStream(rawInput, instruction, imageBytes).collect { token ->
-                    sb.append(token)
-                    val now = System.currentTimeMillis()
-                    if (now - lastStreamFlushTime >= 80L || token.contains("\n") || token.contains(".")) {
-                        lastStreamFlushTime = now
-                        val intermediate = LiteRtLmSessionDelegate.sanitizeNoThinking(sb.toString())
-                        if (intermediate.isNotEmpty()) {
-                            onInsertText(intermediate, true)
-                        }
-                    }
-                }
-
-                val rawNaked = sb.toString()
-                val finalOutput = LiteRtLmSessionDelegate.sanitizeNoThinking(rawNaked.trim())
-                if (finalOutput.isNotEmpty()) {
-                    onInsertText(finalOutput, false)
-                    try {
-                        val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
-                        cm?.setPrimaryClip(ClipData.newPlainText("TextMorph Response", finalOutput))
-                        Toast.makeText(context, "Response generated & copied to clipboard", Toast.LENGTH_SHORT).show()
-                    } catch (clipEx: Exception) {
-                        AppLogger.w(TAG, "Failed writing vision response to clipboard: ${clipEx.message}")
-                    }
-                    try {
-                        LlmInteractionRepository.getInstance(context).recordInteraction(
-                            source = InteractionTriggerSource.CUSTOM_PROMPTS,
-                            title = "Vision Prompt Transformation",
-                            userPrompt = rawInput,
-                            systemPrompt = instruction,
-                            rawOutput = rawNaked,
-                            cleanOutput = finalOutput
-                        )
-                    } catch (logEx: Exception) {
-                        AppLogger.w(TAG, "Failed recording vision diagnostic turn: ${logEx.message}")
-                    }
-                    onStateChanged(FloatingButtonState.REVERT_WINDOW)
-                } else {
-                    onStateChanged(FloatingButtonState.IDLE)
-                }
-            } catch (e: Exception) {
-                AppLogger.e(TAG, "Vision inference error: ${e.message}", e)
-                Toast.makeText(context, "Vision error: ${e.message}", Toast.LENGTH_SHORT).show()
-                onStateChanged(FloatingButtonState.IDLE)
-            } finally {
-                onActiveJobChanged(null)
-            }
-        }
-        onActiveJobChanged(activeJob)
+        generationDelegate.startVisionGenerationWithBytes(instruction, imageBytes, overrideInput)
     }
 
     fun executeGenerationInternal(systemInstruction: String, directExecute: Boolean, input: String) {
-        onSnapshotOriginalText(input)
-        onStateChanged(FloatingButtonState.GENERATING)
-        activeJob?.cancel()
-        activeJob = scope.launch {
-            try {
-                val engine = engineProvider()
-                val effectiveInstruction = if (directExecute) {
-                    "You are an on-device writing assistant. Execute the request or instruction provided in the user's text. Return ONLY the final output with zero conversational commentary, zero intros/outros, zero quotes, and zero reasoning traces."
-                } else {
-                    "$systemInstruction. Strict rule: Output ONLY the transformed result directly. Do not include commentary, explanations, or thinking blocks."
-                }
-
-                val sb = StringBuilder()
-                var lastStreamFlushTime = 0L
-
-                engine.generateStream(input, effectiveInstruction).collect { token ->
-                    sb.append(token)
-                    val now = System.currentTimeMillis()
-                    if (now - lastStreamFlushTime >= 80L || token.contains("\n") || token.contains(".")) {
-                        lastStreamFlushTime = now
-                        val intermediate = LiteRtLmSessionDelegate.sanitizeNoThinking(sb.toString())
-                        if (intermediate.isNotEmpty()) {
-                            onInsertText(intermediate, true)
-                        }
-                    }
-                }
-
-                val rawNaked = sb.toString()
-                val finalOutput = LiteRtLmSessionDelegate.sanitizeNoThinking(rawNaked.trim())
-                if (finalOutput.startsWith("Error:") || finalOutput.startsWith("Error (")) {
-                    AppLogger.w(TAG, "Generation returned error: $finalOutput")
-                    Toast.makeText(context, finalOutput, Toast.LENGTH_LONG).show()
-                    onStateChanged(FloatingButtonState.IDLE)
-                    return@launch
-                }
-
-                if (finalOutput.isNotEmpty()) {
-                    onInsertText(finalOutput, false)
-                    try {
-                        val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
-                        cm?.setPrimaryClip(ClipData.newPlainText("TextMorph Output", finalOutput))
-                    } catch (e: Exception) {
-                        AppLogger.d(TAG, "Secondary clipboard cache: ${e.message}")
-                    }
-                    try {
-                        val triggerSource = if (directExecute) InteractionTriggerSource.CUSTOM_COMMANDS else InteractionTriggerSource.CUSTOM_PROMPTS
-                        val triggerTitle = if (directExecute) "Toolbar Quick Execution" else "Toolbar Custom Prompt"
-                        LlmInteractionRepository.getInstance(context).recordInteraction(
-                            source = triggerSource,
-                            title = triggerTitle,
-                            userPrompt = input,
-                            systemPrompt = effectiveInstruction,
-                            rawOutput = rawNaked,
-                            cleanOutput = finalOutput
-                        )
-                    } catch (logEx: Exception) {
-                        AppLogger.w(TAG, "Failed recording toolbar diagnostic turn: ${logEx.message}")
-                    }
-                    onStateChanged(FloatingButtonState.REVERT_WINDOW)
-                } else {
-                    onStateChanged(FloatingButtonState.IDLE)
-                }
-            } catch (e: Exception) {
-                AppLogger.e(TAG, "Inference error during generation: ${e.message}", e)
-                Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
-                onStateChanged(FloatingButtonState.IDLE)
-            } finally {
-                onActiveJobChanged(null)
-            }
-        }
-        onActiveJobChanged(activeJob)
+        generationDelegate.executeGeneration(systemInstruction, directExecute, input)
     }
 
     fun startGeneration(systemInstruction: String, directExecute: Boolean = false, contextInput: String? = null) {

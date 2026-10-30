@@ -69,7 +69,13 @@ class ActionExecutionDispatcher(
                 Pair(results.isNotEmpty(), summary)
             }
             "fetch_page" -> {
-                val url = action.getStringParamWithAliases("url", "link", "target")
+                var url = action.getStringParamWithAliases("url", "link", "target", "uri", "page", "website", "site", "href", "address", "query")
+                if (url.isBlank()) {
+                    url = action.params.values.firstOrNull { elem ->
+                        val s = elem.toString().removeSurrounding("\"").trim()
+                        s.startsWith("http://") || s.startsWith("https://") || s.startsWith("//") || s.contains(".com") || s.contains(".org")
+                    }?.toString()?.removeSurrounding("\"")?.trim().orEmpty()
+                }
                 val limit = action.getIntParamWithAliases("char_limit", "limit", default = 3000)
                 val markdown = com.textmorph.app.agent.tools.web.WebTools.fetchPage(url, limit)
                 Pair(!markdown.startsWith("Error:"), markdown)
@@ -79,7 +85,7 @@ class ActionExecutionDispatcher(
             else -> {
                 val jsTool = com.textmorph.app.agent.tools.js.JsToolRepository.getInstance(appLauncher.context).getToolById(action.action)
                 if (jsTool != null) {
-                    val runner = com.textmorph.app.agent.tools.js.JsToolRunner(appLauncher.context)
+                    val runner = com.textmorph.app.agent.tools.js.JsToolRunner.getInstance(appLauncher.context)
                     runner.execute(jsTool, action.params)
                 } else {
                     Pair(false, "Unknown action: ${action.action}")

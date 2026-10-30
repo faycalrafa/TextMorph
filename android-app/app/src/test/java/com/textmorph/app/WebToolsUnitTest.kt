@@ -126,4 +126,25 @@ class WebToolsUnitTest {
         assertTrue(formatted.contains("1. **[TextMorph GitHub](https://github.com/textmorph)**"))
         assertTrue(formatted.contains("2. **[DuckDuckGo](https://duckduckgo.com)**"))
     }
+
+    @Test
+    fun testSanitizeUrl() {
+        // Markdown link
+        assertEquals("https://en.wikipedia.org/wiki/Kotlin", WebTools.sanitizeUrl("[Kotlin](https://en.wikipedia.org/wiki/Kotlin)"))
+
+        // Surrounding quotes and angle brackets
+        assertEquals("https://example.com/test", WebTools.sanitizeUrl("\"https://example.com/test\""))
+        assertEquals("https://example.com/test", WebTools.sanitizeUrl("<https://example.com/test>"))
+        assertEquals("https://example.com/test", WebTools.sanitizeUrl("(https://example.com/test)"))
+
+        // Trailing dots and punctuation
+        assertEquals("https://example.com/path", WebTools.sanitizeUrl("https://example.com/path)."))
+        assertEquals("https://example.com/path", WebTools.sanitizeUrl("https://example.com/path,"))
+
+        // Protocol-relative
+        assertEquals("https://example.com/path", WebTools.sanitizeUrl("//example.com/path"))
+
+        // Missing scheme
+        assertEquals("https://kotlinlang.org", WebTools.sanitizeUrl("kotlinlang.org"))
+    }
 }

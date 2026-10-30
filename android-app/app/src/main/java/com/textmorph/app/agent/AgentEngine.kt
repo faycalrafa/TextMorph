@@ -234,7 +234,13 @@ class AgentEngine(
                 }
 
                 AgentAction.ACTION_FETCH_PAGE -> {
-                    val url = action.getStringParamWithAliases("url", "link", "target")
+                    var url = action.getStringParamWithAliases("url", "link", "target", "uri", "page", "website", "site", "href", "address", "query")
+                    if (url.isBlank()) {
+                        url = action.params.values.firstOrNull { elem ->
+                            val s = elem.toString().removeSurrounding("\"").trim()
+                            s.startsWith("http://") || s.startsWith("https://") || s.startsWith("//") || s.contains(".com") || s.contains(".org")
+                        }?.toString()?.removeSurrounding("\"")?.trim().orEmpty()
+                    }
                     val limit = action.getIntParamWithAliases("char_limit", "limit", default = 3000)
                     val markdown = com.textmorph.app.agent.tools.web.WebTools.fetchPage(url, limit)
                     AgentActionResult(action.action, !markdown.startsWith("Error:"), markdown)
@@ -244,7 +250,7 @@ class AgentEngine(
                     val jsRepo = com.textmorph.app.agent.tools.js.JsToolRepository.getInstance(context)
                     val jsTool = jsRepo.getToolById(action.action)
                     if (jsTool != null && jsTool.isEnabled) {
-                        val runner = com.textmorph.app.agent.tools.js.JsToolRunner(context)
+                        val runner = com.textmorph.app.agent.tools.js.JsToolRunner.getInstance(context)
                         val (ok, res) = runner.execute(jsTool, action.params)
                         AgentActionResult(action.action, ok, res)
                     } else {

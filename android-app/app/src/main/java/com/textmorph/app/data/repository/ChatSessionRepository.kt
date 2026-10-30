@@ -339,7 +339,7 @@ class ChatSessionRepository private constructor(private val context: Context) {
             val created = createSession("Diagnostics Workspace")
             created.id
         }
-        val isAgent = _sessionsState.value.firstOrNull { it.id == activeId }?.isAgentMode == true || actionPayloadJson != null
+        val isAgent = _sessionsState.value.firstOrNull { it.id == activeId }?.isAgentMode == true
         val userMsg = ChatMessageEntity(
             sessionId = activeId,
             role = "user",
