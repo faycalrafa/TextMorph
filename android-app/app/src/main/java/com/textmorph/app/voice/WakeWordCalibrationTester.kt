@@ -254,7 +254,7 @@ class WakeWordCalibrationTester(
         try {
             scope.cancel()
         } catch (t: Throwable) {
-            // ignored
+            AppLogger.d(TAG, "Scope cancellation non-fatal: ${t.message}")
         }
 
         // Resume background service listening

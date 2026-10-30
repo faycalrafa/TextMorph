@@ -16,7 +16,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ScrollableTabRow
+import androidx.compose.material3.SecondaryScrollableTabRow
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -58,7 +58,7 @@ fun DashboardHomeScreen(
         }
 
         item {
-            ScrollableTabRow(
+            SecondaryScrollableTabRow(
                 selectedTabIndex = selectedCategoryIndex,
                 edgePadding = 0.dp,
                 containerColor = Color.Transparent,

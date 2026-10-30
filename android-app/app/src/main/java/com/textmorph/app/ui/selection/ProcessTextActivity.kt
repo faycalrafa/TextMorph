@@ -464,7 +464,7 @@ private fun ProcessTextContent(
             // Action button (Replace or Copy)
             FlowRow(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End,
+                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 OutlinedButton(
@@ -473,8 +473,6 @@ private fun ProcessTextContent(
                 ) {
                     Text("Discard")
                 }
-
-                Spacer(modifier = Modifier.width(8.dp))
 
                 Button(
                     onClick = { onApplyResult(resultText) },

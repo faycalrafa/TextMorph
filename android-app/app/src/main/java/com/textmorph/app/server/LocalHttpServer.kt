@@ -117,6 +117,7 @@ class LocalHttpServer(
                 val parsed = try {
                     json.parseToJsonElement(bodyText).jsonObject
                 } catch (e: Exception) {
+                    AppLogger.w(TAG, "Malformed JSON request received: ${e.message}", e)
                     call.respond(HttpStatusCode.BadRequest, "Malformed JSON request.")
                     return@post
                 }

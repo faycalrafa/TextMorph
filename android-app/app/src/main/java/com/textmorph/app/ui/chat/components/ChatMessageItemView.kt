@@ -54,6 +54,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.textmorph.app.data.model.ChatAttachment
 import com.textmorph.app.data.model.ChatMessageEntity
+import com.textmorph.app.util.AppLogger
 import java.util.Locale
 
 /**
@@ -159,7 +160,7 @@ fun ChatMessageItemView(
                                 cm?.setPrimaryClip(ClipData.newPlainText("Prompt", message.content))
                                 Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
                             } catch (e: Exception) {
-                                // Ignore clipboard failure
+                                AppLogger.d("ChatMessageItemView", "Clipboard copy non-fatal error: ${e.message}", e)
                             }
                         }
                     )

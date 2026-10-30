@@ -122,7 +122,7 @@ fun ActiveSessionLogsCard(
                         fontSize = 11.sp,
                         color = Color(0xFFCBD5E1)
                     )
-                    sessionState?.modelPath?.let { path ->
+                    sessionState.modelPath?.let { path ->
                         Spacer(modifier = Modifier.height(3.dp))
                         Text(
                             text = "› Path: $path",

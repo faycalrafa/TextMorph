@@ -166,7 +166,8 @@ class JsToolRunner private constructor(private val context: Context) {
                         val unquoted = if (rawResult.startsWith("\"") && rawResult.endsWith("\"")) {
                             try {
                                 json.parseToJsonElement(rawResult).jsonPrimitive.content
-                            } catch (_: Exception) {
+                            } catch (e: Exception) {
+                                AppLogger.d(TAG, "Unquoted parse fallback: ${e.message}")
                                 rawResult.removeSurrounding("\"").replace("\\\"", "\"").replace("\\\\", "\\")
                             }
                         } else {

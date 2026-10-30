@@ -145,9 +145,9 @@ object AppLogger {
         }
     }
 
-    fun d(tag: String, message: String) {
-        Log.d(tag, message)
-        addLog(LogLevel.DEBUG, tag, message)
+    fun d(tag: String, message: String, throwable: Throwable? = null) {
+        Log.d(tag, message, throwable)
+        addLog(LogLevel.DEBUG, tag, message, throwable)
     }
 
     fun i(tag: String, message: String) {

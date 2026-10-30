@@ -5,6 +5,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import com.textmorph.app.util.AppLogger
 import java.io.ByteArrayOutputStream
@@ -92,7 +93,12 @@ class ClipboardCaptureActivity : Activity() {
         } finally {
             callback = null
             finish()
-            overridePendingTransition(0, 0)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                overrideActivityTransition(Activity.OVERRIDE_TRANSITION_CLOSE, 0, 0)
+            } else {
+                @Suppress("DEPRECATION")
+                overridePendingTransition(0, 0)
+            }
         }
     }
 

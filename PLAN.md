@@ -316,10 +316,40 @@ flowchart TD
 8. **Universal Responsive Layouts (280p to 420p)**:
    - Fixed text squashing and clipping across narrow device screens using responsive `FlowRow` layouts.
 
-### Phase 8: Future Roadmap & Next Iterations
-1. **Expanded On-Device Quantization Support**:
-   - Support for 8-bit / 4-bit INT quantization profiles in model catalog.
-2. **Custom Radial Quick-Slot Picker**:
-   - Direct drag-and-drop radial slot customization from the dashboard.
-3. **Context-Aware Voice Input**:
-   - On-device Whisper / Gemma audio transcription integration.
+### Phase 8: Autonomous Mobile Agent & Tri-Modal Perception (v2.0 - v3.0) ✅ COMPLETE
+1. **Multi-Step Agent Task Execution**:
+   - `AgentEngine` & `TaskExecutor` coordinating multi-step UI navigation across third-party applications.
+   - Code-as-Action syntax (`click_text()`, `type_text()`, `press_enter()`, `scroll()`, `open_app()`, `done()`) eliminating JSON errors.
+2. **Tri-Modal Screen Perception**:
+   - Semantic accessibility hierarchy dump, silent hardware screenshot capture, and linearized query-targeted center mapping.
+3. **4-Pass Click Disambiguation & Anti-Looping**:
+   - `TargetClickResolver` prioritizing clickable text results over search input fields.
+   - `RecoveryEngine` with capped loops, soft keyboard auto-dismissal, and navigation recovery.
+
+### Phase 9: Offline Multi-Wake-Word Engine (Sherpa-ONNX) (v3.5 - v4.0) ✅ COMPLETE
+1. **Low-Latency Offline Keyword Spotting**:
+   - Integrated Sherpa-ONNX 16kHz continuous capture loop with native pointer safety validation.
+   - Dedicated microphone foreground service (`WakeWordForegroundService`) and calibration tester dialog.
+
+### Phase 10: llama.cpp Dual Runtime & GGUF Quantization (v4.1.0) ✅ COMPLETE
+1. **llama.cpp Engine Integration**:
+   - Integrated `llamacpp-kotlin` runtime for quantized GGUF models on ARM64 NEON with optional `mmproj` vision support.
+   - Thread-safe `Mutex` queuing and live TPS/TTFT telemetry.
+
+### Phase 11: JavaScript Sandbox, Web Tools & Interactive HTML Chat (v4.2.0) ✅ COMPLETE
+1. **JavaScript Tool Runner & Web Tools**:
+   - Sandboxed JavaScript execution environment for user-defined tools.
+   - Live web search and scraping via OkHttp and Jsoup.
+2. **Interactive HTML Sandboxing in Chat**:
+   - Real-time rendering of generated HTML/CSS/JS artifacts with GIF recording export.
+
+### Phase 12: Codebase Architecture Audit & Quality Remediation (v4.2.5) ✅ COMPLETE
+1. **Rule 2 Near-Logging Enforcement**:
+   - Eliminated all silent catch blocks in `ChatToolCallExtractor`, `HtmlArtifactShareHelper`, `SystemTelemetryManager`, `WakeWordCalibrationTester`, `ChatMessageItemView`, `LocalHttpServer`, `TextMorphAccessibilityService`, `AgentToolRegistry`, `JsToolRunner`, `GemmaToolCallParser`, `OpenAiCloudEngine`, and `WakeWordSpotter`.
+   - Equipped `AppLogger.d` with optional `Throwable` parameter.
+2. **Rule 5 Anti-Squish & Deprecation Cleanups**:
+   - Removed direct `Spacer(width)` in `ProcessTextActivity.kt`'s `FlowRow`, using `Arrangement.spacedBy(8.dp, Alignment.End)`.
+   - Cleaned Compose Material 3 deprecations (`SecondaryScrollableTabRow`, `Icons.AutoMirrored.Filled.Chat`, `Icons.AutoMirrored.Filled.MenuBook`, and modern activity transition overrides).
+3. **Documentation Alignment**:
+   - Synchronized `PROJECT.md`, `README.md`, and `PLAN.md` to reflect v4.2.5 release status.
+

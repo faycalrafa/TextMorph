@@ -187,6 +187,7 @@ object GemmaToolCallParser {
                 val argsMap: Map<String, JsonElement> = (argsObj as? JsonObject)?.toMap() ?: emptyMap()
                 mapToAgentAction(name, argsMap)
             } catch (e: Exception) {
+                AppLogger.d("GemmaToolCallParser", "Failed parsing XML tool call body JSON: ${e.message}", e)
                 null
             }
         }

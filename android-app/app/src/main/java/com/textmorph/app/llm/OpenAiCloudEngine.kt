@@ -220,7 +220,7 @@ class OpenAiCloudEngine(
                                 }
                             }
                         } catch (e: Exception) {
-                            // Non-fatal parse issue on chunk boundary
+                            AppLogger.d(TAG, "Non-fatal parse issue on chunk boundary: ${e.message}")
                         }
                     }
                 }

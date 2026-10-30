@@ -115,6 +115,7 @@ class WakeWordSpotter(private val context: Context) {
         val ptrField = try {
             KeywordSpotter::class.java.getDeclaredField("ptr").apply { isAccessible = true }
         } catch (t: Throwable) {
+            AppLogger.d(TAG, "KeywordSpotter ptr field lookup non-fatal: ${t.message}")
             null
         }
         val ptrValue = ptrField?.getLong(newSpotter) ?: -1L
@@ -146,6 +147,7 @@ class WakeWordSpotter(private val context: Context) {
         val streamPtrField = try {
             OnlineStream::class.java.getDeclaredField("ptr").apply { isAccessible = true }
         } catch (t: Throwable) {
+            AppLogger.d(TAG, "OnlineStream ptr field lookup non-fatal: ${t.message}")
             null
         }
         val streamPtrValue = streamPtrField?.getLong(newStream) ?: -1L

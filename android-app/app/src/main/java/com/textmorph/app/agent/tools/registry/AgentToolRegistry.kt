@@ -1,6 +1,7 @@
 package com.textmorph.app.agent.tools.registry
 
 import com.textmorph.app.agent.model.AgentAction
+import com.textmorph.app.util.AppLogger
 
 /**
  * Central catalog of all built-in agent actions and extensible script tools.
@@ -287,7 +288,8 @@ object AgentToolRegistry {
             com.textmorph.app.agent.tools.js.JsToolRepository.getInstance(context)
                 .getEnabledTools()
                 .map { it.toAgentToolDefinition() }
-        } catch (_: Throwable) {
+        } catch (t: Throwable) {
+            AppLogger.w("AgentToolRegistry", "Failed reading enabled JS tools: ${t.message}", t)
             emptyList()
         }
     }

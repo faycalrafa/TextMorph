@@ -108,6 +108,7 @@ object SystemTelemetryManager {
             }
         } catch (e: Exception) {
             // /proc/stat can be restricted by SELinux on Android 8+
+            AppLogger.d(TAG, "Cannot read /proc/stat (SELinux restricted): ${e.message}")
             null
         }
     }
@@ -136,7 +137,7 @@ object SystemTelemetryManager {
                     gpuTemp = gpuTemps[0]
                 }
             } catch (e: Exception) {
-                // Ignore SecurityException or unsupported
+                AppLogger.d(TAG, "HardwarePropertiesManager temperature unavailable: ${e.message}")
             }
         }
 
@@ -157,9 +158,9 @@ object SystemTelemetryManager {
                                 if (tempC in 15f..115f) {
                                     if (type.contains("cpu") || type.contains("soc") || type.contains("tsens")) {
                                         cpuTemp = tempC
-                                    } else if (cpuTemp == null && type.contains("gpu")) {
+                                    } else if (type.contains("gpu")) {
                                         gpuTemp = tempC
-                                    } else if (cpuTemp == null) {
+                                    } else {
                                         cpuTemp = tempC
                                     }
                                 }
@@ -168,7 +169,7 @@ object SystemTelemetryManager {
                     }
                 }
             } catch (e: Exception) {
-                // Ignore sysfs restriction
+                AppLogger.d(TAG, "sysfs thermal zone reading restricted: ${e.message}")
             }
         }
 

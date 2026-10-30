@@ -152,7 +152,9 @@ object HtmlArtifactShareHelper {
                 context.startActivity(Intent.createChooser(shareIntent, "Share Animation as GIF"))
             } catch (e: Exception) {
                 AppLogger.e(TAG, "GIF recording failed: ${e.message}", e)
-                try { fos.close() } catch (_: Exception) {}
+                try { fos.close() } catch (closeEx: Exception) {
+                    AppLogger.d(TAG, "Error closing FileOutputStream: ${closeEx.message}")
+                }
                 onStateChange(false)
                 Toast.makeText(context, "GIF recording cancelled or failed", Toast.LENGTH_SHORT).show()
             }

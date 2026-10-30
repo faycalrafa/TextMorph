@@ -1,5 +1,6 @@
 package com.textmorph.app.ui.chat.components
 
+import com.textmorph.app.util.AppLogger
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -26,6 +27,7 @@ data class FollowUpSuggestionsRequest(
  */
 object ChatToolCallExtractor {
 
+    private const val TAG = "ChatToolCallExtractor"
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
     private val APPROVAL_CODE_REGEX = Regex(
@@ -87,7 +89,9 @@ object ChatToolCallExtractor {
                     if (question.isNotEmpty() && options.isNotEmpty()) {
                         return UserApprovalRequest(question, options, preText, postText)
                     }
-                } catch (_: Exception) {}
+                } catch (e: Exception) {
+                    AppLogger.d(TAG, "Failed parsing user approval JSON candidate: ${e.message}", e)
+                }
             }
         }
 
@@ -132,7 +136,9 @@ object ChatToolCallExtractor {
                     if (suggestions.isNotEmpty()) {
                         return FollowUpSuggestionsRequest(suggestions, remaining)
                     }
-                } catch (_: Exception) {}
+                } catch (e: Exception) {
+                    AppLogger.d(TAG, "Failed parsing follow-up suggestions JSON candidate: ${e.message}", e)
+                }
             }
         }
 
@@ -175,7 +181,9 @@ object ChatToolCallExtractor {
                     if (!html.isNullOrBlank()) {
                         return Pair(title, html)
                     }
-                } catch (_: Exception) {}
+                } catch (e: Exception) {
+                    AppLogger.d(TAG, "Failed parsing interactive view JSON candidate: ${e.message}", e)
+                }
             }
         }
 

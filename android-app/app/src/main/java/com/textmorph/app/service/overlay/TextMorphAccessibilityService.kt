@@ -177,7 +177,7 @@ class TextMorphAccessibilityService : AccessibilityService() {
             try {
                 source?.recycle()
             } catch (recycleEx: Exception) {
-                // Ignore already recycled nodes
+                AppLogger.d(TAG, "Source node already recycled: ${recycleEx.message}")
             }
         }
     }
@@ -186,6 +186,7 @@ class TextMorphAccessibilityService : AccessibilityService() {
         return try {
             windows.any { it.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD }
         } catch (e: Exception) {
+            AppLogger.d(TAG, "isKeyboardVisible error: ${e.message}")
             false
         }
     }
