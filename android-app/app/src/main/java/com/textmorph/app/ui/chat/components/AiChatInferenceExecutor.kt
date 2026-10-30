@@ -104,24 +104,7 @@ object AiChatInferenceExecutor {
                 var firstTokenTime: Long? = null
                 var streamTokens = 0
 
-                val flow = when (engine) {
-                    is LiteRtLmEngine -> engine.generateStreamWithMetrics(
-                        prompt = assembledPrompt,
-                        imageBytes = imageBytes,
-                        onMetricsUpdated = { lastMetrics = it }
-                    )
-                    is LlamaCppEngine -> engine.generateStreamWithMetrics(
-                        prompt = assembledPrompt,
-                        imageBytes = imageBytes,
-                        onMetricsUpdated = { lastMetrics = it }
-                    )
-                    is com.textmorph.app.llm.OpenAiCloudEngine -> engine.generateStreamWithMetrics(
-                        prompt = assembledPrompt,
-                        imageBytes = imageBytes,
-                        onMetricsUpdated = { lastMetrics = it }
-                    )
-                    else -> engine.generateStream(prompt = assembledPrompt, imageBytes = imageBytes)
-                }
+                val flow = streamFromEngine(engine, assembledPrompt, imageBytes) { lastMetrics = it }
 
                 flow.collect { chunk ->
                     chatRepository.setGenerationStatus(null)
@@ -137,8 +120,12 @@ object AiChatInferenceExecutor {
                     val fallbackTps = (streamTokens / elapsedSec).toFloat()
 
                     val currentText = sb.toString()
+                    val isEmittingToolToken = currentText.contains("<|tool_call") || currentText.contains("<tool_call")
+                    if (isEmittingToolToken) {
+                        chatRepository.setGenerationStatus("Preparing tool call…")
+                    }
                     val (thought, answer) = extractThought(currentText)
-                    val effectiveContent = if (thought != null) answer else currentText
+                    val effectiveContent = if (isEmittingToolToken) "" else (if (thought != null) answer else currentText)
                     chatRepository.updateLastAssistantMessage(
                         sessionId = sessionId,
                         content = effectiveContent,
@@ -155,20 +142,25 @@ object AiChatInferenceExecutor {
                 var (thought, answer) = extractThought(finalOutput)
                 var effectiveFinalContent = if (thought != null) answer else finalOutput
 
-                // Detect and execute in-chat tool calls (search_web, fetch_page, JS tools)
-                val toolCall = if (!isAgent && context != null) {
-                    ChatToolExecutionHandler.detectToolInvocation(effectiveFinalContent, context)
+                // Detect and execute information tool calls (search_web, fetch_page, JS tools) in Chat and Agent modes
+                val toolCall = if (context != null) {
+                    if (!isAgent) {
+                        ChatToolExecutionHandler.detectToolInvocation(effectiveFinalContent, context)
+                    } else {
+                        val candidate = com.textmorph.app.agent.parser.AgentActionParser.parseAction(effectiveFinalContent)
+                        if (candidate != null && ChatToolExecutionHandler.isInformationTool(candidate, context)) candidate else null
+                    }
                 } else null
 
                 if (toolCall != null && context != null) {
-                    val statusMsg = when (toolCall.action) {
-                        com.textmorph.app.agent.model.AgentAction.ACTION_SEARCH_WEB ->
-                            "Searching DuckDuckGo for \"${toolCall.getStringParamWithAliases("query", "q")}\"…"
-                        com.textmorph.app.agent.model.AgentAction.ACTION_FETCH_PAGE ->
-                            "Fetching webpage content…"
-                        else -> "Executing ${toolCall.action}…"
-                    }
+                    val statusMsg = ChatToolExecutionHandler.formatToolStatus(toolCall)
                     chatRepository.setGenerationStatus(statusMsg)
+                    chatRepository.updateLastAssistantMessage(
+                        sessionId = sessionId,
+                        content = "",
+                        actionPayloadJson = toolCall.action,
+                        actionStatus = "running"
+                    )
                     val (_, toolOutput) = ChatToolExecutionHandler.executeTool(toolCall, context)
                     val obsPrompt = ChatToolExecutionHandler.formatObservationPrompt(toolCall, toolOutput)
 
@@ -186,12 +178,7 @@ object AiChatInferenceExecutor {
                     )
 
                     val resumedSb = StringBuilder()
-                    val rFlow = when (engine) {
-                        is LiteRtLmEngine -> engine.generateStreamWithMetrics(resumedPrompt, null) { lastMetrics = it }
-                        is LlamaCppEngine -> engine.generateStreamWithMetrics(resumedPrompt, null) { lastMetrics = it }
-                        is com.textmorph.app.llm.OpenAiCloudEngine -> engine.generateStreamWithMetrics(resumedPrompt, null) { lastMetrics = it }
-                        else -> engine.generateStream(resumedPrompt, null)
-                    }
+                    val rFlow = streamFromEngine(engine, resumedPrompt, null) { lastMetrics = it }
 
                     rFlow.collect { chunk ->
                         chatRepository.setGenerationStatus(null)
@@ -202,7 +189,9 @@ object AiChatInferenceExecutor {
                             content = if (rThought != null) rAnswer else resumedSb.toString(),
                             thoughtContent = rThought,
                             rawNakedOutput = resumedSb.toString(),
-                            systemPrompt = systemPrompt
+                            systemPrompt = systemPrompt,
+                            actionPayloadJson = toolCall.action,
+                            actionStatus = "success"
                         )
                     }
 
@@ -228,6 +217,8 @@ object AiChatInferenceExecutor {
                     thoughtContent = thought,
                     rawNakedOutput = finalOutput,
                     systemPrompt = systemPrompt,
+                    actionPayloadJson = toolCall?.action,
+                    actionStatus = if (toolCall != null) "success" else null,
                     tokensPerSecond = finalTps,
                     totalTokens = finalTokens,
                     durationMs = finalDuration
@@ -253,8 +244,8 @@ object AiChatInferenceExecutor {
                     }
                 }
 
-                // If in Agent mode, check if LLM returned an autonomous tool action JSON
-                if (isAgent && agentEngine != null) {
+                // If in Agent mode, check if LLM returned an autonomous device tool action
+                if (isAgent && agentEngine != null && toolCall == null) {
                     val parsedAction = com.textmorph.app.agent.parser.AgentActionParser.parseAction(effectiveFinalContent)
                     if (parsedAction != null) {
                         val effectiveAction = if (parsedAction.action == com.textmorph.app.agent.model.AgentAction.ACTION_OPEN_APP &&
@@ -455,23 +446,32 @@ object AiChatInferenceExecutor {
     }
 
     fun extractThought(rawText: String): Pair<String?, String> {
-        val thinkTag = when {
+        val (openTag, closeTag) = when {
             rawText.contains("<think>") -> "<think>" to "</think>"
             rawText.contains("<thought>") -> "<thought>" to "</thought>"
             else -> return null to rawText
         }
-        val start = rawText.indexOf(thinkTag.first)
-        val end = rawText.indexOf(thinkTag.second)
+        val start = rawText.indexOf(openTag)
+        val end = rawText.indexOf(closeTag)
         return if (end != -1) {
-            val thought = rawText.substring(start + thinkTag.first.length, end).trim()
+            val thought = rawText.substring(start + openTag.length, end).trim()
             val pre = rawText.substring(0, start).trim()
-            val post = rawText.substring(end + thinkTag.second.length).trim()
-            val answer = listOf(pre, post).filter { it.isNotEmpty() }.joinToString("\n\n")
-            thought to answer
+            val post = rawText.substring(end + closeTag.length).trim()
+            thought to listOf(pre, post).filter { it.isNotEmpty() }.joinToString("\n\n")
         } else {
-            val thought = rawText.substring(start + thinkTag.first.length).trim()
-            val pre = rawText.substring(0, start).trim()
-            thought to pre
+            rawText.substring(start + openTag.length).trim() to rawText.substring(0, start).trim()
         }
+    }
+
+    private fun streamFromEngine(
+        engine: LlmEngine,
+        prompt: String,
+        imageBytes: ByteArray? = null,
+        onMetrics: ((com.textmorph.app.llm.InferenceMetrics) -> Unit)? = null
+    ): kotlinx.coroutines.flow.Flow<String> = when (engine) {
+        is LiteRtLmEngine -> engine.generateStreamWithMetrics(prompt = prompt, imageBytes = imageBytes, onMetricsUpdated = { onMetrics?.invoke(it) })
+        is LlamaCppEngine -> engine.generateStreamWithMetrics(prompt = prompt, imageBytes = imageBytes, onMetricsUpdated = { onMetrics?.invoke(it) })
+        is com.textmorph.app.llm.OpenAiCloudEngine -> engine.generateStreamWithMetrics(prompt = prompt, imageBytes = imageBytes, onMetricsUpdated = { onMetrics?.invoke(it) })
+        else -> engine.generateStream(prompt = prompt, imageBytes = imageBytes)
     }
 }

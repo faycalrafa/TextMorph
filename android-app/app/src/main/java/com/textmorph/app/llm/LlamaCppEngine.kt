@@ -185,12 +185,13 @@ class LlamaCppEngine(private val context: Context) : LlmEngine {
                             params["mmproj_fd"] = mmprojFd
                         }
 
-                        val ctx = LlamaContext(1, params)
-                        // At this point, librnllama's initContextWithFd has consumed and cleanly closed
-                        // modelFd (and mmprojFd) via POSIX close(fd). Since the descriptors were detached
-                        // from ParcelFileDescriptor, android_fdsan allows the close with zero errors.
+                        // Hand off FD ownership to native librnllama.
+                        // Native loadModel consumes and closes these FDs on both success and failure.
+                        // Setting to -1 before calling LlamaContext ensures our finally block never attempts a double close.
                         modelFd = -1
                         mmprojFd = -1
+
+                        val ctx = LlamaContext(1, params)
 
                         if (ctx.context != 0L) {
                             nativeContext = ctx

@@ -226,8 +226,30 @@ class AgentEngine(
                     AgentActionResult(action.action, true, "Waited ${clampedMs}ms")
                 }
 
+                AgentAction.ACTION_SEARCH_WEB -> {
+                    val query = action.getStringParamWithAliases("query", "q", "search")
+                    val results = com.textmorph.app.agent.tools.web.WebTools.searchWeb(query, maxResults = 3)
+                    val summary = com.textmorph.app.agent.tools.web.WebTools.formatSearchResults(query, results)
+                    AgentActionResult(action.action, results.isNotEmpty(), summary)
+                }
+
+                AgentAction.ACTION_FETCH_PAGE -> {
+                    val url = action.getStringParamWithAliases("url", "link", "target")
+                    val limit = action.getIntParamWithAliases("char_limit", "limit", default = 3000)
+                    val markdown = com.textmorph.app.agent.tools.web.WebTools.fetchPage(url, limit)
+                    AgentActionResult(action.action, !markdown.startsWith("Error:"), markdown)
+                }
+
                 else -> {
-                    AgentActionResult(action.action, true, action.response.ifEmpty { "Completed" })
+                    val jsRepo = com.textmorph.app.agent.tools.js.JsToolRepository.getInstance(context)
+                    val jsTool = jsRepo.getToolById(action.action)
+                    if (jsTool != null && jsTool.isEnabled) {
+                        val runner = com.textmorph.app.agent.tools.js.JsToolRunner(context)
+                        val (ok, res) = runner.execute(jsTool, action.params)
+                        AgentActionResult(action.action, ok, res)
+                    } else {
+                        AgentActionResult(action.action, true, action.response.ifEmpty { "Completed" })
+                    }
                 }
             }
             if (action.action != AgentAction.ACTION_EXECUTE_TASK) {

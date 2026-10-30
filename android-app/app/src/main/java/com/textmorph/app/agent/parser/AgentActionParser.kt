@@ -32,7 +32,13 @@ object AgentActionParser {
         val trimmed = rawText.trim()
         if (trimmed.isBlank()) return null
 
-        // 1. Dual-Syntax Priority: Try Code-as-Action first (ultra-low token footprint)
+        // 1. Gemma & XML Native Tool Calling Format (<|tool_call|>call:...{...}<tool_call|>)
+        val gemmaAction = GemmaToolCallParser.parse(trimmed)
+        if (gemmaAction != null) {
+            return gemmaAction
+        }
+
+        // 2. Dual-Syntax Priority: Try Code-as-Action (ultra-low token footprint)
         val codeAction = CodeActionParser.parse(trimmed)
         if (codeAction != null) {
             return codeAction
@@ -264,21 +270,22 @@ object AgentActionParser {
     }
 
     fun stripActionPayload(rawText: String): String {
-        val codeBlockMatch = Regex("```(?:json)?\\s*\\{[\\s\\S]*?\\}\\s*```").find(rawText)
+        var text = GemmaToolCallParser.stripGemmaToolCall(rawText)
+        val codeBlockMatch = Regex("```(?:json)?\\s*\\{[\\s\\S]*?\\}\\s*```").find(text)
         if (codeBlockMatch != null) {
-            return rawText.replace(codeBlockMatch.value, "").trim()
+            return text.replace(codeBlockMatch.value, "").trim()
         }
-        val start = rawText.indexOf('{')
-        val end = rawText.lastIndexOf('}')
-        if (start != -1 && end != -1 && end > start && rawText.contains("\"action\"")) {
-            return (rawText.substring(0, start) + rawText.substring(end + 1)).trim()
+        val start = text.indexOf('{')
+        val end = text.lastIndexOf('}')
+        if (start != -1 && end != -1 && end > start && text.contains("\"action\"")) {
+            return (text.substring(0, start) + text.substring(end + 1)).trim()
         }
         // Strip Code-as-Action function command if isolated or wrapped in code fences
-        val cmdMatch = Regex("""(?:```(?:python|code|js|bash)?\s*)?`?[a-zA-Z_][a-zA-Z0-9_]*\s*\([\s\S]*?\)`?(?:\s*```)?""").find(rawText)
-        if (cmdMatch != null && cmdMatch.value.isNotBlank() && !rawText.contains("\n\n")) {
-            return rawText.replace(cmdMatch.value, "").trim()
+        val cmdMatch = Regex("""(?:```(?:python|code|js|bash)?\s*)?`?[a-zA-Z_][a-zA-Z0-9_]*\s*\([\s\S]*?\)`?(?:\s*```)?""").find(text)
+        if (cmdMatch != null && cmdMatch.value.isNotBlank() && !text.contains("\n\n")) {
+            return text.replace(cmdMatch.value, "").trim()
         }
-        return rawText.trim()
+        return text.trim()
     }
 
     fun cleanResponse(rawText: String): String = stripActionPayload(rawText)

@@ -183,10 +183,16 @@ fun ChatMessageItemView(
                 }
 
                 // 3. Tool Invocations, Actions, HTML, or Standard Prose
-                val isAction = message.actionPayloadJson != null ||
-                    message.actionStepsJson != null ||
-                    message.role == "action" ||
-                    (message.content.trim().startsWith("{\"action\":") && message.content.contains("}"))
+                if (message.actionPayloadJson != null && message.actionStepsJson == null) {
+                    ActionExecutionCard(
+                        actionName = message.actionPayloadJson,
+                        reasoning = if (message.actionStatus == "running") (generationStatus ?: "Executing ${message.actionPayloadJson}…") else "Tool execution complete",
+                        status = message.actionStatus ?: "running"
+                    )
+                    if (message.content.isNotBlank()) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+                }
 
                 val approval = remember(message.content) {
                     ChatToolCallExtractor.extractApproval(message.content)
@@ -220,13 +226,13 @@ fun ChatMessageItemView(
                             onInterruptAction?.invoke()
                         }
                     )
-                } else if (isAction) {
+                } else if (message.content.trim().startsWith("{\"action\":") && message.content.contains("}") && message.actionPayloadJson == null) {
                     ActionExecutionCard(
                         actionName = "Autonomous Action",
                         reasoning = message.content,
                         status = message.actionStatus ?: "success"
                     )
-                } else {
+                } else if (message.content.isNotBlank()) {
                     val rawDisplayContent = followUps?.remainingContent?.ifBlank { null } ?: message.content
                     val htmlToRender = interactiveView?.second
                     val segments = HtmlSnippetExtractor.extractSegments(

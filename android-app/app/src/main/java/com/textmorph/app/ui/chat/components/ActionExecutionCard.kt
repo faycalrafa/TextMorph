@@ -21,8 +21,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.PlayCircleFilled
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.TouchApp
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -61,9 +64,18 @@ fun ActionExecutionCard(
         label = "PulseScale"
     )
 
-    val (statusColor, statusIcon) = when (status.lowercase()) {
-        "success", "done" -> Pair(Color(0xFF4ADE80), Icons.Default.CheckCircle)
-        "failed", "error" -> Pair(Color(0xFFF87171), Icons.Default.ErrorOutline)
+    val isSearch = actionName.contains("search_web", ignoreCase = true)
+    val isFetch = actionName.contains("fetch_page", ignoreCase = true)
+    val isJsTool = actionName.contains("js_tool", ignoreCase = true) || actionName.startsWith("tool_")
+
+    val (statusColor, statusIcon) = when {
+        status.equals("success", ignoreCase = true) || status.equals("done", ignoreCase = true) ->
+            Pair(Color(0xFF4ADE80), Icons.Default.CheckCircle)
+        status.equals("failed", ignoreCase = true) || status.equals("error", ignoreCase = true) ->
+            Pair(Color(0xFFF87171), Icons.Default.ErrorOutline)
+        isSearch -> Pair(Color(0xFF38BDF8), Icons.Default.Search)
+        isFetch -> Pair(Color(0xFF38BDF8), Icons.Default.Language)
+        isJsTool -> Pair(Color(0xFFA78BFA), Icons.Default.Code)
         else -> Pair(Color(0xFFFBBF24), Icons.Default.TouchApp)
     }
 
@@ -110,8 +122,18 @@ fun ActionExecutionCard(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
+                    val headerTitle = when {
+                        status == "running" && isSearch -> "Searching Web…"
+                        status == "running" && isFetch -> "Reading Webpage…"
+                        status == "running" && isJsTool -> "Running Tool…"
+                        status == "running" -> "Taking Action…"
+                        isSearch -> "Web Search Complete"
+                        isFetch -> "Webpage Read Complete"
+                        isJsTool -> "Tool Execution Complete"
+                        else -> "Action Complete"
+                    }
                     Text(
-                        text = if (status == "running") "Taking Action…" else "Action Complete",
+                        text = headerTitle,
                         color = Color(0xFFF9FAFB),
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold

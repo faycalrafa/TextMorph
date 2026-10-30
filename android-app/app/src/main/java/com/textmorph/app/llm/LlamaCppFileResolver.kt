@@ -110,10 +110,19 @@ object LlamaCppFileResolver {
     fun safelyCloseDetachedFd(fd: Int) {
         if (fd < 0) return
         try {
+            // Verify via kernel procfs that the FD is currently open in this process.
+            // If librnllama or another native component already closed it, /proc/self/fd/$fd
+            // will not exist. Attempting to adopt and close an already-closed FD triggers
+            // fatal fdsan SIGABRT on Android 11+ (API 30+).
+            val procFd = File("/proc/self/fd/$fd")
+            if (!procFd.exists()) {
+                AppLogger.d(TAG, "Detached FD $fd was already closed by native runtime, skipping close.")
+                return
+            }
             ParcelFileDescriptor.adoptFd(fd).close()
             AppLogger.d(TAG, "Safely closed detached FD $fd")
-        } catch (e: Exception) {
-            AppLogger.d(TAG, "Detached FD $fd was already closed or invalid: ${e.message}")
+        } catch (t: Throwable) {
+            AppLogger.d(TAG, "Detached FD $fd was already closed or invalid: ${t.message}")
         }
     }
 

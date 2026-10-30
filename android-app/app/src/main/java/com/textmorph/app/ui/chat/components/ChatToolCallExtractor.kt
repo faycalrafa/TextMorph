@@ -47,7 +47,21 @@ object ChatToolCallExtractor {
     fun extractApproval(content: String): UserApprovalRequest? {
         val trimmed = content.trim()
 
-        // 1. Check Code-as-Action syntax
+        // 1. Check Gemma tool calling syntax (<|tool_call|>call:request_user_approval{...}<tool_call|>)
+        if (com.textmorph.app.agent.parser.GemmaToolCallParser.hasToolCall(trimmed)) {
+            val gemmaAction = com.textmorph.app.agent.parser.GemmaToolCallParser.parse(trimmed)
+            if (gemmaAction != null && gemmaAction.action == "request_user_approval") {
+                val question = gemmaAction.getStringParamWithAliases("question", "q")
+                val options = (gemmaAction.params["options"] as? kotlinx.serialization.json.JsonArray)
+                    ?.mapNotNull { it.jsonPrimitive.content } ?: emptyList()
+                val remaining = com.textmorph.app.agent.parser.GemmaToolCallParser.stripGemmaToolCall(trimmed)
+                if (question.isNotEmpty() && options.isNotEmpty()) {
+                    return UserApprovalRequest(question, options, preText = remaining, postText = "")
+                }
+            }
+        }
+
+        // 2. Check Code-as-Action syntax
         val codeMatch = APPROVAL_CODE_REGEX.find(trimmed)
         if (codeMatch != null) {
             val question = codeMatch.groupValues[1].trim()
@@ -83,7 +97,20 @@ object ChatToolCallExtractor {
     fun extractFollowUps(content: String): FollowUpSuggestionsRequest? {
         val trimmed = content.trim()
 
-        // 1. Check Code-as-Action syntax
+        // 1. Check Gemma tool calling syntax (<|tool_call|>call:suggest_next_actions{...}<tool_call|>)
+        if (com.textmorph.app.agent.parser.GemmaToolCallParser.hasToolCall(trimmed)) {
+            val gemmaAction = com.textmorph.app.agent.parser.GemmaToolCallParser.parse(trimmed)
+            if (gemmaAction != null && gemmaAction.action == "suggest_next_actions") {
+                val suggestions = (gemmaAction.params["suggestions"] as? kotlinx.serialization.json.JsonArray)
+                    ?.mapNotNull { it.jsonPrimitive.content } ?: emptyList()
+                val remaining = com.textmorph.app.agent.parser.GemmaToolCallParser.stripGemmaToolCall(trimmed)
+                if (suggestions.isNotEmpty()) {
+                    return FollowUpSuggestionsRequest(suggestions, remaining)
+                }
+            }
+        }
+
+        // 2. Check Code-as-Action syntax
         val codeMatch = SUGGESTIONS_CODE_REGEX.find(trimmed)
         if (codeMatch != null) {
             val rawList = codeMatch.groupValues[1]
@@ -94,7 +121,7 @@ object ChatToolCallExtractor {
             }
         }
 
-        // 2. Check JSON syntax
+        // 3. Check JSON syntax
         if (trimmed.contains("suggest_next_actions")) {
             val jsonCandidate = extractJsonObject(trimmed, "suggest_next_actions")
             if (jsonCandidate != null) {
@@ -114,6 +141,19 @@ object ChatToolCallExtractor {
 
     fun extractInteractiveViewHtml(content: String): Pair<String?, String>? {
         val trimmed = content.trim()
+
+        // 1. Check Gemma tool calling syntax (<|tool_call|>call:present_interactive_view{...}<tool_call|>)
+        if (com.textmorph.app.agent.parser.GemmaToolCallParser.hasToolCall(trimmed)) {
+            val gemmaAction = com.textmorph.app.agent.parser.GemmaToolCallParser.parse(trimmed)
+            if (gemmaAction != null && gemmaAction.action == "present_interactive_view") {
+                val title = gemmaAction.getStringParamWithAliases("title").ifEmpty { null }
+                val html = gemmaAction.getStringParamWithAliases("html", "code")
+                val cleanedHtml = html.removeSurrounding("```html", "```").trim()
+                if (cleanedHtml.isNotEmpty()) {
+                    return Pair(title, cleanedHtml)
+                }
+            }
+        }
 
         val codeMatch = INTERACTIVE_VIEW_CODE_REGEX.find(trimmed)
         if (codeMatch != null) {

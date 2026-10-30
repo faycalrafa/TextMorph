@@ -134,4 +134,38 @@ object ChatToolExecutionHandler {
             Remember to offer helpful follow-up suggestions using suggest_next_actions(...) if there are natural next steps.
         """.trimIndent()
     }
+
+    /**
+     * Checks if the action is an information tool that should loop observations back to the LLM.
+     */
+    fun isInformationTool(action: AgentAction, context: Context?): Boolean {
+        when (action.action) {
+            AgentAction.ACTION_SEARCH_WEB,
+            AgentAction.ACTION_FETCH_PAGE,
+            AgentAction.ACTION_CREATE_JS_TOOL -> return true
+        }
+        if (context != null) {
+            val jsTool = JsToolRepository.getInstance(context).getToolById(action.action)
+            if (jsTool != null && jsTool.isEnabled) return true
+        }
+        return false
+    }
+
+    /**
+     * Provides a user-friendly status message while the tool is executing.
+     */
+    fun formatToolStatus(action: AgentAction): String {
+        return when (action.action) {
+            AgentAction.ACTION_SEARCH_WEB -> {
+                val q = action.getStringParamWithAliases("query", "q", "search")
+                if (q.isNotBlank()) "Searching DuckDuckGo for \"$q\"…" else "Searching web via DuckDuckGo…"
+            }
+            AgentAction.ACTION_FETCH_PAGE -> {
+                val u = action.getStringParamWithAliases("url", "link", "target")
+                if (u.isNotBlank()) "Fetching $u…" else "Fetching webpage content…"
+            }
+            AgentAction.ACTION_CREATE_JS_TOOL -> "Creating custom JavaScript tool…"
+            else -> "Executing ${action.action}…"
+        }
+    }
 }
