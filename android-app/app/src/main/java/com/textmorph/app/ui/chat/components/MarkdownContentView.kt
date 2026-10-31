@@ -11,7 +11,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.textmorph.app.agent.concurrency.ImageAssetRegistry
 
-private sealed class MarkdownSegment {
+internal sealed class MarkdownSegment {
     data class Text(val content: String) : MarkdownSegment()
     data class Image(val caption: String, val url: String) : MarkdownSegment()
     data class Code(val language: String, val code: String) : MarkdownSegment()
@@ -75,11 +75,11 @@ fun MarkdownContentView(
 /**
  * Splits a markdown string into sequential text, image, and code segments.
  */
-private fun parseMarkdownSegments(markdown: String): List<MarkdownSegment> {
+internal fun parseMarkdownSegments(markdown: String): List<MarkdownSegment> {
     if (markdown.isBlank()) return emptyList()
 
     val segments = mutableListOf<MarkdownSegment>()
-    val pattern = Regex("""(!\[(.*?)\]\(((?:https?://|IMG_)[^\s)]+(?:\([^\s)]*\)[^\s)]*)*)\))|(```([a-zA-Z0-9_\-\+]*)\n([\s\S]*?)```)""")
+    val pattern = Regex("""(!\[(.*?)\]\(((?:https?://|IMG_)(?:[^\s()]+|\([^\s()]*\))*)\))|(```([a-zA-Z0-9_\-\+]*)\n([\s\S]*?)```)""")
     var currentIndex = 0
 
     for (match in pattern.findAll(markdown)) {

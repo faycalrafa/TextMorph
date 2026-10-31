@@ -47,7 +47,7 @@ object ChatToolCallExtractor {
     )
 
     private val SUGGESTIONS_CODE_REGEX = Regex(
-        """(?:```(?:python|code|js)?\s*)?`?suggest_next_actions\s*\(\s*(?:(?:suggestions|actions)\s*=\s*)?(?:\[([\s\S]*?)\]|([\s\S]*?))\s*\)?`?(?:\s*```)?""",
+        """(?:```(?:python|code|js)?\s*)?`?suggest_next_actions\s*\(\s*(?:(?:suggestions|actions)\s*=\s*)?(?:\[([\s\S]*?)\]|([^\)]*?))\s*\)`?(?:\s*```)?""",
         RegexOption.DOT_MATCHES_ALL
     )
 

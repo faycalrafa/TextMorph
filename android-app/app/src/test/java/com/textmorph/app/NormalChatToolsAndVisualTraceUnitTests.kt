@@ -136,6 +136,27 @@ class NormalChatToolsAndVisualTraceUnitTests {
     }
 
     @Test
+    fun testChatToolCallExtractor_unbracketedArguments() {
+        val rawMessage = "Here are top destinations.\n\nsuggest_next_actions(\"Search ocean pictures\", \"View marine life\")"
+        val followUps = ChatToolCallExtractor.extractFollowUps(rawMessage)
+        assertNotNull(followUps)
+        assertEquals(2, followUps?.options?.size)
+        assertEquals("Here are top destinations.", followUps?.remainingContent?.trim())
+        assertEquals("Search ocean pictures", followUps!!.options[0].title)
+        assertEquals("View marine life", followUps.options[1].title)
+    }
+
+    @Test
+    fun testMarkdownContentView_balancedParentheses() {
+        val rawMarkdown = "Check this photo:\n![Ocean](https://upload.wikimedia.org/wiki/File_(1).jpg)\nBeautiful view."
+        val segments = com.textmorph.app.ui.chat.components.parseMarkdownSegments(rawMarkdown)
+        val imageSegments = segments.filterIsInstance<com.textmorph.app.ui.chat.components.MarkdownSegment.Image>()
+        assertEquals(1, imageSegments.size)
+        assertEquals("https://upload.wikimedia.org/wiki/File_(1).jpg", imageSegments[0].url)
+        assertEquals("Ocean", imageSegments[0].caption)
+    }
+
+    @Test
     fun testChatToolCallExtractor_markdownFollowUpSection() {
         val rawMessage = "Here is your requested itinerary.\n\n" +
                 "Follow-up suggestions:\n" +
