@@ -77,19 +77,6 @@ class NormalChatToolsAndVisualTraceUnitTests {
         assertTrue(approval?.postText?.contains("Please make your selection") == true)
     }
 
-    @Test
-    fun testChatToolCallExtractor_approvalJsonSyntax() {
-        val rawMessage = "{\"tool\": \"request_user_approval\", \"question\": \"Do you want to send this email now?\", \"options\": [\"Send Now\", \"Edit Draft\", \"Discard\"]}"
-
-        val approval = ChatToolCallExtractor.extractApproval(rawMessage)
-        assertNotNull(approval)
-        assertEquals("Do you want to send this email now?", approval?.question)
-        assertEquals(3, approval?.options?.size)
-        assertEquals("Send Now", approval?.options?.get(0))
-        assertEquals("Edit Draft", approval?.options?.get(1))
-        assertEquals("Discard", approval?.options?.get(2))
-    }
-
     // ─── 3. Follow-Up Action Suggesters Extractor ────────────────────
 
     @Test
@@ -106,35 +93,15 @@ class NormalChatToolsAndVisualTraceUnitTests {
         assertEquals("Here is the summary of today's tech news.", followUps?.remainingContent?.trim())
     }
 
-    @Test
-    fun testChatToolCallExtractor_followUpsJsonSyntax() {
-        val rawMessage = "The weather in Paris is 18°C and partly cloudy.\n" +
-                "{\"tool\": \"suggest_next_actions\", \"suggestions\": [\"5-day forecast\", \"Rain radar\", \"Weekend weather\"]}"
-
-        val followUps = ChatToolCallExtractor.extractFollowUps(rawMessage)
-        assertNotNull(followUps)
-        assertEquals(3, followUps?.suggestions?.size)
-        assertEquals("5-day forecast", followUps?.suggestions?.get(0))
-        assertEquals("Rain radar", followUps?.suggestions?.get(1))
-        assertEquals("Weekend weather", followUps?.suggestions?.get(2))
-        assertEquals("The weather in Paris is 18°C and partly cloudy.", followUps?.remainingContent?.trim())
-    }
-
     // ─── 4. Interactive Artifact Extractor ───────────────────────────
 
     @Test
-    fun testChatToolCallExtractor_interactiveViewCodeAndJson() {
+    fun testChatToolCallExtractor_interactiveViewCodeSyntax() {
         val codeMessage = "present_interactive_view(title=\"Solar Orbit\", html=\"<!DOCTYPE html><html><body><canvas></canvas></body></html>\")"
         val viewCode = ChatToolCallExtractor.extractInteractiveViewHtml(codeMessage)
         assertNotNull(viewCode)
         assertEquals("Solar Orbit", viewCode?.first)
         assertTrue(viewCode?.second?.contains("<canvas></canvas>") == true)
-
-        val jsonMessage = "{\"tool\": \"present_interactive_view\", \"title\": \"Bar Chart\", \"html\": \"<!DOCTYPE html><html><body><h1>Sales</h1></body></html>\"}"
-        val viewJson = ChatToolCallExtractor.extractInteractiveViewHtml(jsonMessage)
-        assertNotNull(viewJson)
-        assertEquals("Bar Chart", viewJson?.first)
-        assertTrue(viewJson?.second?.contains("<h1>Sales</h1>") == true)
     }
 
     // ─── 5. System Prompt Requirements ───────────────────────────────

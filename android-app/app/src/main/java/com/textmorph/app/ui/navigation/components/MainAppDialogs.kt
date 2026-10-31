@@ -53,13 +53,8 @@ fun MainAppDialogs(
     if (showAiConfigDialog) {
         com.textmorph.app.ui.modelhub.components.AiModelConfigDialog(
             settings = settings,
-            onSave = { maxTokens, temp, k, p, thinking, speculative, syntax, contextWindow ->
+            onSave = { maxTokens, temp, k, p, thinking, speculative, contextWindow ->
                 scope.launch {
-                    val targetAgentPrompt = if (syntax != settings.actionCommandSyntax) {
-                        com.textmorph.app.agent.prompts.AgentPrompts.getAgentSystemPrompt(syntax)
-                    } else {
-                        settings.agentSystemPrompt
-                    }
                     settingsRepository.updateAiModelConfig(
                         maxTokens = maxTokens,
                         temperature = temp,
@@ -68,8 +63,7 @@ fun MainAppDialogs(
                         enableThinking = thinking,
                         speculativeDecoding = speculative,
                         defaultSystemPrompt = settings.defaultSystemPrompt,
-                        agentSystemPrompt = targetAgentPrompt,
-                        actionCommandSyntax = syntax,
+                        agentSystemPrompt = settings.agentSystemPrompt,
                         contextWindowTokens = contextWindow
                     )
                     onDismissAiConfigDialog()

@@ -81,7 +81,7 @@ class ChatAndAutomationUpgradeUnitTests {
             role = "user",
             content = "Open YouTube and search for cats",
             thoughtContent = null,
-            actionPayloadJson = """{"action":"open_app","textParam":"YouTube"}""",
+            actionPayloadJson = "open_app",
             actionStatus = "success"
         )
 

@@ -99,18 +99,16 @@ class ContextManagementUnitTests {
     }
 
     @Test
-    fun testContextPruner_collapsesJsonActions() {
-        val jsonAction = "```json\n{\"action\": \"open_app\", \"target\": \"YouTube\"}\n```"
+    fun testContextPruner_collapsesActionDescriptors() {
         val message = ChatMessageEntity(
             sessionId = "s1",
             role = "assistant",
-            content = "Launching requested target:\n$jsonAction",
-            actionPayloadJson = "{\"action\": \"open_app\", \"target\": \"YouTube\"}",
+            content = "Launching requested target:",
+            actionPayloadJson = "open_app",
             actionStatus = "success"
         )
         val pruned = ContextPruner.pruneForInferenceContext(message)
-        assertFalse(pruned.contains("```json"))
-        assertTrue(pruned.contains("[Action: open_app -> YouTube [success]]"))
+        assertTrue(pruned.contains("[Action: open_app [success]]"))
     }
 
     @Test

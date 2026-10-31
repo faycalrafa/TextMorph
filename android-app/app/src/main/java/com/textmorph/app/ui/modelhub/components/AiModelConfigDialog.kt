@@ -43,7 +43,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import com.textmorph.app.data.model.ActionCommandSyntax
 import com.textmorph.app.data.model.AppSettings
 import kotlin.math.roundToInt
 
@@ -58,7 +57,6 @@ fun AiModelConfigDialog(
         topP: Float,
         enableThinking: Boolean,
         speculativeDecoding: Boolean,
-        actionCommandSyntax: ActionCommandSyntax,
         contextWindowTokens: Int
     ) -> Unit,
     onDismiss: () -> Unit
@@ -70,7 +68,6 @@ fun AiModelConfigDialog(
     var topP by remember { mutableFloatStateOf(settings.topP) }
     var enableThinking by remember { mutableStateOf(settings.enableThinking) }
     var speculativeDecoding by remember { mutableStateOf(settings.speculativeDecoding) }
-    var actionCommandSyntax by remember { mutableStateOf(settings.actionCommandSyntax) }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -308,37 +305,6 @@ fun AiModelConfigDialog(
                     )
                 }
 
-                Spacer(modifier = Modifier.height(14.dp))
-
-                // Command Syntax Selector
-                Text(
-                    text = "Agent Command Syntax",
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Text(
-                    text = "Format for autonomous device actions. Code-as-Action saves ~70% token overhead.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(modifier = Modifier.height(6.dp))
-                FlowRow(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    FilterChip(
-                        selected = actionCommandSyntax == ActionCommandSyntax.CODE_AS_ACTION,
-                        onClick = { actionCommandSyntax = ActionCommandSyntax.CODE_AS_ACTION },
-                        label = { Text("Code-as-Action (Default)") }
-                    )
-                    FilterChip(
-                        selected = actionCommandSyntax == ActionCommandSyntax.JSON_BASED,
-                        onClick = { actionCommandSyntax = ActionCommandSyntax.JSON_BASED },
-                        label = { Text("JSON-Based") }
-                    )
-                }
-
                 Spacer(modifier = Modifier.height(20.dp))
 
                 // Action Buttons in FlowRow
@@ -356,7 +322,6 @@ fun AiModelConfigDialog(
                             topP = 0.9f
                             enableThinking = false
                             speculativeDecoding = false
-                            actionCommandSyntax = ActionCommandSyntax.CODE_AS_ACTION
                         },
                         shape = RoundedCornerShape(10.dp)
                     ) {
@@ -384,7 +349,6 @@ fun AiModelConfigDialog(
                                 topP,
                                 enableThinking,
                                 speculativeDecoding,
-                                actionCommandSyntax,
                                 contextTokens
                             )
                         },

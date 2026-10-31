@@ -39,9 +39,9 @@ class TargetClickResolverAndAccuracyUnitTests {
     }
 
     @Test
-    fun testParseClickElementJsonAction() {
-        val json = """{"action": "click_element", "params": {"id": 8}, "reasoning": "Tapping search"}"""
-        val parsed = CodeActionParser.parseAction(json)
+    fun testParseClickElementAction() {
+        val cmd = "click_element(8)"
+        val parsed = CodeActionParser.parseAction(cmd)
         assertNotNull(parsed)
         assertEquals(AgentAction.ACTION_CLICK_ELEMENT, parsed?.action)
         assertEquals(8, parsed?.getIntParamWithAliases("element_id", "id"))

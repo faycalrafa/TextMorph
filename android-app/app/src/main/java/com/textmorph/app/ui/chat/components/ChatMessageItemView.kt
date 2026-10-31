@@ -256,12 +256,6 @@ fun ChatMessageItemView(
                         Spacer(modifier = Modifier.height(8.dp))
                         AssistantTextBubble(text = approval.postText)
                     }
-                } else if (message.content.trim().startsWith("{\"action\":") && message.content.contains("}") && message.actionPayloadJson == null && stepTraces.isEmpty()) {
-                    ActionExecutionCard(
-                        actionName = "Autonomous Action",
-                        reasoning = message.content,
-                        status = message.actionStatus ?: "success"
-                    )
                 } else if (message.content.isNotBlank()) {
                     val rawDisplayContent = followUps?.remainingContent?.ifBlank { null } ?: message.content
                     val htmlToRender = interactiveView?.second

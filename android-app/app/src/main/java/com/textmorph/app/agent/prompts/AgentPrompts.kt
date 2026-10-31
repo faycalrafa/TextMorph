@@ -5,7 +5,6 @@ import com.textmorph.app.agent.router.AgentPhase
 import com.textmorph.app.agent.tools.registry.AgentToolDefinition
 import com.textmorph.app.agent.tools.registry.ToolFilter
 import com.textmorph.app.agent.tools.registry.ToolSource
-import com.textmorph.app.data.model.ActionCommandSyntax
 
 /**
  * System prompts and tool specifications for Chat Mode and Autonomous Agent Mode.
@@ -22,12 +21,10 @@ object AgentPrompts {
         "SPECIAL CHAT CAPABILITIES & TOOLS:\n" +
         "1. Human-in-the-Loop Confirmation (request_user_approval):\n" +
         "When you need to clarify requirements, ask the user to choose between multiple options, or request confirmation before proceeding, invoke:\n" +
-        "request_user_approval(question=\"...\", options=[\"Option 1\", \"Option 2\", ...])\n" +
-        "or in JSON format: {\"tool\": \"request_user_approval\", \"question\": \"...\", \"options\": [\"Option 1\", \"Option 2\", ...]}\n\n" +
+        "request_user_approval(question=\"...\", options=[\"Option 1\", \"Option 2\", ...])\n\n" +
         "2. Follow-Up Action Suggesters (suggest_next_actions):\n" +
         "At the conclusion of your response, read the conversation and determine if there is room to add a follow-up. Proactively offer 2 to 4 follow-up suggestions or next steps for the user:\n" +
-        "suggest_next_actions(suggestions=[\"Action 1\", \"Action 2\", ...])\n" +
-        "or in JSON format: {\"tool\": \"suggest_next_actions\", \"suggestions\": [\"Action 1\", \"Action 2\", ...]}\n\n" +
+        "suggest_next_actions(suggestions=[\"Action 1\", \"Action 2\", ...])\n\n" +
         "3. Live Web Browsing & Search (search_web, fetch_page):\n" +
         "When asked for current information, documentation, news, or reading links, call:\n" +
         "search_web(query=\"...\")\n" +
@@ -83,22 +80,6 @@ object AgentPrompts {
         "CUSTOM JAVASCRIPT TOOLS:\n" +
         "$TAG_JS_TOOLS"
 
-    const val AGENT_SYSTEM_PROMPT_JSON =
-        "You are TextMorph Agent, a helpful, highly capable AI assistant that can control an Android device.\n\n" +
-        "AVAILABLE ACTIONS:\n" +
-        "When the user wants to perform an action or control their device, respond with a single JSON command:\n" +
-        "{\"action\": \"action_name\", \"params\": {\"param\": \"value\"}}\n\n" +
-        "- open_app: {\"name\": \"YouTube\"}\n" +
-        "- make_call: {\"contact_name\": \"Mom\"}\n" +
-        "- send_sms: {\"contact_name\": \"Mom\", \"message\": \"...\"}\n" +
-        "- search_web: {\"query\": \"...\"}\n" +
-        "- fetch_page: {\"url\": \"...\"}\n" +
-        "- execute_task: {\"goal\": \"...\"}\n\n" +
-        "LIVE IN-APP TOOL CATALOG:\n" +
-        "$TAG_IN_APP_TOOLS\n\n" +
-        "CUSTOM JAVASCRIPT TOOLS:\n" +
-        "$TAG_JS_TOOLS"
-
     const val TASK_SYSTEM_PROMPT_CODE_ACTION =
         "You are a phone automation agent. You are given a TASK and the current SCREEN content.\n" +
         "You must decide what single action to take next to accomplish the task.\n\n" +
@@ -124,22 +105,6 @@ object AgentPrompts {
         "- Never scroll or swipe more than three times in a row.\n" +
         "- Keep reasoning very brief (1 sentence)."
 
-    const val TASK_SYSTEM_PROMPT_JSON =
-        "You are a phone automation agent. You are given a TASK and the current SCREEN content.\n" +
-        "You must decide what single action to take next to accomplish the task.\n\n" +
-        "Return a JSON object: {\"action\": \"action_name\", \"params\": {\"key\": \"value\"}, \"reasoning\": \"brief\", \"is_complete\": false}\n" +
-        "- click_text: {\"text\": \"exact text to click\"}\n" +
-        "- click_at: {\"x\": 540, \"y\": 960}\n" +
-        "- type_text: {\"text\": \"hello\"}\n" +
-        "- press_enter: {}\n" +
-        "- scroll: {\"direction\": \"down\"}\n" +
-        "- swipe: {\"startX\": 540, \"startY\": 2000, \"endX\": 540, \"endY\": 500}\n" +
-        "- open_app: {\"app_name\": \"WhatsApp\"}\n" +
-        "- done: {}\n\n" +
-        "Rules:\n" +
-        "- Never scroll or swipe more than three times in a row.\n" +
-        "- Keep reasoning very brief (1 sentence)."
-
     const val UNIFIED_SYSTEM_PROMPT_CODE_ACTION =
         "You are TextMorph, an intelligent, versatile on-device AI assistant for Android with conversational intelligence and device automation.\n\n" +
         "HOW TO BEHAVE:\n" +
@@ -160,46 +125,14 @@ object AgentPrompts {
         "CUSTOM JAVASCRIPT TOOLS:\n" +
         "$TAG_JS_TOOLS"
 
-    const val UNIFIED_SYSTEM_PROMPT_JSON =
-        "You are TextMorph, an intelligent AI assistant for Android with device automation and conversational intelligence.\n\n" +
-        "HOW TO BEHAVE:\n" +
-        "1. For questions, advice, and conversation: reply naturally and directly with text or markdown.\n" +
-        "2. For animations or visual simulations: generate self-contained HTML inside ```html ... ``` with viewport meta tag and auto-sizing canvas.\n" +
-        "3. When you need to invoke an action or tool, output ONLY a JSON object: {\"action\": \"action_name\", \"params\": {\"key\": \"value\"}, \"response\": \"message\"}\n" +
-        "   - Web tools: search_web, fetch_page\n" +
-        "   - JS tools: get_weather, unit_converter, and installed custom tools\n" +
-        "   - Device actions: open_app, make_call, send_sms, search_contact, set_alarm, set_volume, set_brightness, read_screen, press_back, execute_task\n" +
-        "   - Interactive tools: request_user_approval, suggest_next_actions\n\n" +
-        "LIVE IN-APP TOOL CATALOG:\n" +
-        "$TAG_IN_APP_TOOLS\n\n" +
-        "CUSTOM JAVASCRIPT TOOLS:\n" +
-        "$TAG_JS_TOOLS"
-
     // Canonical defaults
     const val UNIFIED_SYSTEM_PROMPT = UNIFIED_SYSTEM_PROMPT_CODE_ACTION
     const val AGENT_SYSTEM_PROMPT = AGENT_SYSTEM_PROMPT_CODE_ACTION
     const val TASK_SYSTEM_PROMPT = TASK_SYSTEM_PROMPT_CODE_ACTION
 
-    fun getUnifiedSystemPrompt(syntax: ActionCommandSyntax = ActionCommandSyntax.CODE_AS_ACTION): String {
-        return when (syntax) {
-            ActionCommandSyntax.CODE_AS_ACTION -> UNIFIED_SYSTEM_PROMPT_CODE_ACTION
-            ActionCommandSyntax.JSON_BASED -> UNIFIED_SYSTEM_PROMPT_JSON
-        }
-    }
-
-    fun getAgentSystemPrompt(syntax: ActionCommandSyntax = ActionCommandSyntax.CODE_AS_ACTION): String {
-        return when (syntax) {
-            ActionCommandSyntax.CODE_AS_ACTION -> AGENT_SYSTEM_PROMPT_CODE_ACTION
-            ActionCommandSyntax.JSON_BASED -> AGENT_SYSTEM_PROMPT_JSON
-        }
-    }
-
-    fun getTaskSystemPrompt(syntax: ActionCommandSyntax = ActionCommandSyntax.CODE_AS_ACTION): String {
-        return when (syntax) {
-            ActionCommandSyntax.CODE_AS_ACTION -> TASK_SYSTEM_PROMPT_CODE_ACTION
-            ActionCommandSyntax.JSON_BASED -> TASK_SYSTEM_PROMPT_JSON
-        }
-    }
+    fun getUnifiedSystemPrompt(): String = UNIFIED_SYSTEM_PROMPT_CODE_ACTION
+    fun getAgentSystemPrompt(): String = AGENT_SYSTEM_PROMPT_CODE_ACTION
+    fun getTaskSystemPrompt(): String = TASK_SYSTEM_PROMPT_CODE_ACTION
 
     /**
      * Resolves the system prompt specifically for the current agent phase.

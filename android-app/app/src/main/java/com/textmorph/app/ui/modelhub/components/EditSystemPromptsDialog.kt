@@ -53,7 +53,7 @@ fun EditSystemPromptsDialog(
     var agentSystemPrompt by remember { mutableStateOf(settings.agentSystemPrompt) }
 
     val defaultChatPrompt = "You are a helpful, concise AI writing assistant. Transform or complete text according to user instructions. Return ONLY the final output without preamble or explanations."
-    val defaultAgentPrompt = AgentPrompts.getAgentSystemPrompt(settings.actionCommandSyntax)
+    val defaultAgentPrompt = AgentPrompts.getAgentSystemPrompt()
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -114,7 +114,7 @@ fun EditSystemPromptsDialog(
 
                 // Agent Mode System Prompt
                 Text(
-                    text = "✦ Agent Mode System Prompt (${settings.actionCommandSyntax.displayName})",
+                    text = "✦ Agent Mode System Prompt (Code-as-Action)",
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.SemiBold
                 )

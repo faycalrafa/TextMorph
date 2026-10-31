@@ -3,7 +3,6 @@ package com.textmorph.app
 import android.graphics.Rect
 import com.textmorph.app.agent.parser.CodeActionParser
 import com.textmorph.app.agent.prompts.AgentPrompts
-import com.textmorph.app.data.model.ActionCommandSyntax
 import com.textmorph.app.data.model.AppSettings
 import com.textmorph.app.data.model.ScreenPerceptionMode
 import com.textmorph.app.service.overlay.ScreenLinearizer
@@ -17,7 +16,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Unit tests verifying Code-as-Action prompts, JSON toggle, Tri-modal perception settings,
+ * Unit tests verifying Code-as-Action prompts, Tri-modal perception settings,
  * ScreenLinearizer formatting, and PrivateAgent UI interaction parsing.
  */
 class PrivateAgentUiInteractionUnitTests {
@@ -26,51 +25,39 @@ class PrivateAgentUiInteractionUnitTests {
 
     @Test
     fun testDefaultPromptsAreCodeAsAction() {
-        // Verify default agent prompt uses Code-as-Action
-        val defaultAgentPrompt = AgentPrompts.getAgentSystemPrompt(ActionCommandSyntax.CODE_AS_ACTION)
-        assertTrue(defaultAgentPrompt.contains("single Code-as-Action command"))
-        assertTrue(defaultAgentPrompt.contains("execute_task("))
-        assertTrue(defaultAgentPrompt.contains("open_app("))
-        assertFalse(defaultAgentPrompt.contains("\"action\":"))
+        // Verify agent prompt uses pure Code-as-Action
+        val agentPrompt = AgentPrompts.getAgentSystemPrompt()
+        assertTrue(agentPrompt.contains("single Code-as-Action command"))
+        assertTrue(agentPrompt.contains("execute_task("))
+        assertTrue(agentPrompt.contains("open_app("))
+        assertFalse(agentPrompt.contains("\"action\":"))
+        assertFalse(agentPrompt.contains("\"params\":"))
 
-        // Verify JSON agent prompt includes JSON format
-        val jsonAgentPrompt = AgentPrompts.getAgentSystemPrompt(ActionCommandSyntax.JSON_BASED)
-        assertTrue(jsonAgentPrompt.contains("\"action\":"))
-        assertTrue(jsonAgentPrompt.contains("\"params\":"))
-
-        // Verify task prompts
-        val defaultTaskPrompt = AgentPrompts.getTaskSystemPrompt(ActionCommandSyntax.CODE_AS_ACTION)
-        assertTrue(defaultTaskPrompt.contains("single command on a single line"))
-        assertTrue(defaultTaskPrompt.contains("click_text("))
-        assertTrue(defaultTaskPrompt.contains("type_text("))
-        assertFalse(defaultTaskPrompt.contains("Return ONLY a JSON payload"))
-        assertFalse(defaultTaskPrompt.contains("\"action\":"))
-
-        val jsonTaskPrompt = AgentPrompts.getTaskSystemPrompt(ActionCommandSyntax.JSON_BASED)
-        assertTrue(jsonTaskPrompt.contains("JSON object"))
-        assertTrue(jsonTaskPrompt.contains("\"action\":"))
+        // Verify task prompt uses pure Code-as-Action
+        val taskPrompt = AgentPrompts.getTaskSystemPrompt()
+        assertTrue(taskPrompt.contains("single command on a single line"))
+        assertTrue(taskPrompt.contains("click_text("))
+        assertTrue(taskPrompt.contains("type_text("))
+        assertFalse(taskPrompt.contains("Return ONLY a JSON payload"))
+        assertFalse(taskPrompt.contains("JSON object"))
+        assertFalse(taskPrompt.contains("\"action\":"))
     }
 
     @Test
-    fun testAppSettingsPerceptionModeAndSyntaxSerialization() {
+    fun testAppSettingsPerceptionModeSerialization() {
         val initialSettings = AppSettings(
-            actionCommandSyntax = ActionCommandSyntax.CODE_AS_ACTION,
             screenPerceptionMode = ScreenPerceptionMode.ACCESSIBILITY_TREE
         )
         val serialized = json.encodeToString(initialSettings)
-        assertTrue(serialized.contains("CODE_AS_ACTION"))
         assertTrue(serialized.contains("ACCESSIBILITY_TREE"))
 
         val modifiedSettings = initialSettings.copy(
-            actionCommandSyntax = ActionCommandSyntax.JSON_BASED,
             screenPerceptionMode = ScreenPerceptionMode.PRIVATE_AGENT
         )
         val modifiedSerialized = json.encodeToString(modifiedSettings)
-        assertTrue(modifiedSerialized.contains("JSON_BASED"))
         assertTrue(modifiedSerialized.contains("PRIVATE_AGENT"))
 
         val deserialized = json.decodeFromString<AppSettings>(modifiedSerialized)
-        assertEquals(ActionCommandSyntax.JSON_BASED, deserialized.actionCommandSyntax)
         assertEquals(ScreenPerceptionMode.PRIVATE_AGENT, deserialized.screenPerceptionMode)
     }
 
@@ -145,8 +132,8 @@ class PrivateAgentUiInteractionUnitTests {
     }
 
     @Test
-    fun testCodeActionParserSupportsCodeAsActionAndJson() {
-        // 1. Code-as-action
+    fun testCodeActionParserSupportsCodeAsAction() {
+        // Code-as-action commands
         val codeAction = CodeActionParser.parseAction("click_text(\"Confirm Order\")")
         assertNotNull(codeAction)
         assertEquals("click_text", codeAction?.action)
@@ -166,12 +153,6 @@ class PrivateAgentUiInteractionUnitTests {
         assertEquals("click_at", clickAt?.action)
         assertEquals(540, clickAt?.getIntParam("x"))
         assertEquals(1200, clickAt?.getIntParam("y"))
-
-        // 2. JSON
-        val jsonAction = CodeActionParser.parseAction("""{"action": "click_text", "params": {"text": "Submit"}}""")
-        assertNotNull(jsonAction)
-        assertEquals("click_text", jsonAction?.action)
-        assertEquals("Submit", jsonAction?.getStringParam("text"))
     }
 
     @Test

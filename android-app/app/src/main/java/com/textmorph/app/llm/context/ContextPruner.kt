@@ -2,13 +2,10 @@ package com.textmorph.app.llm.context
 
 import com.textmorph.app.data.model.ChatMessageEntity
 import com.textmorph.app.util.AppLogger
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import java.util.regex.Pattern
 
 /**
- * Strips and collapses large raw payloads, HTML documents, JSON action logs,
+ * Strips and collapses large raw payloads, HTML documents, action logs,
  * and internal thinking traces from conversation history for token compaction.
  */
 object ContextPruner {
@@ -18,7 +15,6 @@ object ContextPruner {
     private val HTML_DOC_PATTERN = Pattern.compile("(?is)<(!doctype\\s+html|html)[^>]*>.*?</html\\s*>")
     private val SVG_DOC_PATTERN = Pattern.compile("(?is)<svg[^>]*>.*?</svg\\s*>")
     private val THINK_TAG_PATTERN = Pattern.compile("(?is)<think>.*?</think>")
-    private val JSON_ACTION_BLOCK_PATTERN = Pattern.compile("(?is)```(?:json)?\\s*(\\{.*?\\})\\s*```")
 
     /**
      * Collapses raw artifacts and strips thinking traces from a message content string
@@ -37,8 +33,8 @@ object ContextPruner {
             // 3. Collapse standalone SVGs
             text = SVG_DOC_PATTERN.matcher(text).replaceAll("[Generated SVG Vector Graphic]")
 
-            // 4. Collapse JSON actions
-            text = collapseJsonActions(text, message.actionPayloadJson, message.actionStatus)
+            // 4. Collapse action payloads
+            text = collapseActionPayload(text, message.actionPayloadJson, message.actionStatus)
 
             // 5. Truncate extreme long code or log blocks (e.g., > 1200 characters)
             text = truncateLongLogs(text)
@@ -90,56 +86,15 @@ object ContextPruner {
     }
 
     /**
-     * Collapses JSON action payloads to compact human-readable execution descriptors.
+     * Appends concise action summary token if action payload is present.
      */
-    private fun collapseJsonActions(text: String, actionPayloadJson: String?, status: String?): String {
-        var result = text
-
-        // Parse code blocks with json actions
-        val matcher = JSON_ACTION_BLOCK_PATTERN.matcher(result)
-        val sb = StringBuffer()
-        var foundCodeBlock = false
-        while (matcher.find()) {
-            foundCodeBlock = true
-            val rawJson = matcher.group(1) ?: ""
-            val summary = parseActionSummary(rawJson, status)
-            matcher.appendReplacement(sb, java.util.regex.Matcher.quoteReplacement(summary))
-        }
-        matcher.appendTail(sb)
-        result = sb.toString()
-
-        // Check explicit actionPayloadJson if no markdown code block was present
-        if (!foundCodeBlock && !actionPayloadJson.isNullOrBlank()) {
-            val summary = parseActionSummary(actionPayloadJson, status)
-            if (summary.isNotBlank()) {
-                return if (result.isBlank()) summary else "$result\n$summary"
-            }
-        }
-
-        return result
-    }
-
-    private fun parseActionSummary(rawJson: String, status: String?): String {
-        return try {
-            val element = Json.parseToJsonElement(rawJson.trim()).jsonObject
-            val action = element["action"]?.jsonPrimitive?.content
-                ?: element["command"]?.jsonPrimitive?.content
-                ?: ""
-            val target = element["target"]?.jsonPrimitive?.content
-                ?: element["package"]?.jsonPrimitive?.content
-                ?: ""
-            val query = element["query"]?.jsonPrimitive?.content ?: ""
+    private fun collapseActionPayload(text: String, actionPayload: String?, status: String?): String {
+        if (!actionPayload.isNullOrBlank()) {
             val statusStr = if (!status.isNullOrBlank()) " [$status]" else ""
-
-            when {
-                action.isNotBlank() && target.isNotBlank() -> "[Action: $action -> $target$statusStr]"
-                action.isNotBlank() && query.isNotBlank() -> "[Action: $action -> \"$query\"$statusStr]"
-                action.isNotBlank() -> "[Action: $action$statusStr]"
-                else -> "[Action Executed$statusStr]"
-            }
-        } catch (_: Exception) {
-            "[Action Executed]"
+            val summary = "[Action: $actionPayload$statusStr]"
+            return if (text.isBlank()) summary else "$text\n$summary"
         }
+        return text
     }
 
     /**

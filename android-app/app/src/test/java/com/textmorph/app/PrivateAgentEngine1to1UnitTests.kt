@@ -8,7 +8,6 @@ import com.textmorph.app.agent.navigation.NavigationShortcutHelper
 import com.textmorph.app.agent.prompts.AgentPrompts
 import com.textmorph.app.agent.recovery.RecoveryEngine
 import com.textmorph.app.agent.ui.AgentVisualCues
-import com.textmorph.app.data.model.ActionCommandSyntax
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -249,11 +248,11 @@ class PrivateAgentEngine1to1UnitTests {
         assertNull(trulyGeneric)
     }
 
-    // ─── 5. Dual-Syntax System Prompts ───────────────────────────────
+    // ─── 5. Code-as-Action System Prompts ─────────────────────────────
 
     @Test
-    fun testDualSyntaxPrompts_followPrivateAgentRules() {
-        val codeTaskPrompt = AgentPrompts.getTaskSystemPrompt(ActionCommandSyntax.CODE_AS_ACTION)
+    fun testTaskSystemPrompt_enforcesCodeAsActionDirectives() {
+        val codeTaskPrompt = AgentPrompts.getTaskSystemPrompt()
         assertTrue(codeTaskPrompt.contains("phone automation agent"))
         assertTrue(codeTaskPrompt.contains("click_text(\"exact text to click\")"))
         assertTrue(codeTaskPrompt.contains("click_at(540, 960)"))
@@ -264,12 +263,7 @@ class PrivateAgentEngine1to1UnitTests {
         assertTrue(codeTaskPrompt.contains("open_app(\"WhatsApp\")"))
         assertTrue(codeTaskPrompt.contains("done(\"Task complete\")"))
         assertTrue(codeTaskPrompt.contains("Never scroll or swipe more than three times in a row"))
-
-        val jsonTaskPrompt = AgentPrompts.getTaskSystemPrompt(ActionCommandSyntax.JSON_BASED)
-        assertTrue(jsonTaskPrompt.contains("phone automation agent"))
-        assertTrue(jsonTaskPrompt.contains("\"action\": \"action_name\""))
-        assertTrue(jsonTaskPrompt.contains("\"is_complete\": false"))
-        assertTrue(jsonTaskPrompt.contains("click_text: {\"text\": \"exact text to click\"}"))
-        assertTrue(jsonTaskPrompt.contains("Never scroll or swipe more than three times in a row"))
+        assertFalse(codeTaskPrompt.contains("\"action\":"))
+        assertFalse(codeTaskPrompt.contains("JSON object"))
     }
 }

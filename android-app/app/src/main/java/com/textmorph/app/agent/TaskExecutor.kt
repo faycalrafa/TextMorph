@@ -99,8 +99,6 @@ class TaskExecutor(
         val interruptListener = { cancel() }
         TaskExecutionCoordinator.addInterruptListener(interruptListener)
 
-        val settings = settingsProvider()
-        val commandSyntax = settings.actionCommandSyntax
         val currentEngine = engineProvider()
         val isVisionCapable = when (currentEngine) {
             is LiteRtLmEngine -> currentEngine.sessionState.value.isVisionCapable
@@ -108,7 +106,7 @@ class TaskExecutor(
             is OpenAiCloudEngine -> true
             else -> false
         }
-        val taskSystemPrompt = AgentPrompts.getTaskSystemPrompt(commandSyntax)
+        val taskSystemPrompt = AgentPrompts.TASK_SYSTEM_PROMPT
 
         try {
             AgentToastNotifier.showStatusToast(appLauncher.context, "🤖 Starting: ${goal.take(30)}…")

@@ -10,12 +10,6 @@ enum class EngineType(val displayName: String) {
 }
 
 @Serializable
-enum class ActionCommandSyntax(val displayName: String) {
-    CODE_AS_ACTION("Code-as-Action"),
-    JSON_BASED("JSON-Based")
-}
-
-@Serializable
 enum class ScreenPerceptionMode(val displayName: String) {
     ACCESSIBILITY_TREE("Accessibility Tree"),
     SCREEN_CAPTURE("Screen Capture (Multimodal)"),
@@ -26,7 +20,6 @@ enum class ScreenPerceptionMode(val displayName: String) {
 data class AppSettings(
     val theme: ThemeMode = ThemeMode.DARK_SLATE,
     val selectedEngine: EngineType = EngineType.ON_DEVICE_LITERT,
-    val actionCommandSyntax: ActionCommandSyntax = ActionCommandSyntax.CODE_AS_ACTION,
     val screenPerceptionMode: ScreenPerceptionMode = ScreenPerceptionMode.PRIVATE_AGENT,
     val activeModelPath: String? = null,
     val activeModelUri: String? = null,

@@ -2,7 +2,6 @@ package com.textmorph.app
 
 import com.textmorph.app.agent.parser.CodeActionParser
 import com.textmorph.app.agent.prompts.AgentPrompts
-import com.textmorph.app.data.model.ActionCommandSyntax
 import com.textmorph.app.data.model.AppSettings
 import com.textmorph.app.service.overlay.components.ToolbarGenerationDelegate
 import com.textmorph.app.ui.chat.components.prepareSandboxHtml
@@ -22,23 +21,19 @@ class UnifiedChatAndAgentUnitTest {
 
     @Test
     fun testUnifiedSystemPromptContainsToolsAndArtifactGuidance() {
-        val promptCodeAction = AgentPrompts.getUnifiedSystemPrompt(ActionCommandSyntax.CODE_AS_ACTION)
-        assertNotNull(promptCodeAction)
-        assertTrue(promptCodeAction.contains("TextMorph"))
-        assertTrue(promptCodeAction.contains("conversational intelligence"))
-        assertTrue(promptCodeAction.contains("search_web"))
-        assertTrue(promptCodeAction.contains("fetch_page"))
-        assertTrue(promptCodeAction.contains("get_weather"))
-        assertTrue(promptCodeAction.contains("present_interactive_view"))
-        assertTrue(promptCodeAction.contains("suggest_next_actions"))
-        assertTrue(promptCodeAction.contains("request_user_approval"))
-        assertTrue(promptCodeAction.contains("viewport"))
-        assertTrue(promptCodeAction.contains("canvas"))
-
-        val promptJson = AgentPrompts.getUnifiedSystemPrompt(ActionCommandSyntax.JSON_BASED)
-        assertNotNull(promptJson)
-        assertTrue(promptJson.contains("\"action\": \"action_name\""))
-        assertTrue(promptJson.contains("get_weather"))
+        val prompt = AgentPrompts.getUnifiedSystemPrompt()
+        assertNotNull(prompt)
+        assertTrue(prompt.contains("TextMorph"))
+        assertTrue(prompt.contains("conversational intelligence"))
+        assertTrue(prompt.contains("search_web"))
+        assertTrue(prompt.contains("fetch_page"))
+        assertTrue(prompt.contains("get_weather"))
+        assertTrue(prompt.contains("present_interactive_view"))
+        assertTrue(prompt.contains("suggest_next_actions"))
+        assertTrue(prompt.contains("request_user_approval"))
+        assertTrue(prompt.contains("viewport"))
+        assertTrue(prompt.contains("canvas"))
+        assertFalse(prompt.contains("\"action\": \"action_name\""))
     }
 
     @Test

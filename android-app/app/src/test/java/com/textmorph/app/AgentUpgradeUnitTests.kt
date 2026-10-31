@@ -15,16 +15,11 @@ import org.junit.Test
 class AgentUpgradeUnitTests {
 
     @Test
-    fun testParseSingleJsonAction() {
+    fun testParseCodeActionInCodeFences() {
         val output = """
             Certainly! Opening YouTube now.
-            ```json
-            {
-              "action": "open_app",
-              "parameters": {
-                "name": "youtube"
-              }
-            }
+            ```code
+            open_app("youtube")
             ```
         """.trimIndent()
 
@@ -35,10 +30,8 @@ class AgentUpgradeUnitTests {
     }
 
     @Test
-    fun testParseRawJsonActionWithoutCodeFences() {
-        val output = """
-            {"action": "set_volume", "parameters": {"level": 75}}
-        """.trimIndent()
+    fun testParseCodeActionWithoutCodeFences() {
+        val output = "set_volume(75)"
 
         val parsed = CodeActionParser.parse(output)
         assertNotNull(parsed)
@@ -55,17 +48,11 @@ class AgentUpgradeUnitTests {
 
     @Test
     fun testCleanResponseStripping() {
-        val output = """
-            I am opening Settings for you.
-            ```json
-            {"action": "open_app", "parameters": {"name": "settings"}}
-            ```
-        """.trimIndent()
+        val output = "I am opening Settings for you.\nopen_app(\"settings\")"
 
         val cleaned = CodeActionParser.cleanResponse(output)
         assertEquals("I am opening Settings for you.", cleaned)
         assertFalse(cleaned.contains("open_app"))
-        assertFalse(cleaned.contains("```"))
     }
 
     @Test
@@ -123,49 +110,22 @@ class AgentUpgradeUnitTests {
     }
 
     @Test
-    fun testParseMalformedJsonUnclosedParams() {
-        val malformed = """
-            {
-              "action": "type_text",
-              "params": {
-                "text": "youtube.com",
-              "reasoning": "I need to type the URL of youtube.com into the EditText field 'youtube.com' to navigate to the youtube homepage",
-              "is_complete": false
-            }
-        """.trimIndent()
-
-        val parsed = CodeActionParser.parse(malformed)
-        assertNotNull("Should recover from unclosed params brace", parsed)
-        assertEquals("type_text", parsed?.action)
-        assertEquals("youtube.com", parsed?.getStringParam("text"))
-        assertTrue(parsed?.reasoning?.contains("navigate to the youtube homepage") == true)
+    fun testParseCodeActionWithWhitespaceAndQuotes() {
+        val cmd = "  open_app( 'com.android.settings' )  "
+        val parsed = CodeActionParser.parse(cmd)
+        assertNotNull("Should parse code action with single quotes and whitespace", parsed)
+        assertEquals("open_app", parsed?.action)
+        assertEquals("com.android.settings", parsed?.getStringParam("name"))
     }
 
     @Test
-    fun testParseMalformedJsonExtraBraces() {
-        val malformed = """
-            {
-            "action": "type_text", "params": {"text": "catalogs"} , "hint": "search for cats" },
-            "reasoning": "Type 'cats' into the search box to search for cats.", "is_complete": false}
-        """.trimIndent()
-
-        val parsed = CodeActionParser.parse(malformed)
-        assertNotNull("Should recover from extra brace after params", parsed)
-        assertEquals("type_text", parsed?.action)
-        assertEquals("catalogs", parsed?.getStringParam("text"))
-    }
-
-    @Test
-    fun testParseMalformedJsonBrokenColon() {
-        val malformed = """
-            {
-            "action": "type_text", "params": {"text": "c" : "}, " "reason": "I need to type 'cats' into the search box, which is likely the 'youtube.com' field.", "is_complete": false}
-        """.trimIndent()
-
-        val parsed = CodeActionParser.parse(malformed)
-        assertNotNull("Should recover via regex heuristic", parsed)
-        assertEquals("type_text", parsed?.action)
-        assertEquals("c", parsed?.getStringParam("text"))
+    fun testParseCodeActionWithMultipleArguments() {
+        val cmd = "send_sms(\"Mom\", \"I am on my way\")"
+        val parsed = CodeActionParser.parse(cmd)
+        assertNotNull("Should parse send_sms with multiple parameters", parsed)
+        assertEquals("send_sms", parsed?.action)
+        assertEquals("Mom", parsed?.getStringParam("contact_name"))
+        assertEquals("I am on my way", parsed?.getStringParam("message"))
     }
 
     @Test

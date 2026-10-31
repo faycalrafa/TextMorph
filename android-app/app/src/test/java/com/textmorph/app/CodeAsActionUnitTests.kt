@@ -151,44 +151,20 @@ class CodeAsActionUnitTests {
     }
 
     @Test
-    fun testDualSyntaxRouterPrefersCodeActionThenJson() {
-        // 1. Code-as-action
+    fun testCodeActionParsing() {
         val codeAction = "open_app(\"Camera\")"
         val parsedCode = CodeActionParser.parse(codeAction)
         assertNotNull(parsedCode)
         assertEquals("open_app", parsedCode?.action)
         assertEquals("Camera", parsedCode?.getStringParam("name"))
-
-        // 2. Legacy JSON fallback
-        val jsonAction = """
-            ```json
-            {
-              "action": "open_app",
-              "parameters": {
-                "name": "Camera"
-              }
-            }
-            ```
-        """.trimIndent()
-        val parsedJson = CodeActionParser.parse(jsonAction)
-        assertNotNull(parsedJson)
-        assertEquals("open_app", parsedJson?.action)
-        assertEquals("Camera", parsedJson?.getStringParam("name"))
     }
 
     @Test
-    fun testStripActionPayloadRemovesBothSyntaxes() {
-        // Strip code action
+    fun testStripActionPayloadRemovesCodeAction() {
         val codeText = "I will dial Nouh now.\ncall(\"nouh\")"
         val strippedCode = CodeActionParser.stripActionPayload(codeText)
         assertEquals("I will dial Nouh now.", strippedCode)
         assertFalse(strippedCode.contains("call(\"nouh\")"))
-
-        // Strip json action
-        val jsonText = "Opening settings.\n{\"action\": \"open_app\", \"parameters\": {\"name\": \"Settings\"}}"
-        val strippedJson = CodeActionParser.stripActionPayload(jsonText)
-        assertEquals("Opening settings.", strippedJson)
-        assertFalse(strippedJson.contains("open_app"))
     }
 
     @Test
