@@ -226,9 +226,12 @@ class ArtifactAssemblyStore(
             }
         }
 
-        AppLogger.i(TAG, "[$sessionId] Successfully compiled final artifact (${sb.length} chars across ${sorted.size} sections)")
+        val rawCompiled = sb.toString().trim()
+        val resolvedArtifact = com.textmorph.app.agent.concurrency.ImageAssetRegistry.resolveMarkdownAliases(rawCompiled)
+
+        AppLogger.i(TAG, "[$sessionId] Successfully compiled final artifact (${resolvedArtifact.length} chars across ${sorted.size} sections)")
         cleanupStagingFile()
-        return sb.toString().trim()
+        return resolvedArtifact
     }
 
     /**

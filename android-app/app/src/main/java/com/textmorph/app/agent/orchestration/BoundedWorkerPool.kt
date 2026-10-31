@@ -210,7 +210,8 @@ class BoundedWorkerPool(
             AVAILABLE ACTIONS:
             - search_web(query="...") : Search live web sources
             - fetch_page(url="...") : Read content from a URL
-            - write_section(index=${section.index}, markdown="...") : Write full markdown content for this section
+            - search_images(query="...") : Search for high-resolution images and get short aliased IDs (e.g. IMG_1)
+            - write_section(index=${section.index}, markdown="...") : Write full markdown content for this section (reference images with ![Caption](IMG_1))
             - append_to_section(index=${section.index}, markdown="...") : Append markdown to this section
             - done(summary="...") : Complete this section
 
@@ -235,6 +236,14 @@ class BoundedWorkerPool(
                 description = "Fetches page content.",
                 codeSignature = "fetch_page(url=\"...\")",
                 parameters = listOf(AgentToolParameter("url", "Web URL", defaultValue = ""))
+            ),
+            AgentToolDefinition(
+                id = AgentAction.ACTION_SEARCH_IMAGES,
+                name = "Search Images",
+                category = AgentToolCategory.APPS_AND_WEB,
+                description = "Searches for images and returns short aliased IDs.",
+                codeSignature = "search_images(query=\"...\")",
+                parameters = listOf(AgentToolParameter("query", "Image Search Query", defaultValue = ""))
             ),
             AgentToolDefinition(
                 id = "write_section",

@@ -33,6 +33,7 @@ object ChatToolExecutionHandler {
             when (parsed.action) {
                 AgentAction.ACTION_SEARCH_WEB,
                 AgentAction.ACTION_FETCH_PAGE,
+                AgentAction.ACTION_SEARCH_IMAGES,
                 AgentAction.ACTION_CREATE_JS_TOOL -> return parsed
             }
 
@@ -81,6 +82,16 @@ object ChatToolExecutionHandler {
                     }
                     val pageMarkdown = WebTools.fetchPage(url, charLimit = limit)
                     Pair(!pageMarkdown.startsWith("Error:"), pageMarkdown)
+                }
+
+                AgentAction.ACTION_SEARCH_IMAGES -> {
+                    val query = action.getStringParamWithAliases("query", "q", "search")
+                    if (query.isBlank()) {
+                        return@withContext Pair(false, "Image search query is empty.")
+                    }
+                    val results = com.textmorph.app.agent.tools.web.ImageSearchTool.searchImages(query, maxResults = 4)
+                    val formatted = com.textmorph.app.agent.concurrency.ImageAssetRegistry.registerAndFormatStub(results)
+                    Pair(results.isNotEmpty(), formatted)
                 }
 
                 AgentAction.ACTION_CREATE_JS_TOOL -> {
@@ -155,6 +166,7 @@ object ChatToolExecutionHandler {
         when (action.action) {
             AgentAction.ACTION_SEARCH_WEB,
             AgentAction.ACTION_FETCH_PAGE,
+            AgentAction.ACTION_SEARCH_IMAGES,
             AgentAction.ACTION_CREATE_JS_TOOL -> return true
         }
         if (context != null) {
@@ -171,6 +183,7 @@ object ChatToolExecutionHandler {
         return when (action.action) {
             AgentAction.ACTION_SEARCH_WEB -> "Web Search"
             AgentAction.ACTION_FETCH_PAGE -> "Webpage Reader"
+            AgentAction.ACTION_SEARCH_IMAGES -> "Image Search"
             AgentAction.ACTION_CREATE_JS_TOOL -> "Custom JS Tool Creator"
             "get_weather" -> "Live Weather"
             "unit_converter" -> "Unit Converter"
@@ -195,6 +208,10 @@ object ChatToolExecutionHandler {
             AgentAction.ACTION_FETCH_PAGE -> {
                 val u = action.getStringParamWithAliases("url", "link", "target")
                 if (u.isNotBlank()) "Fetching $u…" else "Fetching webpage content…"
+            }
+            AgentAction.ACTION_SEARCH_IMAGES -> {
+                val q = action.getStringParamWithAliases("query", "q", "search")
+                if (q.isNotBlank()) "Searching images for \"$q\"…" else "Searching for visual assets…"
             }
             AgentAction.ACTION_CREATE_JS_TOOL -> "Creating custom JavaScript tool…"
             "get_weather" -> {

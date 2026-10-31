@@ -248,6 +248,16 @@ object AgentToolRegistry {
             )
         ),
         AgentToolDefinition(
+            id = AgentAction.ACTION_SEARCH_IMAGES,
+            name = "Search Images",
+            category = AgentToolCategory.APPS_AND_WEB,
+            description = "Searches for high-resolution images, returning short aliased IDs (e.g. IMG_1) for safe Markdown citation.",
+            codeSignature = "search_images(\"Sony WH-1000XM5 headphones\")",
+            parameters = listOf(
+                AgentToolParameter("query", "Image Search Query", defaultValue = "Sony WH-1000XM5 headphones", description = "Search query for visual assets")
+            )
+        ),
+        AgentToolDefinition(
             id = AgentAction.ACTION_REQUEST_USER_APPROVAL,
             name = "Human-in-the-Loop Confirmation",
             category = AgentToolCategory.INTERACTIVE,

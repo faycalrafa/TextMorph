@@ -68,6 +68,7 @@ Key architectural boundaries:
 | F24 | Interactive HTML Chat Sandboxing | Live HTML/CSS/JS preview in chat with GIF export and default browser launching | M11 | **DONE** |
 | F25 | Visual & Semantic Agent Benchmarks | Automated visual screen generation and multi-step action evaluation engine with GIF recordings | M12 | **DONE** |
 | F26 | On-Device Agent Harness & Readiness Suite | Unified chat mode, Code-as-Action standardization, Bounded Plan-Execute-Append pipeline, and 5-scenario Agentic Readiness Suite | M13 | **DONE** |
+| F27 | Dedicated Image Search & Short-ID Aliasing | `search_images(query: String)` tool in `PHASE_RESEARCH`, `ImageAssetRegistry` (`IMG_1`, `IMG_2`), `ArtifactAssemblyStore` alias resolution, and Coil Markdown image cards with lightbox and export | M14 | **DONE** |
 
 ---
 
@@ -88,10 +89,11 @@ Key architectural boundaries:
 | **M11**| **JavaScript Tool Sandbox & Web Tools** | F23, F24 | M8, M10 | **DONE** |
 | **M12**| **Visual Agent Benchmarks & Quality Polish** | F25 | M8, M11 | **DONE** |
 | **M13**| **On-Device Agent Harness & Readiness Suite** | F26 | M11, M12 | **DONE** |
+| **M14**| **Dedicated Image Search & Short-ID Aliasing** | F27 | M13 | **DONE** |
 
 ---
 
 ## Verification & Build Results
-- **Unit Tests**: `testDebugUnitTest` executed and passed with exit code `0` (234 unit tests across 28 test suites).
+- **Unit Tests**: `testDebugUnitTest` executed and passed with exit code `0` (240 unit tests across 29 test suites).
 - **Release Build**: `assembleRelease` executed with signed release APK and native runtime bindings.
-- **Application Version**: `v4.3.0` (versionCode `69`).
+- **Application Version**: `v4.3.1` (versionCode `70`).

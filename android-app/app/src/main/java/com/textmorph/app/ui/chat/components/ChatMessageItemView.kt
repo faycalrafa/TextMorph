@@ -359,7 +359,7 @@ private fun AssistantTextBubble(text: String) {
         shadowElevation = 1.dp
     ) {
         Box(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
-            MarkdownText(markdown = sanitized)
+            MarkdownContentView(markdown = sanitized)
         }
     }
 }

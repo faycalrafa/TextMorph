@@ -28,8 +28,12 @@ object ToolFilter {
             }
 
             AgentPhase.PHASE_RESEARCH -> {
-                // Live web search & reading
-                val researchIds = setOf(AgentAction.ACTION_SEARCH_WEB, AgentAction.ACTION_FETCH_PAGE)
+                // Live web search, page reading & image search
+                val researchIds = setOf(
+                    AgentAction.ACTION_SEARCH_WEB,
+                    AgentAction.ACTION_FETCH_PAGE,
+                    AgentAction.ACTION_SEARCH_IMAGES
+                )
                 allBuiltIns.filter { it.id in researchIds }
             }
 
