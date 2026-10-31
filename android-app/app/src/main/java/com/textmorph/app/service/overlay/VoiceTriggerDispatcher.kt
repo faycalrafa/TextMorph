@@ -59,14 +59,19 @@ class VoiceTriggerDispatcher(
         try {
             when (automation.actionType) {
                 AutomationActionType.SCREEN_ASSIST -> {
-                    val (ok, details) = ScreenAssistExecutor.executeScreenAssist(
-                        context = context,
-                        service = service,
-                        customInstruction = automation.promptInstruction,
-                        copyToClipboard = automation.copyToClipboard,
-                        customToast = automation.toastMessage
-                    )
-                    VoiceDispatchResult.Handled(automation.title, details, ok)
+                    if (automation.promptInstruction.isNullOrBlank()) {
+                        ScreenAssistExecutor.startLiveVoiceScreenAssist(context, service)
+                        VoiceDispatchResult.Handled(automation.title, "Started live voice Screen Assist", true)
+                    } else {
+                        val (ok, details) = ScreenAssistExecutor.executeScreenAssist(
+                            context = context,
+                            service = service,
+                            customInstruction = automation.promptInstruction,
+                            copyToClipboard = automation.copyToClipboard,
+                            customToast = automation.toastMessage
+                        )
+                        VoiceDispatchResult.Handled(automation.title, details, ok)
+                    }
                 }
 
                 AutomationActionType.PHONE_CALL -> {

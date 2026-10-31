@@ -27,11 +27,12 @@ class ChatAndAutomationUpgradeUnitTests {
     @Test
     fun testOverlayDisplayStateTransitions() {
         val states = OverlayDisplayState.values()
-        assertEquals(4, states.size)
+        assertEquals(5, states.size)
         assertTrue(states.contains(OverlayDisplayState.COLLAPSED_BUBBLE))
         assertTrue(states.contains(OverlayDisplayState.EXPANDED_TOOLBAR))
         assertTrue(states.contains(OverlayDisplayState.LISTENING_REQUEST))
         assertTrue(states.contains(OverlayDisplayState.AUTOMATING_ACTION))
+        assertTrue(states.contains(OverlayDisplayState.VOICE_ASSIST_SESSION))
     }
 
     @Test

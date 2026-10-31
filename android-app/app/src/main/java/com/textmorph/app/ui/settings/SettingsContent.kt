@@ -216,7 +216,8 @@ fun SettingsContent(
             onSetQuickFixEnabled = { enabled -> scope.launch { settingsRepository.setQuickFixEnabled(enabled) } },
             onSetAutoSendVoiceInput = { enabled -> scope.launch { settingsRepository.setAutoSendVoiceInput(enabled) } },
             onSetWakeWordDetectionEnabled = { enabled -> scope.launch { settingsRepository.setWakeWordDetectionEnabled(enabled) } },
-            onSetFuseChatAndAgent = { enabled -> scope.launch { settingsRepository.setFuseChatAndAgent(enabled) } }
+            onSetFuseChatAndAgent = { enabled -> scope.launch { settingsRepository.setFuseChatAndAgent(enabled) } },
+            onSetVoiceTtsSpeed = { speed -> scope.launch { settingsRepository.setVoiceTtsSpeed(speed) } }
         )
 
         // Appearance & Diagnostics

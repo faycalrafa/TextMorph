@@ -40,6 +40,31 @@ class FloatingToolbarVoiceCoordinator(
                 }
             }
         }
+
+        windowScope.launch {
+            val voiceCtrl = com.textmorph.app.agent.voice.VoiceChatController.getInstance(service)
+            voiceCtrl.state.collect { voiceState ->
+                val mode = voiceCtrl.sessionMode.value
+                if (mode == com.textmorph.app.agent.voice.VoiceSessionMode.SCREEN_ASSIST) {
+                    service.mainHandler.post {
+                        if (voiceState != com.textmorph.app.agent.voice.VoiceChatState.IDLE) {
+                            ensureOverlayShowing()
+                            if (getCurrentDisplayState() != OverlayDisplayState.VOICE_ASSIST_SESSION) {
+                                transitionTo(OverlayDisplayState.VOICE_ASSIST_SESSION)
+                            }
+                        } else if (getCurrentDisplayState() == OverlayDisplayState.VOICE_ASSIST_SESSION) {
+                            transitionTo(OverlayDisplayState.COLLAPSED_BUBBLE)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fun startScreenAssistVoiceSession() {
+        ensureOverlayShowing()
+        com.textmorph.app.agent.voice.VoiceChatController.getInstance(service)
+            .startScreenAssistSession(service, service)
     }
 
     fun startQuickAgentListening(onDone: (() -> Unit)? = null) {
@@ -110,10 +135,12 @@ class FloatingToolbarVoiceCoordinator(
 
     fun stopListening() {
         voiceInputHelper.stopListening()
+        com.textmorph.app.agent.voice.VoiceChatController.getInstance(service).stopSession()
     }
 
     fun destroy() {
         VoiceCommandManager.unregisterListeningHandler()
         voiceInputHelper.stopListening()
+        com.textmorph.app.agent.voice.VoiceChatController.getInstance(service).stopSession()
     }
 }

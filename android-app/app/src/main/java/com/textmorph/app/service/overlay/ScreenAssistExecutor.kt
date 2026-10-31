@@ -20,6 +20,16 @@ object ScreenAssistExecutor {
 
     private const val TAG = "ScreenAssistExecutor"
 
+    /**
+     * Initiates an interactive hands-free voice Screen Assist session with proactive greeting,
+     * 15s watchdog, and live screen-grounded speech Q&A.
+     */
+    fun startLiveVoiceScreenAssist(context: Context, service: TextMorphAccessibilityService?) {
+        AppLogger.i(TAG, "Starting interactive hands-free Voice Screen Assist session...")
+        com.textmorph.app.agent.voice.VoiceChatController.getInstance(context)
+            .startScreenAssistSession(context, service)
+    }
+
     suspend fun executeScreenAssist(
         context: Context,
         service: TextMorphAccessibilityService?,

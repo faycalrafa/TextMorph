@@ -122,6 +122,16 @@ fun AiChatContent(
     val voiceHelper = remember { VoiceInputHelper(context) }
     val isListening by voiceHelper.isListening.collectAsState()
 
+    val voiceController = remember { com.textmorph.app.agent.voice.VoiceChatController.getInstance(context) }
+    val voiceState by voiceController.state.collectAsState()
+    val voiceMode by voiceController.sessionMode.collectAsState()
+    val silenceRemainingSec by voiceController.silenceRemainingSeconds.collectAsState()
+    val transcribedVoiceText by voiceController.transcribedUserText.collectAsState()
+    val spokenAssistantVoiceText by voiceController.spokenAssistantText.collectAsState()
+    val voiceTtsSpeed by voiceController.ttsSpeed.collectAsState()
+    val isHandsFreeVoiceActive = voiceMode == com.textmorph.app.agent.voice.VoiceSessionMode.IN_APP_CHAT &&
+            voiceState != com.textmorph.app.agent.voice.VoiceChatState.IDLE
+
     val contextMetrics = remember(visibleMessages, inputText, attachments.size, activeSessionId, sessions) {
         chatRepository.computeActiveContextMetrics(
             currentInput = inputText,
@@ -218,7 +228,17 @@ fun AiChatContent(
                 chatRepository = chatRepository,
                 scope = scope,
                 onStart = { isGenerating = true },
-                onComplete = { isGenerating = false },
+                onComplete = {
+                    isGenerating = false
+                    if (isHandsFreeVoiceActive) {
+                        val lastAssistant = chatRepository.currentMessages.value.lastOrNull { it.role == "assistant" }?.content
+                        if (!lastAssistant.isNullOrBlank()) {
+                            voiceController.speakAssistantResponseStream(lastAssistant)
+                        } else {
+                            voiceController.stopSession()
+                        }
+                    }
+                },
                 setJob = { currentJob = it },
                 agentEngine = agentEngine,
                 attachments = chatAttachments,
@@ -233,15 +253,11 @@ fun AiChatContent(
     ) { granted ->
         AppLogger.i("AiChatScreen", "Mic permission result: granted=$granted")
         if (granted) {
-            voiceHelper.startListening { transcript ->
-                val newText = if (inputText.isBlank()) transcript else "$inputText $transcript"
-                inputText = newText
-                if (settings.autoSendVoiceInput && newText.isNotBlank()) {
-                    handleSend()
-                }
+            voiceController.startInAppChatSession(context) { transcript, _ ->
+                handleSend(transcript)
             }
         } else {
-            Toast.makeText(context, "Microphone permission is required for voice dictation.", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Microphone permission is required for voice mode.", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -328,25 +344,37 @@ fun AiChatContent(
             modifier = Modifier.weight(1f)
         )
 
+        if (isHandsFreeVoiceActive) {
+            com.textmorph.app.ui.chat.components.VoiceHandsFreeBar(
+                state = voiceState,
+                silenceRemainingSeconds = silenceRemainingSec,
+                ttsSpeed = voiceTtsSpeed,
+                transcribedText = transcribedVoiceText,
+                spokenText = spokenAssistantVoiceText,
+                onSetSpeed = { voiceController.setSpeechRate(it) },
+                onStop = { voiceController.stopSession() }
+            )
+        }
+
         ChatInputBar(
             inputText = inputText,
             onInputTextChanged = { inputText = it },
             activeCommand = activeCommand,
             onActiveCommandChanged = { activeCommand = it },
             isGenerating = isGenerating,
-            isListening = isListening,
+            isListening = isListening || isHandsFreeVoiceActive,
             attachments = attachments,
             onRemoveAttachment = { attachments.remove(it) },
             onPickMedia = { showAttachmentSheet = true },
             onToggleVoice = {
-                if (isListening) {
+                if (isHandsFreeVoiceActive) {
+                    voiceController.stopSession()
+                } else if (isListening) {
                     voiceHelper.stopListening()
                 } else {
                     if (PermissionUtils.hasRecordAudioPermission(context)) {
-                        voiceHelper.startListening { transcript ->
-                            val newText = if (inputText.isBlank()) transcript else "$inputText $transcript"
-                            inputText = newText
-                            if (settings.autoSendVoiceInput && newText.isNotBlank()) handleSend()
+                        voiceController.startInAppChatSession(context) { transcript, _ ->
+                            handleSend(transcript)
                         }
                     } else {
                         micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
@@ -358,6 +386,7 @@ fun AiChatContent(
             isVisionSupported = isVisionCapable,
             onSend = ::handleSend,
             onStop = {
+                voiceController.stopSession()
                 currentJob?.cancel()
                 agentEngine.cancelRunningTask()
                 com.textmorph.app.agent.coordinator.TaskExecutionCoordinator.interrupt()

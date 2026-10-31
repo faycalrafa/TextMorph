@@ -172,6 +172,7 @@ class FloatingToolbarWindowManager(
             OverlayDisplayState.EXPANDED_TOOLBAR -> OverlayLayoutParamsHelper.applyExpandedToolbar(params, bounds, bubbleAnchorY)
             OverlayDisplayState.LISTENING_REQUEST -> OverlayLayoutParamsHelper.applyListeningRequest(params, bounds, anchorX, anchorY)
             OverlayDisplayState.AUTOMATING_ACTION -> OverlayLayoutParamsHelper.applyAutomatingAction(params, bounds, anchorX, anchorY)
+            OverlayDisplayState.VOICE_ASSIST_SESSION -> OverlayLayoutParamsHelper.applyVoiceAssistSession(params, bounds, anchorX, anchorY)
         }
     }
 
@@ -273,6 +274,9 @@ class FloatingToolbarWindowManager(
                                 AppLogger.d(TAG, "Ignoring premature tap on AUTOMATING_ACTION within debounce window (${elapsed}ms < 450ms)")
                             }
                         }
+                        OverlayDisplayState.VOICE_ASSIST_SESSION -> {
+                            com.textmorph.app.agent.voice.VoiceChatController.getInstance(service).stopSession()
+                        }
                     }
                 },
                 onOutsideTap = {
@@ -366,6 +370,23 @@ class FloatingToolbarWindowManager(
                                             com.textmorph.app.agent.coordinator.TaskExecutionCoordinator.interrupt()
                                             agentEngine.cancelRunningTask()
                                         }
+                                    )
+                                }
+                                OverlayDisplayState.VOICE_ASSIST_SESSION -> {
+                                    val voiceCtrl = com.textmorph.app.agent.voice.VoiceChatController.getInstance(service)
+                                    val vState by voiceCtrl.state.collectAsState()
+                                    val remSec by voiceCtrl.silenceRemainingSeconds.collectAsState()
+                                    val userText by voiceCtrl.transcribedUserText.collectAsState()
+                                    val spokenText by voiceCtrl.spokenAssistantText.collectAsState()
+                                    val speed by voiceCtrl.ttsSpeed.collectAsState()
+
+                                    com.textmorph.app.service.overlay.components.FloatingVoiceAssistPill(
+                                        state = vState,
+                                        silenceRemainingSeconds = remSec,
+                                        ttsSpeed = speed,
+                                        transcribedText = userText,
+                                        spokenText = spokenText,
+                                        onStop = { voiceCtrl.stopSession() }
                                     )
                                 }
                             }

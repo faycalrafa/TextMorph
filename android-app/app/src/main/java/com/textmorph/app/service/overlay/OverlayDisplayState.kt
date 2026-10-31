@@ -14,5 +14,8 @@ enum class OverlayDisplayState {
     LISTENING_REQUEST,
 
     /** Bubble head smoothly animating across the screen toward target element coordinates */
-    AUTOMATING_ACTION
+    AUTOMATING_ACTION,
+
+    /** Active live voice Screen Assist session with proactive greeting, 15s watchdog, and TTS */
+    VOICE_ASSIST_SESSION
 }

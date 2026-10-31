@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Widgets
@@ -15,6 +16,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.AlertDialog
@@ -30,6 +32,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.DialogProperties
 import com.textmorph.app.data.model.AppSettings
 import com.textmorph.app.util.AppLogger
@@ -47,6 +50,7 @@ fun ToolbarSettingsSection(
     onSetAutoSendVoiceInput: (Boolean) -> Unit = {},
     onSetWakeWordDetectionEnabled: (Boolean) -> Unit = {},
     onSetFuseChatAndAgent: (Boolean) -> Unit = {},
+    onSetVoiceTtsSpeed: (Float) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -281,6 +285,53 @@ fun ToolbarSettingsSection(
                     checked = settings.fuseChatAndAgent,
                     onCheckedChange = onSetFuseChatAndAgent
                 )
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // Voice Assistant TTS Speed (1.5x default)
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    text = "Voice Assistant Speed (TTS)",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    text = "Playback rate for Screen Assist greetings and read-aloud spoken answers (default 1.5x)",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    val speeds = listOf(1.0f, 1.25f, 1.5f, 1.75f, 2.0f)
+                    speeds.forEach { speedVal ->
+                        val isSelected = kotlin.math.abs(settings.voiceTtsSpeed - speedVal) < 0.05f
+                        val label = if (speedVal == 1.5f) "1.5x" else "${speedVal}x"
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (isSelected) Color(0xFF2563EB) else Color(0xFF1F2937),
+                            border = androidx.compose.foundation.BorderStroke(
+                                1.dp,
+                                if (isSelected) Color(0xFF60A5FA) else Color(0xFF374151)
+                            ),
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable { onSetVoiceTtsSpeed(speedVal) }
+                        ) {
+                            Text(
+                                text = label,
+                                color = if (isSelected) Color.White else Color(0xFFD1D5DB),
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                fontSize = 13.sp,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                modifier = Modifier.padding(vertical = 8.dp)
+                            )
+                        }
+                    }
+                }
             }
         }
     }

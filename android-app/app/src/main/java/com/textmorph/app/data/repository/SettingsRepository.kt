@@ -191,6 +191,7 @@ class SettingsRepository(private val context: Context) {
     suspend fun setAutoSendVoiceInput(enabled: Boolean) = updateSettings { it.copy(autoSendVoiceInput = enabled) }
     suspend fun setWakeWordDetectionEnabled(enabled: Boolean) = updateSettings { it.copy(wakeWordDetectionEnabled = enabled) }
     suspend fun setFuseChatAndAgent(enabled: Boolean) = updateSettings { it.copy(fuseChatAndAgent = enabled) }
+    suspend fun setVoiceTtsSpeed(speed: Float) = updateSettings { it.copy(voiceTtsSpeed = speed.coerceIn(0.5f, 3.0f)) }
 
     private fun saveSettingsToDisk(settings: AppSettings) {
         try {

@@ -99,4 +99,14 @@ object OverlayLayoutParamsHelper {
         params.x = (targetX - bubbleSizePx / 2).coerceIn(bounds.minX, bounds.maxX)
         params.y = (targetY - bubbleSizePx / 2).coerceIn(bounds.minY, bounds.maxY)
     }
+
+    fun applyVoiceAssistSession(params: WindowManager.LayoutParams, bounds: ScreenBounds, anchorX: Int, anchorY: Int) {
+        params.width = WindowManager.LayoutParams.WRAP_CONTENT
+        params.height = WindowManager.LayoutParams.WRAP_CONTENT
+        params.flags = params.flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+        params.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_STATE_UNCHANGED
+        val estimatedHalfWidth = (110 * bounds.density).roundToInt()
+        params.x = (anchorX - estimatedHalfWidth).coerceIn(bounds.minX, bounds.maxX)
+        params.y = anchorY.coerceIn(bounds.minY, bounds.maxY)
+    }
 }
