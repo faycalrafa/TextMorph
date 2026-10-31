@@ -114,9 +114,19 @@ object AiChatAutonomousActionHandler {
             } else {
                 result.success
             }
+            val goalDesc = effectiveAction.getStringParam("goal").ifBlank { userPrompt }
             val finalContent = when {
                 isInterrupted -> "Task stopped by user."
-                isSuccess -> effectiveAction.response.ifEmpty { result.details }
+                isSuccess -> {
+                    val candidate = if (result.details.isNotBlank() && !result.details.contains("(") && !result.details.contains(")")) {
+                        result.details
+                    } else {
+                        "Task completed successfully: $goalDesc"
+                    }
+                    com.textmorph.app.agent.parser.CodeActionParser.stripActionPayload(candidate).ifBlank {
+                        "Task completed successfully: $goalDesc"
+                    }
+                }
                 result.details.startsWith("Task Failed:") ||
                     result.details.startsWith("Error:") ||
                     result.details.startsWith("Action Failed:") -> result.details

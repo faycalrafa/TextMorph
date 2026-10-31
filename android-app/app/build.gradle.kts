@@ -9,13 +9,13 @@ android {
     compileSdk = 36
     val appVersionName = providers.environmentVariable("APP_VERSION_NAME")
         .orElse(providers.gradleProperty("appVersionName"))
-        .getOrElse("4.5.0")
+        .getOrElse("4.6.0")
 
     defaultConfig {
         applicationId = "com.textmorph.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 72
+        versionCode = 73
         versionName = appVersionName
 
         ndk {
@@ -125,6 +125,7 @@ dependencies {
   // Markdown rendering & Image loading
   implementation(libs.markwon.core)
   implementation(libs.coil.compose)
+  implementation(libs.coil.gif)
 
   // Web Browsing & HTML Parsing (OkHttp + Jsoup)
   implementation(libs.okhttp)

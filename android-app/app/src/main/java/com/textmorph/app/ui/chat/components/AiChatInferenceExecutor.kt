@@ -24,6 +24,7 @@ import com.textmorph.app.util.AppLogger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 
 /**
@@ -438,7 +439,7 @@ object AiChatInferenceExecutor {
                 // Rolling summarization
                 val allMessages = chatRepository.currentMessages.value
                 if (allMessages.size >= ChatCompactor.SUMMARY_TRIGGER_MESSAGE_COUNT) {
-                    scope.launch(Dispatchers.IO) {
+                    CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
                         try {
                             val (older, _) = ChatCompactor.partitionWindow(allMessages)
                             if (older.isNotEmpty()) {
@@ -446,8 +447,8 @@ object AiChatInferenceExecutor {
                                 val updatedFacts = ChatCompactor.extractSessionFacts(engine, activeSession?.sessionState, allMessages)
                                 chatRepository.updateSessionCompactionState(sessionId, newSummary, updatedFacts)
                             }
-                        } catch (e: Exception) {
-                            AppLogger.e(TAG, "Background compaction failed: ${e.message}", e)
+                        } catch (t: Throwable) {
+                            AppLogger.e(TAG, "Background compaction failed: ${t.message}", t)
                         }
                     }
                 }

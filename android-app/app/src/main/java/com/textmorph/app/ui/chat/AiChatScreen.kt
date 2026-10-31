@@ -43,6 +43,7 @@ import com.textmorph.app.ui.chat.components.AttachmentPickerHelper
 import com.textmorph.app.ui.chat.components.ChatInputBar
 import com.textmorph.app.ui.chat.components.ChatMessagesList
 import com.textmorph.app.ui.chat.components.ChatRenameSessionDialog
+import com.textmorph.app.ui.chat.components.LocalHardwareTelemetryBar
 import com.textmorph.app.ui.chat.components.MissingPermissionsTooltip
 import com.textmorph.app.ui.chat.components.VoiceInputHelper
 import com.textmorph.app.util.AppLogger
@@ -79,6 +80,7 @@ fun AiChatContent(
     val activeGenerationStatus by chatRepository.activeGenerationStatus.collectAsState()
 
     var inputText by remember { mutableStateOf("") }
+    var activeCommand by remember { mutableStateOf<String?>(null) }
     val attachments = remember { mutableStateListOf<AttachedMediaItem>() }
     var isGenerating by remember { mutableStateOf(false) }
     var currentJob by remember { mutableStateOf<Job?>(null) }
@@ -165,8 +167,17 @@ fun AiChatContent(
 
     fun handleSend(overridePrompt: String? = null) {
         val effectiveText = overridePrompt ?: inputText
-        if ((effectiveText.isNotBlank() || attachments.isNotEmpty()) && !isGenerating) {
-            val prompt = effectiveText.trim()
+        val commandPrefix = if (overridePrompt == null) activeCommand else null
+        if ((effectiveText.isNotBlank() || attachments.isNotEmpty() || commandPrefix != null) && !isGenerating) {
+            val rawPrompt = effectiveText.trim()
+            val prompt = if (commandPrefix != null) {
+                if (rawPrompt.isNotBlank()) "$commandPrefix $rawPrompt" else commandPrefix
+            } else {
+                rawPrompt
+            }
+            if (overridePrompt == null) {
+                activeCommand = null
+            }
 
             val (validatedAttachments, warning) = AttachmentPickerHelper.validateAttachments(
                 modelName = activeModelName,
@@ -263,6 +274,14 @@ fun AiChatContent(
             }
         )
 
+        if (settings.selectedEngine != EngineType.CLOUD_OPENAI) {
+            val lastAssistantMsg = visibleMessages.lastOrNull { it.role == "assistant" }
+            LocalHardwareTelemetryBar(
+                isGenerating = isGenerating,
+                currentTps = lastAssistantMsg?.tokensPerSecond
+            )
+        }
+
         MissingPermissionsTooltip(onOpenAccessibilityDisclosure = onOpenAccessibilityDisclosure)
 
         ChatMessagesList(
@@ -312,6 +331,8 @@ fun AiChatContent(
         ChatInputBar(
             inputText = inputText,
             onInputTextChanged = { inputText = it },
+            activeCommand = activeCommand,
+            onActiveCommandChanged = { activeCommand = it },
             isGenerating = isGenerating,
             isListening = isListening,
             attachments = attachments,

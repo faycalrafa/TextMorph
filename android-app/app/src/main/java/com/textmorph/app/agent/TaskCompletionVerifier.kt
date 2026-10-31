@@ -41,15 +41,7 @@ class TaskCompletionVerifier(
             """.trimIndent()
 
             val rawVerify = queryLlm(verifyPrompt, verifyImage, taskSystemPrompt)
-            try {
-                chatRepoProvider?.invoke()?.recordDiagnosticTurn(
-                    userPrompt = "Verification Check: $goal",
-                    systemPrompt = taskSystemPrompt,
-                    rawOutput = rawVerify
-                )
-            } catch (e: Exception) {
-                AppLogger.w(TAG, "Failed recording verification turn: ${e.message}")
-            }
+            AppLogger.d(TAG, "Verification raw output: $rawVerify")
 
             val clean = rawVerify.trim()
             val isCompleted = clean.contains("COMPLETED", ignoreCase = true) && !clean.contains("INCOMPLETE", ignoreCase = true)

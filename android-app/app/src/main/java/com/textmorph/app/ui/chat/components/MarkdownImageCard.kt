@@ -49,6 +49,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import coil.compose.SubcomposeAsyncImage
 import coil.request.ImageRequest
+import com.textmorph.app.util.AppLogger
 import kotlinx.coroutines.launch
 
 /**
@@ -83,7 +84,14 @@ fun MarkdownImageCard(
                 SubcomposeAsyncImage(
                     model = ImageRequest.Builder(context)
                         .data(imageUrl)
+                        .setHeader("User-Agent", "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36")
+                        .setHeader("Accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8")
                         .crossfade(true)
+                        .listener(
+                            onError = { _, result ->
+                                AppLogger.w("MarkdownImageCard", "Failed loading image '$imageUrl': ${result.throwable.message}", result.throwable)
+                            }
+                        )
                         .build(),
                     contentDescription = caption,
                     contentScale = ContentScale.Crop,
@@ -253,6 +261,8 @@ fun ImageViewerLightboxDialog(
                     SubcomposeAsyncImage(
                         model = ImageRequest.Builder(context)
                             .data(imageUrl)
+                            .setHeader("User-Agent", "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36")
+                            .setHeader("Accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8")
                             .crossfade(true)
                             .build(),
                         contentDescription = caption,

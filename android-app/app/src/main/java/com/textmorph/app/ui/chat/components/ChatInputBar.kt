@@ -27,14 +27,21 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -42,8 +49,14 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
@@ -61,6 +74,8 @@ import androidx.compose.ui.unit.sp
 fun ChatInputBar(
     inputText: String,
     onInputTextChanged: (String) -> Unit,
+    activeCommand: String? = null,
+    onActiveCommandChanged: (String?) -> Unit = {},
     isGenerating: Boolean,
     isListening: Boolean = false,
     attachments: List<AttachedMediaItem> = emptyList(),
@@ -75,8 +90,22 @@ fun ChatInputBar(
     isVisionSupported: Boolean = true,
     modifier: Modifier = Modifier
 ) {
-    val showSlashAutocomplete = inputText.startsWith("/") && !inputText.contains(" ")
+    val showSlashAutocomplete = activeCommand == null && inputText.startsWith("/") && !inputText.contains(" ")
     val hasImages = attachments.any { it.isImage }
+
+    val handleTextChange: (String) -> Unit = { newText ->
+        if (activeCommand == null && newText.startsWith("/")) {
+            val matchingCmd = AVAILABLE_SLASH_COMMANDS.firstOrNull { newText.startsWith("${it.command} ") }
+            if (matchingCmd != null) {
+                onActiveCommandChanged(matchingCmd.command)
+                onInputTextChanged(newText.removePrefix("${matchingCmd.command} "))
+            } else {
+                onInputTextChanged(newText)
+            }
+        } else {
+            onInputTextChanged(newText)
+        }
+    }
 
     Column(
         modifier = modifier
@@ -93,7 +122,8 @@ fun ChatInputBar(
                 SlashCommandAutocompleteCard(
                     filterText = inputText,
                     onSelectCommand = { cmd ->
-                        onInputTextChanged("${cmd.command} ")
+                        onActiveCommandChanged(cmd.command)
+                        onInputTextChanged("")
                     }
                 )
             }
@@ -246,6 +276,83 @@ fun ChatInputBar(
 
                     Spacer(modifier = Modifier.width(8.dp))
 
+                    // Active Slash Command Chip (e.g. [/plan ▾ | ✕])
+                    if (activeCommand != null) {
+                        var showCommandDropdown by remember { mutableStateOf(false) }
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = Color(0xFF1E3A8A).copy(alpha = 0.5f),
+                            border = BorderStroke(1.dp, Color(0xFF3B82F6)),
+                            modifier = Modifier.padding(end = 6.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(start = 8.dp, end = 4.dp, top = 4.dp, bottom = 4.dp)
+                            ) {
+                                Box {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.clickable { showCommandDropdown = true }
+                                    ) {
+                                        Text(
+                                            text = activeCommand,
+                                            fontFamily = FontFamily.Monospace,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFF93C5FD)
+                                        )
+                                        Icon(
+                                            imageVector = Icons.Default.ArrowDropDown,
+                                            contentDescription = "Switch command",
+                                            tint = Color(0xFF93C5FD),
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+
+                                    DropdownMenu(
+                                        expanded = showCommandDropdown,
+                                        onDismissRequest = { showCommandDropdown = false },
+                                        modifier = Modifier.background(Color(0xFF1F2937))
+                                    ) {
+                                        AVAILABLE_SLASH_COMMANDS.forEach { cmd ->
+                                            DropdownMenuItem(
+                                                text = {
+                                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                                        Text(cmd.command, fontWeight = FontWeight.Bold, color = Color(0xFF60A5FA), fontFamily = FontFamily.Monospace, fontSize = 12.sp)
+                                                        Spacer(modifier = Modifier.width(6.dp))
+                                                        Text(cmd.description, color = Color(0xFF9CA3AF), fontSize = 11.sp)
+                                                    }
+                                                },
+                                                onClick = {
+                                                    onActiveCommandChanged(cmd.command)
+                                                    showCommandDropdown = false
+                                                }
+                                            )
+                                        }
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.width(4.dp))
+
+                                Box(
+                                    modifier = Modifier
+                                        .size(16.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0x33FFFFFF))
+                                        .clickable { onActiveCommandChanged(null) },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = "Remove command",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(10.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+
                     // Seamless Text Input
                     Box(
                         modifier = Modifier
@@ -255,7 +362,7 @@ fun ChatInputBar(
                     ) {
                         if (inputText.isEmpty()) {
                             Text(
-                                text = if (isListening) "Listening…" else "Ask TextMorph…",
+                                text = if (isListening) "Listening…" else if (activeCommand != null) "Describe objective…" else "Ask TextMorph…",
                                 fontSize = 15.sp,
                                 color = if (isListening) Color(0xFFFBBF24) else Color(0xFF9CA3AF)
                             )
@@ -263,7 +370,7 @@ fun ChatInputBar(
 
                         BasicTextField(
                             value = inputText,
-                            onValueChange = onInputTextChanged,
+                            onValueChange = handleTextChange,
                             textStyle = TextStyle(
                                 color = Color(0xFFF9FAFB),
                                 fontSize = 15.sp,
@@ -274,7 +381,7 @@ fun ChatInputBar(
                             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                             keyboardActions = KeyboardActions(
                                 onSend = {
-                                    if ((inputText.isNotBlank() || attachments.isNotEmpty()) && !isGenerating) {
+                                    if ((inputText.isNotBlank() || attachments.isNotEmpty() || (activeCommand != null && inputText.isNotBlank())) && !isGenerating) {
                                         onSend()
                                     }
                                 }
@@ -282,6 +389,18 @@ fun ChatInputBar(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .onFocusChanged { if (it.isFocused) onInputFocus?.invoke() }
+                                .onKeyEvent { event ->
+                                    if (event.type == KeyEventType.KeyDown &&
+                                        event.key == Key.Backspace &&
+                                        inputText.isEmpty() &&
+                                        activeCommand != null
+                                    ) {
+                                        onActiveCommandChanged(null)
+                                        true
+                                    } else {
+                                        false
+                                    }
+                                }
                         )
                     }
 
@@ -324,7 +443,7 @@ fun ChatInputBar(
                             )
                         }
                     } else {
-                        val canSend = inputText.isNotBlank() || attachments.isNotEmpty()
+                        val canSend = inputText.isNotBlank() || attachments.isNotEmpty() || (activeCommand != null && inputText.isNotBlank())
                         Box(
                             modifier = Modifier
                                 .size(38.dp)

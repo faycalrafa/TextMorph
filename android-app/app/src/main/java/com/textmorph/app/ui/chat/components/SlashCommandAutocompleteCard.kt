@@ -40,8 +40,8 @@ data class SlashCommandInfo(
 val AVAILABLE_SLASH_COMMANDS = listOf(
     SlashCommandInfo(
         command = "/plan",
-        description = "Decompose task into structured sub-steps & artifact",
-        syntax = "/plan <objective>",
+        description = "Decompose task into structured sub-steps (supports --workers <1..4>)",
+        syntax = "/plan [--workers N] <objective>",
         icon = Icons.AutoMirrored.Filled.ListAlt
     ),
     SlashCommandInfo(
@@ -52,21 +52,9 @@ val AVAILABLE_SLASH_COMMANDS = listOf(
     ),
     SlashCommandInfo(
         command = "/deepsearch",
-        description = "Iterative deep research with multi-source synthesis",
-        syntax = "/deepsearch <topic>",
+        description = "Iterative deep research with multi-source synthesis (supports --workers <1..4>)",
+        syntax = "/deepsearch [--workers N] <topic>",
         icon = Icons.Default.AutoAwesome
-    ),
-    SlashCommandInfo(
-        command = "/benchmark",
-        description = "Run the 5-scenario Agentic Readiness Suite",
-        syntax = "/benchmark",
-        icon = Icons.Default.Speed
-    ),
-    SlashCommandInfo(
-        command = "/workers",
-        description = "Configure concurrent worker threads (1–4)",
-        syntax = "/workers <1..4>",
-        icon = Icons.Default.Tune
     )
 )
 

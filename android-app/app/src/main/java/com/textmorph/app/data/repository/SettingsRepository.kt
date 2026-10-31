@@ -119,6 +119,10 @@ class SettingsRepository(private val context: Context) {
         it.copy(cloudBaseUrl = baseUrl, cloudApiKey = apiKey, cloudModelId = modelId)
     }
 
+    suspend fun setCloudModelId(modelId: String) = updateSettings {
+        it.copy(cloudModelId = modelId)
+    }
+
     suspend fun setProminentDisclosureShown(shown: Boolean = true) = updateSettings {
         it.copy(hasShownProminentDisclosure = shown)
     }

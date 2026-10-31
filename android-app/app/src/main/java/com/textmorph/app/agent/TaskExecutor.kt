@@ -221,16 +221,6 @@ class TaskExecutor(
                 var rawOutput = queryLlm(prompt, imageBytes, taskSystemPrompt)
                 lastRawOutput = rawOutput
 
-                try {
-                    chatRepoProvider?.invoke()?.recordDiagnosticTurn(
-                        userPrompt = "Step ${step + 1} ($goal)",
-                        systemPrompt = taskSystemPrompt,
-                        rawOutput = rawOutput
-                    )
-                } catch (e: Exception) {
-                    AppLogger.d(TAG, "Turn record: ${e.message}")
-                }
-
                 if (isCancelled || TaskExecutionCoordinator.state.value.isInterrupted) {
                     TaskExecutionCoordinator.interrupt()
                     onStepsUpdated?.invoke(TaskExecutionCoordinator.state.value.stepsHistory)

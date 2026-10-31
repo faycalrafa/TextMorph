@@ -79,7 +79,7 @@ private fun parseMarkdownSegments(markdown: String): List<MarkdownSegment> {
     if (markdown.isBlank()) return emptyList()
 
     val segments = mutableListOf<MarkdownSegment>()
-    val pattern = Regex("""(!\[(.*?)\]\((https?://[^\s)]+)\))|(```([a-zA-Z0-9_\-\+]*)\n([\s\S]*?)```)""")
+    val pattern = Regex("""(!\[(.*?)\]\(((?:https?://|IMG_)[^\s)]+(?:\([^\s)]*\)[^\s)]*)*)\))|(```([a-zA-Z0-9_\-\+]*)\n([\s\S]*?)```)""")
     var currentIndex = 0
 
     for (match in pattern.findAll(markdown)) {

@@ -334,6 +334,14 @@ object CodeActionMapper {
                 )
             }
 
+            "suggest_next_actions", "suggest_actions", "next_actions" -> {
+                AgentAction(
+                    action = AgentAction.ACTION_SUGGEST_NEXT_ACTIONS,
+                    params = toJsonParams(mapOf("suggestions" to args.joinToString(", ") { it.value })),
+                    response = "Suggestions generated"
+                )
+            }
+
             else -> {
                 val toolDef = AgentToolRegistry.findTool(funcName)
                 val paramsMap = mutableMapOf<String, String>()

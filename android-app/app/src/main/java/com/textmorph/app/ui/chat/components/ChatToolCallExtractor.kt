@@ -47,7 +47,7 @@ object ChatToolCallExtractor {
     )
 
     private val SUGGESTIONS_CODE_REGEX = Regex(
-        """(?:```(?:python|code|js)?\s*)?`?suggest_next_actions\s*\(\s*(?:(?:suggestions|actions)\s*=\s*)?\[([\s\S]*?)\]\s*\)?`?(?:\s*```)?""",
+        """(?:```(?:python|code|js)?\s*)?`?suggest_next_actions\s*\(\s*(?:(?:suggestions|actions)\s*=\s*)?(?:\[([\s\S]*?)\]|([\s\S]*?))\s*\)?`?(?:\s*```)?""",
         RegexOption.DOT_MATCHES_ALL
     )
 
@@ -83,7 +83,7 @@ object ChatToolCallExtractor {
         // 1. Check Code-as-Action suggest_next_actions
         val codeMatch = SUGGESTIONS_CODE_REGEX.find(trimmed)
         if (codeMatch != null) {
-            val rawList = codeMatch.groupValues[1]
+            val rawList = codeMatch.groupValues[1].ifEmpty { codeMatch.groupValues[2] }
             val rawItems = parseListElements(rawList)
             val options = rawItems.map { parseFollowUpOption(it) }.filter { it.title.isNotBlank() }
             val remaining = (trimmed.substring(0, codeMatch.range.first) + " " + trimmed.substring(codeMatch.range.last + 1)).trim()

@@ -13,6 +13,7 @@ import com.textmorph.app.data.repository.ChatSessionRepository
 import com.textmorph.app.data.repository.SettingsRepository
 import com.textmorph.app.llm.LlmEngine
 import com.textmorph.app.llm.context.ChatCompactor
+import com.textmorph.app.util.AppLogger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -62,23 +63,27 @@ fun AiChatSheets(
             settings = settings,
             availableModels = availableModels,
             onDismiss = onDismissModelSwitchSheet,
-            onSelectModel = { model ->
+            onActivateModel = { targetEngine, targetModel, cloudModelId ->
                 scope.launch {
-                    val targetEngine = when (model.modelFileType) {
-                        ModelFileType.GGUF -> EngineType.ON_DEVICE_LLAMA_CPP
-                        else -> EngineType.ON_DEVICE_LITERT
+                    try {
+                        withContext(Dispatchers.IO) {
+                            activeEngine.unload()
+                        }
+                    } catch (t: Throwable) {
+                        AppLogger.w("AiChatSheets", "Error unloading previous engine", t)
                     }
-                    settingsRepository.setActiveModel(model.name, model.path, model.uriString, targetEngine)
-                    settingsRepository.setEngine(targetEngine)
+                    if (targetEngine == EngineType.CLOUD_OPENAI) {
+                        settingsRepository.setEngine(EngineType.CLOUD_OPENAI)
+                        if (!cloudModelId.isNullOrBlank()) {
+                            settingsRepository.setCloudModelId(cloudModelId)
+                        }
+                        Toast.makeText(context, "Activated Cloud API (${cloudModelId ?: settings.cloudModelId})", Toast.LENGTH_SHORT).show()
+                    } else if (targetModel != null) {
+                        settingsRepository.setActiveModel(targetModel.name, targetModel.path, targetModel.uriString, targetEngine)
+                        settingsRepository.setEngine(targetEngine)
+                        Toast.makeText(context, "Activated ${targetModel.name} on ${targetEngine.displayName}", Toast.LENGTH_SHORT).show()
+                    }
                     onDismissModelSwitchSheet()
-                    Toast.makeText(context, "Switched active model to: ${model.name}", Toast.LENGTH_SHORT).show()
-                }
-            },
-            onSelectEngine = { engine ->
-                scope.launch {
-                    settingsRepository.setEngine(engine)
-                    onDismissModelSwitchSheet()
-                    Toast.makeText(context, "Switched engine to: ${engine.displayName}", Toast.LENGTH_SHORT).show()
                 }
             },
             onSaveConfig = { maxTokens, temp, topP, thinking, accel ->
