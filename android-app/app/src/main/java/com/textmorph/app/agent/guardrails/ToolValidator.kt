@@ -31,7 +31,8 @@ object ToolValidator {
 
     fun validate(
         action: AgentAction,
-        allowedTools: List<com.textmorph.app.agent.tools.registry.AgentToolDefinition>
+        allowedTools: List<com.textmorph.app.agent.tools.registry.AgentToolDefinition>,
+        context: Context? = null
     ): ValidationResult {
         val toolName = action.action.trim().lowercase()
         val match = allowedTools.firstOrNull { it.id.equals(toolName, ignoreCase = true) }
@@ -46,7 +47,8 @@ object ToolValidator {
             if (param.required) {
                 val hasParam = action.params.containsKey(param.name) ||
                     (param.name == "query" && (action.params.containsKey("q") || action.params.containsKey("search"))) ||
-                    (param.name == "url" && (action.params.containsKey("link") || action.params.containsKey("target")))
+                    (param.name == "url" && (action.params.containsKey("link") || action.params.containsKey("target"))) ||
+                    (param.name == "location" && (action.params.containsKey("loc") || action.params.containsKey("city")))
                 if (!hasParam) {
                     val errorMsg = "Missing required parameter: ${param.name}"
                     return ValidationResult.Invalid(errorMsg, synthesizeCorrectionPrompt(action, errorMsg))
@@ -54,7 +56,7 @@ object ToolValidator {
             }
         }
 
-        return validate(action, AgentPhase.PHASE_RESEARCH, null)
+        return validate(action, AgentPhase.PHASE_RESEARCH, context)
     }
 
     fun validate(

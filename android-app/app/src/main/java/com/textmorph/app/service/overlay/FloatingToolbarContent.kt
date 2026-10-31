@@ -17,6 +17,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.ChatBubbleOutline
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Hearing
 import androidx.compose.material.icons.filled.Stop
@@ -345,6 +346,31 @@ fun FloatingToolbarContent(
                             if (state != FloatingButtonState.GENERATING) {
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                 onQuickAgentRequest()
+                            }
+                        }
+                    )
+
+                    // Continue in Chat Action
+                    CompanionSquareIconButton(
+                        icon = Icons.Default.ChatBubbleOutline,
+                        contentDescription = "Continue in Chat",
+                        tint = Color(0xFF60A5FA),
+                        backgroundColor = Color(0x333B82F6),
+                        borderColor = Color(0x333B82F6),
+                        onClick = {
+                            try {
+                                val liveText = getLiveInputText()
+                                val intent = android.content.Intent(context, com.textmorph.app.MainActivity::class.java).apply {
+                                    flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP
+                                    putExtra("destination", "CHAT")
+                                    if (liveText.isNotBlank()) {
+                                        putExtra("prefill_prompt", liveText)
+                                    }
+                                }
+                                context.startActivity(intent)
+                                collapseToolbar()
+                            } catch (t: Throwable) {
+                                AppLogger.e("FloatingToolbar", "Failed opening chat: ${t.message}", t)
                             }
                         }
                     )

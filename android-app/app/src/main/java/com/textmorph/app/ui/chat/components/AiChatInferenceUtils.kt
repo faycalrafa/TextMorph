@@ -58,4 +58,77 @@ object AiChatInferenceUtils {
         is OpenAiCloudEngine -> engine.generateStreamWithMetrics(prompt = prompt, imageBytes = imageBytes, onMetricsUpdated = { onMetrics?.invoke(it) })
         else -> engine.generateStream(prompt = prompt, imageBytes = imageBytes)
     }
+
+    fun extractSourcesFromToolOutput(
+        action: com.textmorph.app.agent.model.AgentAction,
+        toolOutput: String,
+        targetList: MutableList<com.textmorph.app.data.model.SourceCitation>
+    ) {
+        val linkRegex = Regex("""\[(.*?)\]\((https?://[^\s)]+)\)""")
+        val urlRegex = Regex("""https?://[^\s)\]]+""")
+
+        for (m in linkRegex.findAll(toolOutput)) {
+            val title = m.groupValues[1].trim()
+            val url = m.groupValues[2].trim()
+            if (targetList.none { it.url == url }) {
+                targetList.add(
+                    com.textmorph.app.data.model.SourceCitation(
+                        title = title.ifBlank { url },
+                        url = url,
+                        snippet = toolOutput.take(120),
+                        sourceIndex = targetList.size + 1
+                    )
+                )
+            }
+        }
+
+        if (targetList.isEmpty()) {
+            for (m in urlRegex.findAll(toolOutput)) {
+                val url = m.value.trim()
+                if (targetList.none { it.url == url }) {
+                    targetList.add(
+                        com.textmorph.app.data.model.SourceCitation(
+                            title = url,
+                            url = url,
+                            snippet = toolOutput.take(120),
+                            sourceIndex = targetList.size + 1
+                        )
+                    )
+                }
+            }
+        }
+    }
+
+    fun createStepTrace(stepIndex: Int, action: com.textmorph.app.agent.model.AgentAction): com.textmorph.app.data.model.AgentStepTrace {
+        val summary = action.params.entries.joinToString(", ") { "${it.key}=${it.value.toString().removeSurrounding("\"").take(40)}" }
+        return com.textmorph.app.data.model.AgentStepTrace(
+            stepIndex = stepIndex,
+            toolName = action.action,
+            inputQuery = summary,
+            status = "running",
+            startTimeMs = System.currentTimeMillis()
+        )
+    }
+
+    fun completeStepTrace(trace: com.textmorph.app.data.model.AgentStepTrace, output: String) {
+        trace.status = "success"
+        trace.outputSnippet = output.take(150)
+        trace.durationMs = System.currentTimeMillis() - trace.startTimeMs
+    }
+
+    fun failStepTrace(trace: com.textmorph.app.data.model.AgentStepTrace, reason: String) {
+        trace.status = "failed"
+        trace.failureReason = reason
+        trace.durationMs = System.currentTimeMillis() - trace.startTimeMs
+    }
+
+    fun interruptStepTraces(traces: List<com.textmorph.app.data.model.AgentStepTrace>) {
+        for (trace in traces) {
+            if (trace.status == "running") {
+                trace.status = "cancelled"
+                trace.failureReason = "Stopped by user"
+                trace.durationMs = System.currentTimeMillis() - trace.startTimeMs
+            }
+        }
+    }
 }

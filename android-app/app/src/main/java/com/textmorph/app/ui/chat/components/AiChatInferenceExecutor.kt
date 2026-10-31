@@ -118,6 +118,24 @@ object AiChatInferenceExecutor {
                     return
                 }
             }
+            is CommandRouteResult.GoalCommand -> {
+                if (context != null) {
+                    val coordinator = com.textmorph.app.agent.orchestration.GoalExecutionCoordinator(
+                        context = context,
+                        engine = engine,
+                        chatRepository = chatRepository,
+                        agentEngine = agentEngine
+                    )
+                    coordinator.executeGoal(
+                        scope = scope,
+                        sessionId = sessionId,
+                        goal = commandResult.goal,
+                        userPrompt = prompt,
+                        onComplete = onComplete
+                    )
+                    return
+                }
+            }
             else -> {}
         }
 
@@ -166,6 +184,9 @@ object AiChatInferenceExecutor {
             }
             chatRepository.setGenerationStatus(if (!isModelLoaded) "Loading model into memory…" else "Thinking…")
 
+            val stepTraces = mutableListOf<com.textmorph.app.data.model.AgentStepTrace>()
+            val collectedSources = mutableListOf<com.textmorph.app.data.model.SourceCitation>()
+
             try {
                 var currentPromptForInference = assembledPrompt
                 var currentImagePayload: ByteArray? = imageBytes
@@ -208,6 +229,8 @@ object AiChatInferenceExecutor {
                             thoughtContent = curThought,
                             rawNakedOutput = currentText,
                             systemPrompt = systemPrompt,
+                            stepTracesJson = ChatMessageEntity.serializeStepTraces(stepTraces).takeIf { stepTraces.isNotEmpty() },
+                            sourcesJson = ChatMessageEntity.serializeSources(collectedSources).takeIf { collectedSources.isNotEmpty() },
                             tokensPerSecond = lastMetrics?.tokensPerSecond ?: fallbackTps,
                             totalTokens = lastMetrics?.tokenCount ?: streamTokens,
                             durationMs = lastMetrics?.totalDurationMs ?: (now - streamStartTime)
@@ -226,10 +249,25 @@ object AiChatInferenceExecutor {
                         break
                     }
 
+                    val currentTrace = AiChatInferenceUtils.createStepTrace(stepTraces.size + 1, action)
+                    stepTraces.add(currentTrace)
+                    chatRepository.updateLastAssistantMessage(
+                        sessionId = sessionId,
+                        content = effectiveFinalContent,
+                        stepTracesJson = ChatMessageEntity.serializeStepTraces(stepTraces),
+                        sourcesJson = ChatMessageEntity.serializeSources(collectedSources).takeIf { collectedSources.isNotEmpty() }
+                    )
+
                     // Pre-Flight Validation
-                    val validation = ToolValidator.validate(action, allowedTools)
+                    val validation = ToolValidator.validate(action, allowedTools, context)
                     if (!validation.isValid) {
                         AppLogger.w(TAG, "Tool pre-flight validation failed: ${validation.error}. Triggering self-correction retry.")
+                        AiChatInferenceUtils.failStepTrace(currentTrace, "Validation error: ${validation.error}")
+                        chatRepository.updateLastAssistantMessage(
+                            sessionId = sessionId,
+                            content = effectiveFinalContent,
+                            stepTracesJson = ChatMessageEntity.serializeStepTraces(stepTraces)
+                        )
                         val correctionPrompt = ToolValidator.synthesizeCorrectionPrompt(action, validation.error)
                         chatRepository.setGenerationStatus("Validating tool parameters… self-correcting…")
 
@@ -252,8 +290,26 @@ object AiChatInferenceExecutor {
                     val guardrailDecision = guardrail.evaluate(action.action, action.params)
                     if (!guardrailDecision.allowed) {
                         AppLogger.w(TAG, "Execution circuit breaker fired: ${guardrailDecision.reason}")
-                        effectiveFinalContent = "${effectiveFinalContent}\n\n[Guardrail Notice: ${guardrailDecision.reason}]"
-                        break
+                        AiChatInferenceUtils.failStepTrace(currentTrace, "Loop halted: ${guardrailDecision.reason}")
+                        chatRepository.updateLastAssistantMessage(
+                            sessionId = sessionId,
+                            content = effectiveFinalContent,
+                            stepTracesJson = ChatMessageEntity.serializeStepTraces(stepTraces)
+                        )
+                        val recoveryPrompt = "Notice: The tool action '${action.action}' was already executed or blocked (${guardrailDecision.reason}). Please provide the complete final answer directly to the user based on available information without calling this tool again."
+                        turnHistory.add(ChatMessageEntity(sessionId = sessionId, role = "assistant", content = effectiveFinalContent))
+                        currentPromptForInference = ChatCompactor.assembleInferencePrompt(
+                            systemPrompt = systemPrompt,
+                            sessionSummary = activeSession?.summary,
+                            sessionState = activeSession?.sessionState,
+                            historyMessages = priorMessages + turnHistory,
+                            currentPrompt = recoveryPrompt,
+                            documentText = null,
+                            maxContextTokens = engine.maxContextTokens
+                        )
+                        currentImagePayload = null
+                        hop++
+                        continue
                     }
 
                     executedActionName = action.action
@@ -266,17 +322,28 @@ object AiChatInferenceExecutor {
                             sessionId = sessionId,
                             content = "",
                             actionPayloadJson = action.action,
-                            actionStatus = "running"
+                            actionStatus = "running",
+                            stepTracesJson = ChatMessageEntity.serializeStepTraces(stepTraces)
                         )
 
-                        val (_, toolOutput) = ChatToolExecutionHandler.executeTool(action, context)
+                        val (toolSuccess, toolOutput) = ChatToolExecutionHandler.executeTool(action, context)
                         val toolName = ChatToolExecutionHandler.getToolDisplayName(action, context)
+                        AiChatInferenceUtils.extractSourcesFromToolOutput(action, toolOutput, collectedSources)
+
+                        if (toolSuccess) {
+                            AiChatInferenceUtils.completeStepTrace(currentTrace, toolOutput)
+                        } else {
+                            AiChatInferenceUtils.failStepTrace(currentTrace, toolOutput.take(120))
+                        }
+
                         chatRepository.setGenerationStatus("$toolName finished! Thinking & synthesizing answer…")
                         chatRepository.updateLastAssistantMessage(
                             sessionId = sessionId,
                             content = "",
                             actionPayloadJson = action.action,
-                            actionStatus = "success"
+                            actionStatus = if (toolSuccess) "success" else "failed",
+                            stepTracesJson = ChatMessageEntity.serializeStepTraces(stepTraces),
+                            sourcesJson = ChatMessageEntity.serializeSources(collectedSources).takeIf { collectedSources.isNotEmpty() }
                         )
 
                         val obsPrompt = ChatToolExecutionHandler.formatObservationPrompt(action, toolOutput)
@@ -295,6 +362,12 @@ object AiChatInferenceExecutor {
                         hop++
                     } else if (agentEngine != null) {
                         // Autonomous device-level action
+                        AiChatInferenceUtils.completeStepTrace(currentTrace, "Device action initiated")
+                        chatRepository.updateLastAssistantMessage(
+                            sessionId = sessionId,
+                            content = effectiveFinalContent,
+                            stepTracesJson = ChatMessageEntity.serializeStepTraces(stepTraces)
+                        )
                         AiChatAutonomousActionHandler.handleAutonomousAction(
                             action = action,
                             userPrompt = prompt,
@@ -309,6 +382,12 @@ object AiChatInferenceExecutor {
                         break
                     } else {
                         break
+                    }
+                }
+
+                for (t in stepTraces) {
+                    if (t.status == "running") {
+                        AiChatInferenceUtils.completeStepTrace(t, "Finished")
                     }
                 }
 
@@ -329,6 +408,8 @@ object AiChatInferenceExecutor {
                     systemPrompt = systemPrompt,
                     actionPayloadJson = executedActionName,
                     actionStatus = if (executedActionName != null) "success" else null,
+                    stepTracesJson = ChatMessageEntity.serializeStepTraces(stepTraces).takeIf { stepTraces.isNotEmpty() },
+                    sourcesJson = ChatMessageEntity.serializeSources(collectedSources).takeIf { collectedSources.isNotEmpty() },
                     tokensPerSecond = finalTps,
                     totalTokens = finalTokens,
                     durationMs = finalDuration
@@ -374,10 +455,12 @@ object AiChatInferenceExecutor {
                 AppLogger.i(TAG, "Chat turn cancelled: ${ce.message}")
                 com.textmorph.app.agent.coordinator.TaskExecutionCoordinator.interrupt()
                 agentEngine?.cancelRunningTask()
+                AiChatInferenceUtils.interruptStepTraces(stepTraces)
                 chatRepository.updateLastAssistantMessage(
                     sessionId = sessionId,
                     content = "Task stopped by user.",
-                    actionStatus = "interrupted"
+                    actionStatus = "interrupted",
+                    stepTracesJson = ChatMessageEntity.serializeStepTraces(stepTraces).takeIf { stepTraces.isNotEmpty() }
                 )
                 throw ce
             } catch (e: Exception) {

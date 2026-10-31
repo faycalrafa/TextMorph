@@ -66,9 +66,23 @@ object AiChatPlanExecutionHandler {
                 )
 
                 chatRepository.setGenerationStatus(null)
+                val isPlan = userPrompt.trim().startsWith("/plan", ignoreCase = true)
+                val artifactType = if (isPlan) "plan" else "report"
+                val artifactTitle = goal.ifBlank { userPrompt }.take(60)
+                val artifactMetadata = com.textmorph.app.data.model.ArtifactMetadata(
+                    title = artifactTitle,
+                    wordCount = (result.artifactContent.length / 5).coerceAtLeast(1),
+                    sectionCount = 1,
+                    content = result.artifactContent,
+                    id = java.util.UUID.randomUUID().toString(),
+                    type = artifactType,
+                    summary = result.artifactContent.lines().filter { it.isNotBlank() }.take(2).joinToString(" ").take(160),
+                    createdAtMs = System.currentTimeMillis()
+                )
                 chatRepository.updateLastAssistantMessage(
                     sessionId = sessionId,
-                    content = result.artifactContent,
+                    content = if (isPlan) "Plan generated successfully. Review the structured execution plan below:" else "Deep research completed. View the full report below:",
+                    artifactPayloadJson = ChatMessageEntity.serializeArtifact(artifactMetadata),
                     totalTokens = (result.artifactContent.length / 4).coerceAtLeast(1),
                     durationMs = result.durationMs
                 )

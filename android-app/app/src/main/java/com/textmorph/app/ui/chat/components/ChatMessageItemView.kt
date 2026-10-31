@@ -76,12 +76,15 @@ fun ChatMessageItemView(
     onInterruptAction: (() -> Unit)? = null,
     onSelectOption: ((String) -> Unit)? = null,
     onSelectSuggestion: ((String) -> Unit)? = null,
+    onViewArtifact: ((com.textmorph.app.data.model.ArtifactMetadata) -> Unit)? = null,
+    onExecutePlan: ((String) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val isUser = message.role == "user"
     val align = if (isUser) Alignment.End else Alignment.Start
     var showUserMenu by remember { mutableStateOf(false) }
+    var showSourcesSheet by remember { mutableStateOf(false) }
 
     Column(
         modifier = modifier.fillMaxWidth(),
@@ -183,14 +186,48 @@ fun ChatMessageItemView(
                     Spacer(modifier = Modifier.height(6.dp))
                 }
 
-                // 3. Tool Invocations, Actions, HTML, or Standard Prose
-                if (message.actionPayloadJson != null && message.actionStepsJson == null) {
+                // 3. Step Trace Accordion or Legacy Action Cards
+                val stepTraces = remember(message.stepTracesJson) { message.getStepTraces() }
+                if (stepTraces.isNotEmpty()) {
+                    StepTraceAccordion(
+                        traces = stepTraces,
+                        isRunning = isGenerating,
+                        onInterrupt = onInterruptAction
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                } else if (message.actionStepsJson != null) {
+                    AgentTaskTimelineCard(
+                        message = message,
+                        onInterrupt = {
+                            com.textmorph.app.agent.coordinator.TaskExecutionCoordinator.interrupt()
+                            onInterruptAction?.invoke()
+                        }
+                    )
+                } else if (message.actionPayloadJson != null) {
                     ActionExecutionCard(
                         actionName = message.actionPayloadJson,
                         reasoning = if (message.actionStatus == "running") (generationStatus ?: "Executing ${message.actionPayloadJson}…") else "Tool execution complete",
                         status = message.actionStatus ?: "running"
                     )
                     if (message.content.isNotBlank()) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+                }
+
+                // 4. Artifact Summary Card (if document/report produced)
+                val artifact = remember(message.artifactPayloadJson) { message.getArtifact() }
+                if (artifact != null) {
+                    ArtifactSummaryCard(
+                        artifact = artifact,
+                        onViewArtifact = { onViewArtifact?.invoke(it) }
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    if (artifact.type == "plan" && onExecutePlan != null) {
+                        PlanExecutionActionCard(
+                            planSummary = artifact.summary,
+                            onExecutePlan = { onExecutePlan(artifact.content) }
+                        )
                         Spacer(modifier = Modifier.height(8.dp))
                     }
                 }
@@ -219,15 +256,7 @@ fun ChatMessageItemView(
                         Spacer(modifier = Modifier.height(8.dp))
                         AssistantTextBubble(text = approval.postText)
                     }
-                } else if (message.actionStepsJson != null) {
-                    AgentTaskTimelineCard(
-                        message = message,
-                        onInterrupt = {
-                            com.textmorph.app.agent.coordinator.TaskExecutionCoordinator.interrupt()
-                            onInterruptAction?.invoke()
-                        }
-                    )
-                } else if (message.content.trim().startsWith("{\"action\":") && message.content.contains("}") && message.actionPayloadJson == null) {
+                } else if (message.content.trim().startsWith("{\"action\":") && message.content.contains("}") && message.actionPayloadJson == null && stepTraces.isEmpty()) {
                     ActionExecutionCard(
                         actionName = "Autonomous Action",
                         reasoning = message.content,
@@ -270,45 +299,23 @@ fun ChatMessageItemView(
                     }
                 }
 
-                // 4. Speed & Performance Metrics Badge
-                if (message.tokensPerSecond != null && message.tokensPerSecond > 0f) {
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Surface(
-                        shape = RoundedCornerShape(6.dp),
-                        color = Color(0xFF111827), // Midnight slate
-                        border = BorderStroke(1.dp, Color(0xFF374151))
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Speed,
-                                contentDescription = "Speed",
-                                tint = Color(0xFF60A5FA),
-                                modifier = Modifier.size(13.dp)
-                            )
-                            Spacer(modifier = Modifier.width(5.dp))
-                            Text(
-                                text = buildString {
-                                    append(String.format(Locale.US, "%.1f tok/s", message.tokensPerSecond))
-                                    if (message.totalTokens != null && message.totalTokens > 0) {
-                                        append(" • ")
-                                        append(message.totalTokens)
-                                        append(" tok")
-                                    }
-                                    if (message.durationMs != null && message.durationMs > 0) {
-                                        append(" • ")
-                                        append(String.format(Locale.US, "%.1fs", message.durationMs / 1000f))
-                                    }
-                                },
-                                fontSize = 11.sp,
-                                fontFamily = FontFamily.Monospace,
-                                fontWeight = FontWeight.Medium,
-                                color = Color(0xFF60A5FA)
-                            )
-                        }
-                    }
+                // 5. Assistant Action Row (Copy, Share, Retry, Sources, Telemetry)
+                if (message.content.isNotBlank() || stepTraces.isNotEmpty() || artifact != null) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    AssistantActionRow(
+                        message = message,
+                        onRegenerate = if (onRetryPrompt != null) { { onRetryPrompt(message) } } else null,
+                        onOpenSources = { showSourcesSheet = true }
+                    )
+                }
+
+                // Sources Bottom Sheet
+                val sources = remember(message.sourcesJson) { message.getSources() }
+                if (showSourcesSheet && sources.isNotEmpty()) {
+                    MessageSourcesBottomSheet(
+                        sources = sources,
+                        onDismiss = { showSourcesSheet = false }
+                    )
                 }
             }
         }

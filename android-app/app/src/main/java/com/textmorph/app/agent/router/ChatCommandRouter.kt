@@ -28,6 +28,10 @@ sealed class CommandRouteResult {
         val workersOverride: Int? = null
     ) : CommandRouteResult()
 
+    data class GoalCommand(
+        val goal: String
+    ) : CommandRouteResult()
+
     data class SetWorkersCommand(
         val workerCount: Int,
         val message: String
@@ -109,6 +113,11 @@ object ChatCommandRouter {
                     val (workers, cleanQuery) = extractWorkerFlags(remainder)
                     AppLogger.i(TAG, "Routed /deepsearch: query='$cleanQuery', workers=$workers")
                     return CommandRouteResult.DeepSearchCommand(cleanQuery, workers)
+                }
+
+                "/goal" -> {
+                    AppLogger.i(TAG, "Routed /goal: goal='$remainder'")
+                    return CommandRouteResult.GoalCommand(remainder)
                 }
             }
         }

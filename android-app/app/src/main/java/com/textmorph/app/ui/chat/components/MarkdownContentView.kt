@@ -14,13 +14,14 @@ import com.textmorph.app.agent.concurrency.ImageAssetRegistry
 private sealed class MarkdownSegment {
     data class Text(val content: String) : MarkdownSegment()
     data class Image(val caption: String, val url: String) : MarkdownSegment()
+    data class Code(val language: String, val code: String) : MarkdownSegment()
 }
 
 /**
- * MarkdownContentView renders rich Markdown prose alongside embedded visual asset cards.
+ * MarkdownContentView renders rich Markdown prose alongside embedded visual asset cards
+ * and interactive CodeBlockCards.
  * It automatically pre-resolves short image aliases (IMG_1, IMG_2) via ImageAssetRegistry,
- * extracts `![caption](url)` image references, and renders interactive MarkdownImageCards
- * with lightbox and tap-to-download support.
+ * extracts `![caption](url)` image references and ````lang ... ```` code blocks.
  */
 @Composable
 fun MarkdownContentView(
@@ -34,7 +35,7 @@ fun MarkdownContentView(
         ImageAssetRegistry.resolveMarkdownAliases(markdown)
     }
 
-    // 2. Parse into alternating prose and image segments
+    // 2. Parse into alternating prose, image, and code segments
     val segments = remember(resolvedMarkdown) {
         parseMarkdownSegments(resolvedMarkdown)
     }
@@ -60,26 +61,31 @@ fun MarkdownContentView(
                         imageUrl = segment.url
                     )
                 }
+                is MarkdownSegment.Code -> {
+                    CodeBlockCard(
+                        language = segment.language,
+                        code = segment.code
+                    )
+                }
             }
         }
     }
 }
 
 /**
- * Splits a markdown string into sequential text and image segments.
+ * Splits a markdown string into sequential text, image, and code segments.
  */
 private fun parseMarkdownSegments(markdown: String): List<MarkdownSegment> {
     if (markdown.isBlank()) return emptyList()
 
     val segments = mutableListOf<MarkdownSegment>()
-    val imageRegex = Regex("""!\[(.*?)\]\((https?://[^\s)]+)\)""")
+    val pattern = Regex("""(!\[(.*?)\]\((https?://[^\s)]+)\))|(```([a-zA-Z0-9_\-\+]*)\n([\s\S]*?)```)""")
     var currentIndex = 0
 
-    for (match in imageRegex.findAll(markdown)) {
+    for (match in pattern.findAll(markdown)) {
         val matchStart = match.range.first
         val matchEnd = match.range.last + 1
 
-        // Text before the image
         if (matchStart > currentIndex) {
             val textChunk = markdown.substring(currentIndex, matchStart).trim()
             if (textChunk.isNotEmpty()) {
@@ -87,15 +93,19 @@ private fun parseMarkdownSegments(markdown: String): List<MarkdownSegment> {
             }
         }
 
-        // The image itself
-        val caption = match.groupValues[1]
-        val imageUrl = match.groupValues[2]
-        segments.add(MarkdownSegment.Image(caption = caption, url = imageUrl))
+        if (match.value.startsWith("![")) {
+            val caption = match.groupValues[2]
+            val imageUrl = match.groupValues[3]
+            segments.add(MarkdownSegment.Image(caption = caption, url = imageUrl))
+        } else if (match.value.startsWith("```")) {
+            val lang = match.groupValues[5].trim()
+            val code = match.groupValues[6].trimEnd()
+            segments.add(MarkdownSegment.Code(language = lang, code = code))
+        }
 
         currentIndex = matchEnd
     }
 
-    // Trailing text after the last image
     if (currentIndex < markdown.length) {
         val trailingText = markdown.substring(currentIndex).trim()
         if (trailingText.isNotEmpty()) {

@@ -38,7 +38,14 @@ fun AiChatSheets(
     showModelSwitchSheet: Boolean,
     onDismissModelSwitchSheet: () -> Unit,
     showCapacitySheet: Boolean,
-    onDismissCapacitySheet: () -> Unit
+    onDismissCapacitySheet: () -> Unit,
+    showSessionsSheet: Boolean = false,
+    onDismissSessionsSheet: () -> Unit = {},
+    sessions: List<com.textmorph.app.data.model.ChatSessionEntity> = emptyList(),
+    onSelectSession: (String) -> Unit = {},
+    onCreateNewSession: () -> Unit = {},
+    onRenameSession: (String, String) -> Unit = { _, _ -> },
+    onDeleteSession: (String) -> Unit = {}
 ) {
     val context = LocalContext.current
 
@@ -119,6 +126,18 @@ fun AiChatSheets(
                 }
             },
             onDismiss = onDismissCapacitySheet
+        )
+    }
+
+    if (showSessionsSheet) {
+        ChatSessionsBottomSheet(
+            sessions = sessions,
+            activeSessionId = activeSessionId,
+            onSelectSession = onSelectSession,
+            onCreateNewSession = onCreateNewSession,
+            onRenameSession = onRenameSession,
+            onDeleteSession = onDeleteSession,
+            onDismiss = onDismissSessionsSheet
         )
     }
 }

@@ -4,40 +4,14 @@ import android.Manifest
 import android.graphics.Bitmap
 import android.net.Uri
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.DeleteOutline
-import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material.icons.filled.Tune
-import androidx.compose.material3.DrawerValue
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.ModalNavigationDrawer
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -47,16 +21,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import com.textmorph.app.data.model.ArtifactMetadata
 import com.textmorph.app.data.model.EngineType
 import com.textmorph.app.data.repository.ChatSessionRepository
 import com.textmorph.app.data.repository.ModelStorageRepository
@@ -65,20 +34,19 @@ import com.textmorph.app.llm.LiteRtLmEngine
 import com.textmorph.app.llm.LlamaCppEngine
 import com.textmorph.app.llm.LlamaCppEngineManager
 import com.textmorph.app.llm.OpenAiCloudEngine
-import com.textmorph.app.llm.context.ChatCompactor
 import com.textmorph.app.ui.chat.components.AiChatInferenceExecutor
 import com.textmorph.app.ui.chat.components.AiChatSheets
+import com.textmorph.app.ui.chat.components.AiChatTopBar
+import com.textmorph.app.ui.chat.components.ArtifactReaderScreen
 import com.textmorph.app.ui.chat.components.AttachedMediaItem
-import com.textmorph.app.util.AppLogger
-import com.textmorph.app.util.PermissionUtils
 import com.textmorph.app.ui.chat.components.AttachmentPickerHelper
 import com.textmorph.app.ui.chat.components.ChatInputBar
-import com.textmorph.app.ui.chat.components.ChatMessageItemView
-import com.textmorph.app.ui.chat.components.ChatSessionsDrawerContent
-import com.textmorph.app.ui.chat.components.ContextCapacityBottomSheet
-import com.textmorph.app.ui.chat.components.ContextCapacityMeterPill
-import com.textmorph.app.ui.chat.components.ModelQuickSwitchBottomSheet
+import com.textmorph.app.ui.chat.components.ChatMessagesList
+import com.textmorph.app.ui.chat.components.ChatRenameSessionDialog
+import com.textmorph.app.ui.chat.components.MissingPermissionsTooltip
 import com.textmorph.app.ui.chat.components.VoiceInputHelper
+import com.textmorph.app.util.AppLogger
+import com.textmorph.app.util.PermissionUtils
 import java.io.ByteArrayOutputStream
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -107,9 +75,28 @@ fun AiChatContent(
     val currentSession = remember(sessions, activeSessionId) {
         sessions.firstOrNull { it.id == activeSessionId }
     }
-    val messages by chatRepository.currentMessages.collectAsState()
+    val visibleMessages by chatRepository.currentMessages.collectAsState()
     val activeGenerationStatus by chatRepository.activeGenerationStatus.collectAsState()
-    val visibleMessages = messages
+
+    var inputText by remember { mutableStateOf("") }
+    val attachments = remember { mutableStateListOf<AttachedMediaItem>() }
+    var isGenerating by remember { mutableStateOf(false) }
+    var currentJob by remember { mutableStateOf<Job?>(null) }
+    var showModelSwitchSheet by remember { mutableStateOf(false) }
+    var showCapacitySheet by remember { mutableStateOf(false) }
+    var showAttachmentSheet by remember { mutableStateOf(false) }
+    var showSessionsSheet by remember { mutableStateOf(false) }
+    var showRenameSessionDialog by remember { mutableStateOf(false) }
+    var viewingArtifact by remember { mutableStateOf<ArtifactMetadata?>(null) }
+
+    if (viewingArtifact != null) {
+        BackHandler { viewingArtifact = null }
+        ArtifactReaderScreen(
+            artifact = viewingArtifact!!,
+            onBack = { viewingArtifact = null }
+        )
+        return
+    }
 
     fun getActiveEngine(): com.textmorph.app.llm.LlmEngine {
         return when (settings.selectedEngine) {
@@ -129,13 +116,6 @@ fun AiChatContent(
             engineProvider = ::getActiveEngine
         )
     }
-    var inputText by remember { mutableStateOf("") }
-    val attachments = remember { mutableStateListOf<AttachedMediaItem>() }
-    var isGenerating by remember { mutableStateOf(false) }
-    var currentJob by remember { mutableStateOf<Job?>(null) }
-    var showModelSwitchSheet by remember { mutableStateOf(false) }
-    var showCapacitySheet by remember { mutableStateOf(false) }
-    var showAttachmentSheet by remember { mutableStateOf(false) }
 
     val voiceHelper = remember { VoiceInputHelper(context) }
     val isListening by voiceHelper.isListening.collectAsState()
@@ -172,8 +152,14 @@ fun AiChatContent(
     }
 
     LaunchedEffect(visibleMessages.lastOrNull()?.content, visibleMessages.size) {
-        if (visibleMessages.isNotEmpty()) {
-            listState.animateScrollToItem(visibleMessages.size - 1)
+        if (visibleMessages.isNotEmpty() && !listState.isScrollInProgress) {
+            listState.scrollToItem(visibleMessages.size - 1)
+        }
+    }
+
+    LaunchedEffect(listState.isScrollInProgress) {
+        if (listState.isScrollInProgress) {
+            keyboardController?.hide()
         }
     }
 
@@ -182,7 +168,6 @@ fun AiChatContent(
         if ((effectiveText.isNotBlank() || attachments.isNotEmpty()) && !isGenerating) {
             val prompt = effectiveText.trim()
 
-            // Validate attachments against model vision capabilities
             val (validatedAttachments, warning) = AttachmentPickerHelper.validateAttachments(
                 modelName = activeModelName,
                 isVisionSupported = isVisionCapable,
@@ -252,17 +237,24 @@ fun AiChatContent(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF0B1020)) // Charcoal Slate deep midnight
+            .background(Color(0xFF0B1020))
             .imePadding()
     ) {
-        // Top Bar
-        com.textmorph.app.ui.chat.components.AiChatTopBar(
+        AiChatTopBar(
             activeModelName = activeModelName,
             contextMetrics = contextMetrics,
             hasMessages = visibleMessages.isNotEmpty(),
             onOpenDrawer = onOpenDrawer,
             onOpenModelSwitch = { showModelSwitchSheet = true },
             onOpenCapacitySheet = { showCapacitySheet = true },
+            onNewChat = {
+                currentJob?.cancel()
+                agentEngine.cancelRunningTask()
+                isGenerating = false
+                scope.launch { chatRepository.createSession() }
+            },
+            onOpenSessions = { showSessionsSheet = true },
+            onRenameSession = { showRenameSessionDialog = true },
             onClearChat = {
                 currentJob?.cancel()
                 agentEngine.cancelRunningTask()
@@ -271,90 +263,52 @@ fun AiChatContent(
             }
         )
 
-        // Floating Dismissible Permissions Tooltip
-        com.textmorph.app.ui.chat.components.MissingPermissionsTooltip(
-            onOpenAccessibilityDisclosure = onOpenAccessibilityDisclosure
+        MissingPermissionsTooltip(onOpenAccessibilityDisclosure = onOpenAccessibilityDisclosure)
+
+        ChatMessagesList(
+            messages = visibleMessages,
+            listState = listState,
+            isGenerating = isGenerating,
+            activeGenerationStatus = activeGenerationStatus,
+            activeModelName = activeModelName,
+            onSelectStarter = { handleSend(it) },
+            onEditPrompt = { userMsg ->
+                val targetId = activeSessionId ?: return@ChatMessagesList
+                inputText = userMsg.content
+                attachments.clear()
+                userMsg.getAttachments().forEach { att ->
+                    AttachmentPickerHelper.restoreAttachedMediaItem(context, att)?.let { attachments.add(it) }
+                }
+                scope.launch { chatRepository.truncateMessages(targetId, userMsg.id, inclusive = true) }
+            },
+            onRetryPrompt = { userMsg ->
+                val targetId = activeSessionId ?: return@ChatMessagesList
+                attachments.clear()
+                userMsg.getAttachments().forEach { att ->
+                    AttachmentPickerHelper.restoreAttachedMediaItem(context, att)?.let { attachments.add(it) }
+                }
+                scope.launch {
+                    chatRepository.truncateMessages(targetId, userMsg.id, inclusive = true)
+                    handleSend(userMsg.content)
+                }
+            },
+            onInterruptAction = {
+                currentJob?.cancel()
+                agentEngine.cancelRunningTask()
+                com.textmorph.app.agent.coordinator.TaskExecutionCoordinator.interrupt()
+                isGenerating = false
+                val targetId = activeSessionId ?: return@ChatMessagesList
+                scope.launch(Dispatchers.IO) {
+                    chatRepository.updateLastAssistantMessage(sessionId = targetId, content = "Task stopped by user.", actionStatus = "interrupted")
+                }
+            },
+            onSelectOption = { handleSend(it) },
+            onSelectSuggestion = { handleSend(it) },
+            onViewArtifact = { viewingArtifact = it },
+            onExecutePlan = { handleSend(it) },
+            modifier = Modifier.weight(1f)
         )
 
-        // Messages View
-        Box(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth()
-        ) {
-            if (visibleMessages.isEmpty()) {
-                com.textmorph.app.ui.chat.components.ChatEmptyStateStarters(
-                    isAgentMode = true,
-                    activeModelName = activeModelName,
-                    onSelectStarter = { starter ->
-                        handleSend(starter)
-                    }
-                )
-            } else {
-                LazyColumn(
-                    state = listState,
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    items(visibleMessages, key = { it.id }) { msg ->
-                        ChatMessageItemView(
-                            message = msg,
-                            isGenerating = isGenerating && msg.id == visibleMessages.lastOrNull()?.id,
-                            generationStatus = activeGenerationStatus,
-                            onEditPrompt = { userMsg ->
-                                val targetId = activeSessionId ?: return@ChatMessageItemView
-                                inputText = userMsg.content
-                                attachments.clear()
-                                userMsg.getAttachments().forEach { att ->
-                                    AttachmentPickerHelper.restoreAttachedMediaItem(context, att)?.let { restored ->
-                                        attachments.add(restored)
-                                    }
-                                }
-                                scope.launch {
-                                    chatRepository.truncateMessages(targetId, userMsg.id, inclusive = true)
-                                }
-                            },
-                            onRetryPrompt = { userMsg ->
-                                val targetId = activeSessionId ?: return@ChatMessageItemView
-                                attachments.clear()
-                                userMsg.getAttachments().forEach { att ->
-                                    AttachmentPickerHelper.restoreAttachedMediaItem(context, att)?.let { restored ->
-                                        attachments.add(restored)
-                                    }
-                                }
-                                scope.launch {
-                                    chatRepository.truncateMessages(targetId, userMsg.id, inclusive = true)
-                                    handleSend(userMsg.content)
-                                }
-                            },
-                            onInterruptAction = {
-                                currentJob?.cancel()
-                                agentEngine.cancelRunningTask()
-                                com.textmorph.app.agent.coordinator.TaskExecutionCoordinator.interrupt()
-                                isGenerating = false
-                                val targetId = activeSessionId ?: return@ChatMessageItemView
-                                scope.launch(Dispatchers.IO) {
-                                    chatRepository.updateLastAssistantMessage(
-                                        sessionId = targetId,
-                                        content = "Task stopped by user.",
-                                        actionStatus = "interrupted"
-                                    )
-                                }
-                            },
-                            onSelectOption = { selectedOption ->
-                                handleSend(selectedOption)
-                            },
-                            onSelectSuggestion = { selectedSuggestion ->
-                                handleSend(selectedSuggestion)
-                            }
-                        )
-                    }
-                }
-            }
-        }
-
-        // Detached Rounded Input Bar
         ChatInputBar(
             inputText = inputText,
             onInputTextChanged = { inputText = it },
@@ -371,9 +325,7 @@ fun AiChatContent(
                         voiceHelper.startListening { transcript ->
                             val newText = if (inputText.isBlank()) transcript else "$inputText $transcript"
                             inputText = newText
-                            if (settings.autoSendVoiceInput && newText.isNotBlank()) {
-                                handleSend()
-                            }
+                            if (settings.autoSendVoiceInput && newText.isNotBlank()) handleSend()
                         }
                     } else {
                         micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
@@ -382,6 +334,7 @@ fun AiChatContent(
             },
             capacityFraction = contextMetrics.usageFraction,
             onCapacityClick = { showCapacitySheet = true },
+            isVisionSupported = isVisionCapable,
             onSend = ::handleSend,
             onStop = {
                 currentJob?.cancel()
@@ -391,11 +344,7 @@ fun AiChatContent(
                 val targetId = activeSessionId
                 if (targetId != null) {
                     scope.launch(Dispatchers.IO) {
-                        chatRepository.updateLastAssistantMessage(
-                            sessionId = targetId,
-                            content = "Task stopped by user.",
-                            actionStatus = "interrupted"
-                        )
+                        chatRepository.updateLastAssistantMessage(sessionId = targetId, content = "Task stopped by user.", actionStatus = "interrupted")
                     }
                 }
             }
@@ -413,11 +362,28 @@ fun AiChatContent(
         contextMetrics = contextMetrics,
         showAttachmentSheet = showAttachmentSheet,
         onDismissAttachmentSheet = { showAttachmentSheet = false },
-        onPhotoCaptured = { item -> attachments.add(item) },
+        onPhotoCaptured = { attachments.add(it) },
         onPickFiles = { mediaPickerLauncher.launch("*/*") },
         showModelSwitchSheet = showModelSwitchSheet,
         onDismissModelSwitchSheet = { showModelSwitchSheet = false },
         showCapacitySheet = showCapacitySheet,
-        onDismissCapacitySheet = { showCapacitySheet = false }
+        onDismissCapacitySheet = { showCapacitySheet = false },
+        showSessionsSheet = showSessionsSheet,
+        onDismissSessionsSheet = { showSessionsSheet = false },
+        sessions = sessions,
+        onSelectSession = { sessId -> scope.launch { chatRepository.switchSession(sessId) } },
+        onCreateNewSession = { scope.launch { chatRepository.createSession() } },
+        onRenameSession = { sessId, title -> scope.launch { chatRepository.renameSession(sessId, title) } },
+        onDeleteSession = { sessId -> scope.launch { chatRepository.deleteSession(sessId) } }
     )
+
+    if (showRenameSessionDialog && currentSession != null) {
+        ChatRenameSessionDialog(
+            initialTitle = currentSession.title,
+            onConfirm = { newTitle ->
+                scope.launch { chatRepository.renameSession(currentSession.id, newTitle) }
+            },
+            onDismiss = { showRenameSessionDialog = false }
+        )
+    }
 }

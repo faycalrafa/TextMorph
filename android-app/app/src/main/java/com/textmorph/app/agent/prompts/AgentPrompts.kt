@@ -226,7 +226,20 @@ object AgentPrompts {
             result = result.trimEnd() + "\n\n" + phaseToolsString
         }
 
-        return result.replace(TAG_JS_TOOLS, "").trim()
+        val jsToolsString = if (context != null) {
+            val jsTools = com.textmorph.app.agent.tools.registry.AgentToolRegistry.getJsTools(context)
+            formatJsToolsDescription(jsTools)
+        } else ""
+
+        result = if (result.contains(TAG_JS_TOOLS)) {
+            result.replace(TAG_JS_TOOLS, jsToolsString)
+        } else if (jsToolsString.isNotBlank()) {
+            result.trimEnd() + "\n\nAVAILABLE CUSTOM JAVASCRIPT TOOLS:\n" + jsToolsString
+        } else {
+            result
+        }
+
+        return result.trim()
     }
 
     fun formatInAppToolsDescription(tools: List<AgentToolDefinition>): String {

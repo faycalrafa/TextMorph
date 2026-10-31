@@ -28,13 +28,13 @@ object ToolFilter {
             }
 
             AgentPhase.PHASE_RESEARCH -> {
-                // Live web search, page reading & image search
+                // Live web search, page reading, image search & custom JS tools
                 val researchIds = setOf(
                     AgentAction.ACTION_SEARCH_WEB,
                     AgentAction.ACTION_FETCH_PAGE,
                     AgentAction.ACTION_SEARCH_IMAGES
                 )
-                allBuiltIns.filter { it.id in researchIds }
+                allBuiltIns.filter { it.id in researchIds } + jsTools
             }
 
             AgentPhase.PHASE_PLANNING -> {
@@ -46,7 +46,7 @@ object ToolFilter {
             }
 
             AgentPhase.PHASE_AUTOMATION -> {
-                // Screen automation & OS actions
+                // Screen automation, OS actions & custom JS tools
                 val autoIds = setOf(
                     AgentAction.ACTION_CLICK_TEXT,
                     AgentAction.ACTION_CLICK_AT,
@@ -58,7 +58,7 @@ object ToolFilter {
                     AgentAction.ACTION_PRESS_HOME,
                     AgentAction.ACTION_DONE
                 )
-                allBuiltIns.filter { it.id in autoIds }
+                allBuiltIns.filter { it.id in autoIds } + jsTools
             }
 
             AgentPhase.PHASE_SYNTHESIS -> {
@@ -118,6 +118,7 @@ object ToolFilter {
             sb.append("- ").append(tool.codeSignature).append(" : ").append(tool.description).append("\n")
         }
         sb.append("No JSON, no conversational preamble, no markdown fences around text.\n")
+        sb.append("When you receive tool observations, synthesize your answer directly. Do NOT repeat the same tool call.\n")
         return sb.toString().trim()
     }
 

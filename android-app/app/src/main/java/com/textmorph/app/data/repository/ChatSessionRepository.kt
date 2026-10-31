@@ -239,6 +239,9 @@ class ChatSessionRepository private constructor(private val context: Context) {
         actionPayloadJson: String? = null,
         actionStatus: String? = null,
         actionStepsJson: String? = null,
+        stepTracesJson: String? = null,
+        sourcesJson: String? = null,
+        artifactPayloadJson: String? = null,
         tokensPerSecond: Float? = null,
         totalTokens: Int? = null,
         durationMs: Long? = null
@@ -256,6 +259,9 @@ class ChatSessionRepository private constructor(private val context: Context) {
                     actionPayloadJson = actionPayloadJson ?: last.actionPayloadJson,
                     actionStatus = actionStatus ?: last.actionStatus,
                     actionStepsJson = actionStepsJson ?: last.actionStepsJson,
+                    stepTracesJson = stepTracesJson ?: last.stepTracesJson,
+                    sourcesJson = sourcesJson ?: last.sourcesJson,
+                    artifactPayloadJson = artifactPayloadJson ?: last.artifactPayloadJson,
                     tokensPerSecond = tokensPerSecond ?: last.tokensPerSecond,
                     totalTokens = totalTokens ?: last.totalTokens,
                     durationMs = durationMs ?: last.durationMs

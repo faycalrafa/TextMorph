@@ -72,13 +72,52 @@ fun ChatInputBar(
     capacityFraction: Float = 0f,
     onCapacityClick: (() -> Unit)? = null,
     onInputFocus: (() -> Unit)? = null,
+    isVisionSupported: Boolean = true,
     modifier: Modifier = Modifier
 ) {
+    val showSlashAutocomplete = inputText.startsWith("/") && !inputText.contains(" ")
+    val hasImages = attachments.any { it.isImage }
+
     Column(
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 14.dp, vertical = 6.dp)
     ) {
+        // Slash Command Autocomplete Popup
+        AnimatedVisibility(
+            visible = showSlashAutocomplete,
+            enter = fadeIn(),
+            exit = fadeOut()
+        ) {
+            Box(modifier = Modifier.padding(bottom = 8.dp)) {
+                SlashCommandAutocompleteCard(
+                    filterText = inputText,
+                    onSelectCommand = { cmd ->
+                        onInputTextChanged("${cmd.command} ")
+                    }
+                )
+            }
+        }
+
+        // Vision Capability Warning (if images attached but model is text-only)
+        if (hasImages && !isVisionSupported) {
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = Color(0xFF78350F).copy(alpha = 0.8f),
+                border = BorderStroke(1.dp, Color(0xFFF59E0B)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 6.dp)
+            ) {
+                Text(
+                    text = "⚠️ Active model does not support vision. Text-only inference will run.",
+                    fontSize = 11.5.sp,
+                    color = Color(0xFFFDE68A),
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                )
+            }
+        }
+
         // Attachment Preview Strip (floats above capsule when media attached)
         AnimatedVisibility(
             visible = attachments.isNotEmpty(),
