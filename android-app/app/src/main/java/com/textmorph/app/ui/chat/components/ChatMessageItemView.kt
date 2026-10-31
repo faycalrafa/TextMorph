@@ -186,8 +186,8 @@ fun ChatMessageItemView(
                     Spacer(modifier = Modifier.height(6.dp))
                 }
 
-                // 3. Step Trace Accordion or Legacy Action Cards
-                val stepTraces = remember(message.stepTracesJson) { message.getStepTraces() }
+                // 3. Step Trace Accordion (Unified for all multi-step tasks & tools)
+                val stepTraces = remember(message.stepTracesJson, message.actionStepsJson) { message.getStepTraces() }
                 if (stepTraces.isNotEmpty()) {
                     StepTraceAccordion(
                         traces = stepTraces,
@@ -195,23 +195,6 @@ fun ChatMessageItemView(
                         onInterrupt = onInterruptAction
                     )
                     Spacer(modifier = Modifier.height(8.dp))
-                } else if (message.actionStepsJson != null) {
-                    AgentTaskTimelineCard(
-                        message = message,
-                        onInterrupt = {
-                            com.textmorph.app.agent.coordinator.TaskExecutionCoordinator.interrupt()
-                            onInterruptAction?.invoke()
-                        }
-                    )
-                } else if (message.actionPayloadJson != null) {
-                    ActionExecutionCard(
-                        actionName = message.actionPayloadJson,
-                        reasoning = if (message.actionStatus == "running") (generationStatus ?: "Executing ${message.actionPayloadJson}…") else "Tool execution complete",
-                        status = message.actionStatus ?: "running"
-                    )
-                    if (message.content.isNotBlank()) {
-                        Spacer(modifier = Modifier.height(8.dp))
-                    }
                 }
 
                 // 4. Artifact Summary Card (if document/report produced)
@@ -284,11 +267,13 @@ fun ChatMessageItemView(
                         AssistantTextBubble(text = rawDisplayContent)
                     }
 
-                    if (followUps != null && followUps.suggestions.isNotEmpty()) {
+                    if (followUps != null && followUps.options.isNotEmpty()) {
                         Spacer(modifier = Modifier.height(10.dp))
                         FollowUpSuggestionsRow(
-                            suggestions = followUps.suggestions,
-                            onSelectSuggestion = { onSelectSuggestion?.invoke(it) }
+                            options = followUps.options,
+                            onSelectOption = { option ->
+                                onSelectSuggestion?.invoke(option.actionCommand ?: option.title)
+                            }
                         )
                     }
                 }

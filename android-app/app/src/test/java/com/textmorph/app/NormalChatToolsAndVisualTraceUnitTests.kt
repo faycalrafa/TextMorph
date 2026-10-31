@@ -6,7 +6,9 @@ import com.textmorph.app.ui.chat.components.ChatToolCallExtractor
 import com.textmorph.app.util.gif.GifEncoder
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.ByteArrayOutputStream
@@ -102,6 +104,113 @@ class NormalChatToolsAndVisualTraceUnitTests {
         assertNotNull(viewCode)
         assertEquals("Solar Orbit", viewCode?.first)
         assertTrue(viewCode?.second?.contains("<canvas></canvas>") == true)
+    }
+
+    @Test
+    fun testChatToolCallExtractor_followUpsWithCodeActions() {
+        val rawMessage = "Paris is the capital of France.\n" +
+                "suggest_next_actions(suggestions=[\"search_web(\\\"Paris attractions\\\")\", \"open_app(\\\"Google Maps\\\")\", \"Tell me more about French food\"])"
+
+        val followUps = ChatToolCallExtractor.extractFollowUps(rawMessage)
+        assertNotNull(followUps)
+        assertEquals(3, followUps?.options?.size)
+
+        val opt0 = followUps?.options?.get(0)
+        assertNotNull(opt0)
+        assertTrue(opt0!!.isAction)
+        assertEquals("search_web", opt0.toolName)
+        assertEquals("Web Search", opt0.toolDisplayName)
+        assertTrue(opt0.title.contains("Paris attractions"))
+        assertTrue(opt0.actionCommand?.contains("search_web") == true)
+
+        val opt1 = followUps.options[1]
+        assertTrue(opt1.isAction)
+        assertEquals("open_app", opt1.toolName)
+        assertEquals("Open App", opt1.toolDisplayName)
+        assertEquals("Open Google Maps", opt1.title)
+
+        val opt2 = followUps.options[2]
+        assertFalse(opt2.isAction)
+        assertEquals("Tell me more about French food", opt2.title)
+        assertNull(opt2.actionCommand)
+    }
+
+    @Test
+    fun testChatToolCallExtractor_markdownFollowUpSection() {
+        val rawMessage = "Here is your requested itinerary.\n\n" +
+                "Follow-up suggestions:\n" +
+                "- Search Paris flight deals: search_web(\"Paris flights\")\n" +
+                "- Open Calendar: open_app(\"Calendar\")\n" +
+                "- What is the best month to travel?"
+
+        val followUps = ChatToolCallExtractor.extractFollowUps(rawMessage)
+        assertNotNull(followUps)
+        assertEquals(3, followUps?.options?.size)
+        assertEquals("Here is your requested itinerary.", followUps?.remainingContent?.trim())
+
+        assertTrue(followUps!!.options[0].isAction)
+        assertEquals("Search Paris flight deals", followUps.options[0].title)
+        assertEquals("Web Search", followUps.options[0].toolDisplayName)
+
+        assertTrue(followUps.options[1].isAction)
+        assertEquals("Open Calendar", followUps.options[1].title)
+
+        assertFalse(followUps.options[2].isAction)
+        assertEquals("What is the best month to travel?", followUps.options[2].title)
+    }
+
+    @Test
+    fun testAiChatInferenceUtils_isPresentationOrFollowUpAction() {
+        val suggestAction = com.textmorph.app.agent.model.AgentAction(
+            action = com.textmorph.app.agent.model.AgentAction.ACTION_SUGGEST_NEXT_ACTIONS
+        )
+        assertTrue(com.textmorph.app.ui.chat.components.AiChatInferenceUtils.isPresentationOrFollowUpAction("", suggestAction))
+
+        val approvalAction = com.textmorph.app.agent.model.AgentAction(
+            action = com.textmorph.app.agent.model.AgentAction.ACTION_REQUEST_USER_APPROVAL
+        )
+        assertTrue(com.textmorph.app.ui.chat.components.AiChatInferenceUtils.isPresentationOrFollowUpAction("", approvalAction))
+
+        val contentWithFollowUp = "Paris is great.\nFollow-up suggestions:\n- search_web(\"Paris\")"
+        val searchAction = com.textmorph.app.agent.model.AgentAction(action = "search_web")
+        assertTrue(com.textmorph.app.ui.chat.components.AiChatInferenceUtils.isPresentationOrFollowUpAction(contentWithFollowUp, searchAction))
+
+        // Normal active tool invocation without follow-up block
+        val bareSearchContent = "search_web(\"Paris weather\")"
+        assertFalse(com.textmorph.app.ui.chat.components.AiChatInferenceUtils.isPresentationOrFollowUpAction(bareSearchContent, searchAction))
+    }
+
+    @Test
+    fun testChatMessageEntity_legacyActionStepsMapping() {
+        val legacyStep = com.textmorph.app.agent.model.AgentTaskStep(
+            stepIndex = 1,
+            actionType = "open_app",
+            title = "Opening YouTube...",
+            detail = "Fast shortcut launcher",
+            status = com.textmorph.app.agent.model.AgentStepStatus.COMPLETED
+        )
+        val entity = com.textmorph.app.data.model.ChatMessageEntity(
+            sessionId = "s1",
+            role = "assistant",
+            content = "Done",
+            actionStepsJson = com.textmorph.app.agent.model.AgentTaskStep.serializeList(listOf(legacyStep)),
+            stepTracesJson = null
+        )
+
+        val traces = entity.getStepTraces()
+        assertEquals(1, traces.size)
+        assertEquals("open_app", traces[0].toolName)
+        assertEquals("Opening YouTube...", traces[0].inputQuery)
+        assertEquals("success", traces[0].status)
+    }
+
+    @Test
+    fun testChatCommandRouter_codeActionRouting() {
+        val openAppPhase = com.textmorph.app.agent.router.ChatCommandRouter.classifyPhase("open_app(\"WhatsApp\")")
+        assertEquals(com.textmorph.app.agent.router.AgentPhase.PHASE_AUTOMATION, openAppPhase)
+
+        val searchPhase = com.textmorph.app.agent.router.ChatCommandRouter.classifyPhase("search_web(\"Eiffel Tower\")")
+        assertEquals(com.textmorph.app.agent.router.AgentPhase.PHASE_RESEARCH, searchPhase)
     }
 
     // ─── 5. System Prompt Requirements ───────────────────────────────

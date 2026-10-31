@@ -1,5 +1,6 @@
 package com.textmorph.app.agent.router
 
+import com.textmorph.app.agent.model.AgentAction
 import com.textmorph.app.util.AppLogger
 import java.util.Locale
 
@@ -164,6 +165,38 @@ object ChatCommandRouter {
     }
 
     fun classifyPhase(text: String): AgentPhase {
+        // Direct Code-as-Action syntax check
+        val action = com.textmorph.app.agent.parser.CodeActionParser.parse(text)
+        if (action != null) {
+            when (action.action) {
+                AgentAction.ACTION_SEARCH_WEB,
+                AgentAction.ACTION_SEARCH_IMAGES,
+                AgentAction.ACTION_FETCH_PAGE,
+                AgentAction.ACTION_CREATE_JS_TOOL -> return AgentPhase.PHASE_RESEARCH
+
+                AgentAction.ACTION_EXECUTE_TASK -> return AgentPhase.PHASE_PLANNING
+
+                AgentAction.ACTION_OPEN_APP,
+                AgentAction.ACTION_CLICK_TEXT,
+                AgentAction.ACTION_CLICK_AT,
+                AgentAction.ACTION_CLICK_ELEMENT,
+                AgentAction.ACTION_TYPE_TEXT,
+                AgentAction.ACTION_PRESS_ENTER,
+                AgentAction.ACTION_SCROLL,
+                AgentAction.ACTION_SWIPE,
+                AgentAction.ACTION_PRESS_BACK,
+                AgentAction.ACTION_PRESS_HOME,
+                AgentAction.ACTION_LAUNCH_PACKAGE,
+                AgentAction.ACTION_MAKE_CALL,
+                AgentAction.ACTION_SEND_SMS,
+                AgentAction.ACTION_SET_ALARM,
+                AgentAction.ACTION_SET_TIMER,
+                AgentAction.ACTION_SET_VOLUME,
+                AgentAction.ACTION_SET_BRIGHTNESS,
+                AgentAction.ACTION_DONE -> return AgentPhase.PHASE_AUTOMATION
+            }
+        }
+
         val lower = text.lowercase(Locale.ROOT)
 
         for (kw in AUTOMATION_KEYWORDS) {

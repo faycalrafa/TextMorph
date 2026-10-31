@@ -70,6 +70,7 @@ Key architectural boundaries:
 | F26 | On-Device Agent Harness & Readiness Suite | Unified chat mode, Code-as-Action standardization, Bounded Plan-Execute-Append pipeline, and 5-scenario Agentic Readiness Suite | M13 | **DONE** |
 | F27 | Dedicated Image Search & Short-ID Aliasing | `search_images(query: String)` tool in `PHASE_RESEARCH`, `ImageAssetRegistry` (`IMG_1`, `IMG_2`), `ArtifactAssemblyStore` alias resolution, and Coil Markdown image cards with lightbox and export | M14 | **DONE** |
 | F28 | UI/UX & Agent Harness Execution Overhaul | Collapsible Step Trace Accordion with real-time timers and failure diagnostics, slash command autocomplete (`/plan`, `/goal`), executable `/plan` confirmation card, continuous `/goal` loop coordinator, first-class `ArtifactSummaryCard` & `ArtifactReaderScreen` with PDF export, `js_tool` discovery in phase prompts, citations bottom sheet (`Sources (N)`), code block cards with copy button, touch-lock scroll physics with Jump-to-Bottom FAB, and in-chat session renamer/manager | M15 | **DONE** |
+| F29 | Follow-Up Tool Action Guard & Stepper Unification | Inference loop guard preventing automatic follow-up tool execution, FollowUpOption parser with human titles & action badges (`[⚡ Web Search]`, `[⚡ Open App]`, `[⚡ Weather]`), complete retirement of legacy `AgentTaskTimelineCard`, and unified `StepTraceAccordion` across `/plan`, `/deepsearch`, and device automation | M16 | **DONE** |
 
 ---
 
@@ -92,10 +93,11 @@ Key architectural boundaries:
 | **M13**| **On-Device Agent Harness & Readiness Suite** | F26 | M11, M12 | **DONE** |
 | **M14**| **Dedicated Image Search & Short-ID Aliasing** | F27 | M13 | **DONE** |
 | **M15**| **UI/UX & Agent Harness Execution Overhaul** | F28 | M14 | **DONE** |
+| **M16**| **Follow-Up Tool Action Guard & Stepper Unification** | F29 | M15 | **DONE** |
 
 ---
 
 ## Verification & Build Results
-- **Unit Tests**: `testDebugUnitTest` executed and passed with exit code `0` (240 unit tests across 29 test suites).
+- **Unit Tests**: `testDebugUnitTest` executed and passed with exit code `0` (245 unit tests across 29 test suites).
 - **Release Build**: `assembleRelease` executed with signed release APK and native runtime bindings.
-- **Application Version**: `v4.4.0` (versionCode `71`).
+- **Application Version**: `v4.5.0` (versionCode `72`).

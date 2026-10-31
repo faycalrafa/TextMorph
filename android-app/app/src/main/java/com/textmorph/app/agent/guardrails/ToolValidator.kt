@@ -35,6 +35,11 @@ object ToolValidator {
         context: Context? = null
     ): ValidationResult {
         val toolName = action.action.trim().lowercase()
+        if (toolName == AgentAction.ACTION_SUGGEST_NEXT_ACTIONS ||
+            toolName == AgentAction.ACTION_REQUEST_USER_APPROVAL ||
+            toolName == AgentAction.ACTION_PRESENT_INTERACTIVE_VIEW) {
+            return ValidationResult.Valid
+        }
         val match = allowedTools.firstOrNull { it.id.equals(toolName, ignoreCase = true) }
         if (match == null) {
             val names = allowedTools.joinToString(", ") { it.id }

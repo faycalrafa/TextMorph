@@ -37,12 +37,41 @@ data class ChatMessageEntity(
     }
 
     fun getStepTraces(): List<AgentStepTrace> {
-        if (stepTracesJson.isNullOrBlank() || stepTracesJson == "[]") return emptyList()
-        return try {
-            json.decodeFromString(stepTracesJson)
-        } catch (e: Exception) {
-            emptyList()
+        if (!stepTracesJson.isNullOrBlank() && stepTracesJson != "[]") {
+            try {
+                val parsed = json.decodeFromString<List<AgentStepTrace>>(stepTracesJson)
+                if (parsed.isNotEmpty()) return parsed
+            } catch (e: Exception) {
+                // fallback to actionStepsJson below
+            }
         }
+        if (!actionStepsJson.isNullOrBlank() && actionStepsJson != "[]") {
+            try {
+                val legacySteps = AgentTaskStep.deserializeList(actionStepsJson)
+                if (legacySteps.isNotEmpty()) {
+                    return legacySteps.map { step ->
+                        AgentStepTrace(
+                            stepIndex = step.stepIndex,
+                            toolName = step.actionType,
+                            inputQuery = step.title,
+                            status = when (step.status) {
+                                com.textmorph.app.agent.model.AgentStepStatus.COMPLETED -> "success"
+                                com.textmorph.app.agent.model.AgentStepStatus.FAILED -> "failed"
+                                com.textmorph.app.agent.model.AgentStepStatus.INTERRUPTED -> "cancelled"
+                                com.textmorph.app.agent.model.AgentStepStatus.RUNNING -> "running"
+                                else -> "pending"
+                            },
+                            durationMs = (System.currentTimeMillis() - step.timestamp).coerceAtLeast(0),
+                            outputSnippet = step.detail,
+                            failureReason = if (step.status == com.textmorph.app.agent.model.AgentStepStatus.FAILED) step.detail else null
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                // ignore
+            }
+        }
+        return emptyList()
     }
 
     fun getSources(): List<SourceCitation> {

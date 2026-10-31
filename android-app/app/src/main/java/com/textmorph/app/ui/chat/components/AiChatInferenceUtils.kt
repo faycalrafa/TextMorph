@@ -131,4 +131,29 @@ object AiChatInferenceUtils {
             }
         }
     }
+
+    /**
+     * Determines if a parsed action is a presentation request or embedded inside follow-up
+     * suggestions, meaning it should not be executed automatically in the inference loop.
+     */
+    fun isPresentationOrFollowUpAction(content: String, action: com.textmorph.app.agent.model.AgentAction): Boolean {
+        if (action.action == com.textmorph.app.agent.model.AgentAction.ACTION_SUGGEST_NEXT_ACTIONS ||
+            action.action == com.textmorph.app.agent.model.AgentAction.ACTION_REQUEST_USER_APPROVAL ||
+            action.action == com.textmorph.app.agent.model.AgentAction.ACTION_PRESENT_INTERACTIVE_VIEW) {
+            return true
+        }
+
+        val followUps = ChatToolCallExtractor.extractFollowUps(content)
+        if (followUps != null) {
+            val remainingAction = com.textmorph.app.agent.parser.CodeActionParser.parse(followUps.remainingContent)
+            if (remainingAction == null ||
+                remainingAction.action == com.textmorph.app.agent.model.AgentAction.ACTION_SUGGEST_NEXT_ACTIONS ||
+                remainingAction.action == com.textmorph.app.agent.model.AgentAction.ACTION_REQUEST_USER_APPROVAL ||
+                remainingAction.action == com.textmorph.app.agent.model.AgentAction.ACTION_PRESENT_INTERACTIVE_VIEW) {
+                return true
+            }
+        }
+
+        return false
+    }
 }

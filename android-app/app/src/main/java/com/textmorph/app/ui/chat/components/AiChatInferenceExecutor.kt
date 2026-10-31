@@ -244,8 +244,8 @@ object AiChatInferenceExecutor {
 
                     // Check if output contains a Code-as-Action call
                     val action = CodeActionParser.parse(effectiveFinalContent)
-                    if (action == null) {
-                        // Pure conversational output; tool loop terminates cleanly
+                    if (action == null || AiChatInferenceUtils.isPresentationOrFollowUpAction(effectiveFinalContent, action)) {
+                        // Pure conversational output or follow-up presentation; tool loop terminates cleanly
                         break
                     }
 

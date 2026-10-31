@@ -5,7 +5,8 @@ import com.textmorph.app.agent.AgentEngine
 import com.textmorph.app.agent.coordinator.TaskExecutionCoordinator
 import com.textmorph.app.agent.model.AgentAction
 import com.textmorph.app.agent.model.AgentStepStatus
-import com.textmorph.app.agent.model.AgentTaskStep
+import com.textmorph.app.data.model.AgentStepTrace
+import com.textmorph.app.data.model.ChatMessageEntity
 import com.textmorph.app.data.repository.ChatSessionRepository
 import com.textmorph.app.util.AppLogger
 import kotlinx.coroutines.CoroutineScope
@@ -99,7 +100,8 @@ object AiChatAutonomousActionHandler {
                             systemPrompt = systemPrompt,
                             actionPayloadJson = effectiveAction.action,
                             actionStatus = currentStatus,
-                            actionStepsJson = AgentTaskStep.serializeList(steps)
+                            actionStepsJson = com.textmorph.app.agent.model.AgentTaskStep.serializeList(steps),
+                            stepTracesJson = ChatMessageEntity.serializeStepTraces(mapToStepTraces(steps))
                         )
                     }
                 }
@@ -129,7 +131,7 @@ object AiChatAutonomousActionHandler {
                     else -> AgentStepStatus.FAILED
                 }
                 listOf(
-                    AgentTaskStep(
+                    com.textmorph.app.agent.model.AgentTaskStep(
                         stepIndex = 1,
                         actionType = action.action,
                         title = action.response.ifEmpty { "Executing ${action.action}…" },
@@ -143,7 +145,8 @@ object AiChatAutonomousActionHandler {
                 content = finalContent,
                 rawNakedOutput = agentEngine.taskExecutor.lastRawOutput.ifBlank { finalOutput },
                 actionStatus = if (isInterrupted) "interrupted" else if (isSuccess) "success" else "failed",
-                actionStepsJson = AgentTaskStep.serializeList(finalSteps)
+                actionStepsJson = com.textmorph.app.agent.model.AgentTaskStep.serializeList(finalSteps),
+                stepTracesJson = ChatMessageEntity.serializeStepTraces(mapToStepTraces(finalSteps))
             )
             if (!isSuccess && !isInterrupted) {
                 AppLogger.w(TAG, "Agent action '${action.action}' failed: $finalContent (details='${result.details}')")
@@ -171,6 +174,26 @@ object AiChatAutonomousActionHandler {
             )
         } finally {
             chatRepository.setGenerationStatus(null)
+        }
+    }
+
+    private fun mapToStepTraces(steps: List<com.textmorph.app.agent.model.AgentTaskStep>): List<AgentStepTrace> {
+        return steps.map { step ->
+            AgentStepTrace(
+                stepIndex = step.stepIndex,
+                toolName = step.actionType,
+                inputQuery = step.title,
+                status = when (step.status) {
+                    AgentStepStatus.COMPLETED -> "success"
+                    AgentStepStatus.FAILED -> "failed"
+                    AgentStepStatus.INTERRUPTED -> "cancelled"
+                    AgentStepStatus.RUNNING -> "running"
+                    else -> "pending"
+                },
+                durationMs = (System.currentTimeMillis() - step.timestamp).coerceAtLeast(0),
+                outputSnippet = step.detail,
+                failureReason = if (step.status == AgentStepStatus.FAILED) step.detail else null
+            )
         }
     }
 }
