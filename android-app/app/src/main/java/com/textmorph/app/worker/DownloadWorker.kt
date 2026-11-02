@@ -87,12 +87,8 @@ class DownloadWorker(
 
         AppLogger.i(TAG, "Starting download: modelName=$modelName, url=$downloadUrl, saveToDownloads=$saveToDownloads")
 
-        // Target directory: Downloads folder if requested and accessible, otherwise internal app storage
-        val targetDir: File = if (saveToDownloads && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && Environment.isExternalStorageManager()) {
-            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-        } else {
-            File(applicationContext.filesDir, "models").apply { if (!exists()) mkdirs() }
-        }
+        // Target directory: App internal private storage exclusively
+        val targetDir: File = File(applicationContext.filesDir, "models").apply { if (!exists()) mkdirs() }
 
         val targetFileName = if (modelName.endsWith(".litertlm", ignoreCase = true)) modelName else "$modelName.litertlm"
         val finalFile = File(targetDir, targetFileName)

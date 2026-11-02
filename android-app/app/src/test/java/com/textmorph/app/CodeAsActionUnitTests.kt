@@ -193,4 +193,22 @@ class CodeAsActionUnitTests {
         assertNotNull(callAlias)
         assertEquals("make_call", callAlias?.id)
     }
+
+    @Test
+    fun testParseArgumentTokensMalformedParenthesesDoesNotHangOrOOM() {
+        // Cases that previously could trigger infinite loops:
+        val tokens1 = com.textmorph.app.agent.parser.CodeActionMapper.parseArgumentTokens(")")
+        assertTrue(tokens1.isEmpty())
+
+        val tokens2 = com.textmorph.app.agent.parser.CodeActionMapper.parseArgumentTokens("foo, bar)")
+        assertEquals(2, tokens2.size)
+
+        val tokens3 = com.textmorph.app.agent.parser.CodeActionMapper.parseArgumentTokens("   ) ) ) ,,, ")
+        assertTrue(tokens3.isEmpty())
+
+        val parsedAction = CodeActionParser.parse("click_text(\"Submit\"))")
+        assertNotNull(parsedAction)
+        assertEquals("click_text", parsedAction?.action)
+        assertEquals("Submit", parsedAction?.getStringParam("text"))
+    }
 }

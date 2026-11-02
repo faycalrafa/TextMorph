@@ -7,7 +7,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -21,8 +20,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FileOpen
-import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Inbox
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -40,7 +39,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -56,14 +54,23 @@ import com.textmorph.app.llm.LiteRtLmEngineManager
 import com.textmorph.app.llm.LlamaCppEngine
 import com.textmorph.app.llm.LlamaCppEngineManager
 import com.textmorph.app.ui.modelhub.components.ActiveSessionLogsCard
-import com.textmorph.app.ui.modelhub.components.CloudApiConfigAccordionCard
+import com.textmorph.app.ui.modelhub.components.CloudApiHubSection
 import com.textmorph.app.ui.modelhub.components.DeleteModelDialog
 import com.textmorph.app.ui.modelhub.components.EditSystemPromptsDialog
+import com.textmorph.app.ui.modelhub.components.ModelHubActiveBanner
+import com.textmorph.app.ui.modelhub.components.ModelHubEngineSelector
+import com.textmorph.app.ui.modelhub.components.ModelImportProgressCard
 import com.textmorph.app.ui.modelhub.components.ModelItemCard
 import com.textmorph.app.ui.modelhub.components.ModelLoaderCard
 import com.textmorph.app.ui.modelhub.components.SystemPromptsInspectorCard
 import kotlinx.coroutines.launch
 
+/**
+ * Unified Model Hub route screen serving as the single destination for:
+ * - On-device LiteRT-LM & llama.cpp model management (isolated in internal storage)
+ * - OpenAI-compatible Cloud API endpoints with persistent presets
+ * - Runtime telemetry and start/stop controls
+ */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ModelHubContent(
@@ -78,6 +85,7 @@ fun ModelHubContent(
     val scope = rememberCoroutineScope()
     val availableModels by modelRepository.availableModels.collectAsState()
     val isScanning by modelRepository.isScanning.collectAsState()
+    val importProgress by modelRepository.importProgress.collectAsState()
     val settings by settingsRepository.settingsState.collectAsState()
 
     val liteRtLoadingProgress by liteRtEngine.loadingProgress.collectAsState()
@@ -85,10 +93,7 @@ fun ModelHubContent(
     val llamaLoadingProgress by llamaCppEngine.loadingProgress.collectAsState()
     val llamaSessionState by llamaCppEngine.sessionState.collectAsState()
 
-    val isLlamaActive = settings.selectedEngine == EngineType.ON_DEVICE_LLAMA_CPP
-    val activeLoadingProgress = if (isLlamaActive || llamaLoadingProgress.isLoading) llamaLoadingProgress else liteRtLoadingProgress
-    val activeSessionState = if (isLlamaActive) llamaSessionState else liteRtSessionState
-
+    var selectedEngineTab by remember(settings.selectedEngine) { mutableStateOf(settings.selectedEngine) }
     var pendingMmprojModelId by remember { mutableStateOf<String?>(null) }
     var modelToDelete by remember { mutableStateOf<ModelInfo?>(null) }
     var showEditPromptsDialog by remember { mutableStateOf(false) }
@@ -115,7 +120,7 @@ fun ModelHubContent(
         pendingMmprojModelId = null
     }
 
-    // SAF Picker Launcher for Models
+    // SAF Picker Launcher for Models (copies cleanly to internal filesDir/models)
     val safLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
@@ -127,10 +132,11 @@ fun ModelHubContent(
                     val targetEngine = if (isGguf) EngineType.ON_DEVICE_LLAMA_CPP else EngineType.ON_DEVICE_LITERT
                     val coordinator = EngineActivationCoordinator.getInstance(context)
                     val res = coordinator.activateEngine(targetEngine = targetEngine, targetModel = registered)
-                    res.onSuccess {
-                        Toast.makeText(context, "Activating: ${registered.name}...", Toast.LENGTH_SHORT).show()
-                    }.onFailure { err ->
-                        Toast.makeText(context, "Activation failed: ${err.message}", Toast.LENGTH_LONG).show()
+                    if (res.isSuccess) {
+                        Toast.makeText(context, "Copied & activated: ${registered.name}", Toast.LENGTH_SHORT).show()
+                    } else {
+                        val err = res.exceptionOrNull()?.message ?: "Unknown error"
+                        Toast.makeText(context, "Activation failed: $err", Toast.LENGTH_LONG).show()
                     }
                 }
             }
@@ -143,143 +149,217 @@ fun ModelHubContent(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // 1. Available Models List at the Top
+        // 1. Unified Engine Selector at the Top
         item {
-            Text(
-                text = "Available Models (${availableModels.size})",
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary
+            ModelHubEngineSelector(
+                selectedEngine = selectedEngineTab,
+                onSelectEngine = { selectedEngineTab = it }
             )
         }
 
-        if (availableModels.isEmpty()) {
+        // 2. Engine-specific Content
+        if (selectedEngineTab == EngineType.CLOUD_OPENAI) {
+            // Cloud API Providers & Presets Section
             item {
-                Card(
+                CloudApiHubSection(
+                    settings = settings,
+                    settingsRepository = settingsRepository
+                )
+            }
+        } else {
+            // Local On-Device Engines (LiteRT / llama.cpp)
+            val isLlamaTab = selectedEngineTab == EngineType.ON_DEVICE_LLAMA_CPP
+            val isEngineActive = settings.selectedEngine == selectedEngineTab
+            val activeSessionState = if (isLlamaTab) llamaSessionState else liteRtSessionState
+            val activeLoading = if (isLlamaTab) llamaLoadingProgress else liteRtLoadingProgress
+
+            val targetFileType = if (isLlamaTab) ModelFileType.GGUF else ModelFileType.LITERT_LM
+            val filteredModels = availableModels.filter {
+                if (isLlamaTab) {
+                    it.modelFileType == ModelFileType.GGUF || it.name.endsWith(".gguf", ignoreCase = true)
+                } else {
+                    it.modelFileType == ModelFileType.LITERT_LM || it.name.endsWith(".litertlm", ignoreCase = true)
+                }
+            }
+
+            // Top Active Engine Banner with Start/Stop Controls
+            item {
+                ModelHubActiveBanner(
+                    engineType = selectedEngineTab,
+                    activeModelName = if (isEngineActive) activeSessionState.modelName.ifBlank { settings.activeModelName } else "",
+                    isLoaded = if (isEngineActive) activeSessionState.isLoaded else false,
+                    isLoading = if (isEngineActive) activeLoading.isLoading else false,
+                    activeBackend = if (isEngineActive) activeSessionState.backend else "",
+                    onToggleEngine = {
+                        scope.launch {
+                            val coordinator = EngineActivationCoordinator.getInstance(context)
+                            if (activeSessionState.isLoaded) {
+                                coordinator.offloadAll()
+                                Toast.makeText(context, "Engine offloaded from memory", Toast.LENGTH_SHORT).show()
+                            } else {
+                                val targetModel = filteredModels.find { it.name.equals(settings.activeModelName, ignoreCase = true) }
+                                    ?: filteredModels.firstOrNull()
+                                if (targetModel != null) {
+                                    val res = coordinator.activateEngine(targetEngine = selectedEngineTab, targetModel = targetModel)
+                                    if (res.isSuccess) {
+                                        Toast.makeText(context, "Starting engine with ${targetModel.name}...", Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        val err = res.exceptionOrNull()?.message ?: "Unknown error"
+                                        Toast.makeText(context, "Start failed: $err", Toast.LENGTH_LONG).show()
+                                    }
+                                } else {
+                                    safLauncher.launch(arrayOf("*/*", "application/octet-stream"))
+                                }
+                            }
+                        }
+                    }
+                )
+            }
+
+            // Model Import Progress Card (when copying external model to internal filesDir/models)
+            item {
+                ModelImportProgressCard(importProgress = importProgress)
+            }
+
+            // Available Models Section Header
+            item {
+                Row(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(14.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(20.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    Text(
+                        text = if (isLlamaTab) "Local GGUF Models (${filteredModels.size})" else "Local LiteRT Models (${filteredModels.size})",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+
+                    OutlinedButton(
+                        onClick = { safLauncher.launch(arrayOf("*/*", "application/octet-stream")) },
+                        shape = RoundedCornerShape(8.dp)
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Inbox,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                            modifier = Modifier.size(36.dp)
-                        )
-                        Text(
-                            text = "No Local Models Found",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Text(
-                            text = "Browse a .litertlm or .gguf model file, or scan your device's Download storage to get started.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        FlowRow(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        Icon(Icons.Default.FileOpen, contentDescription = null, modifier = Modifier.size(14.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Import", fontSize = 11.5.sp)
+                    }
+                }
+            }
+
+            if (filteredModels.isEmpty()) {
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(20.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
+                            Icon(
+                                imageVector = Icons.Default.Inbox,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                                modifier = Modifier.size(36.dp)
+                            )
+                            Text(
+                                text = if (isLlamaTab) "No GGUF Models Installed" else "No LiteRT Models Installed",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = "Models must be copied into app internal storage to avoid file permission drops.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
                             Button(
                                 onClick = { safLauncher.launch(arrayOf("*/*", "application/octet-stream")) },
                                 shape = RoundedCornerShape(10.dp)
                             ) {
                                 Icon(Icons.Default.FileOpen, contentDescription = null, modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text("Browse Model", fontSize = 12.sp)
-                            }
-                            OutlinedButton(
-                                onClick = { scope.launch { modelRepository.refreshModels() } },
-                                shape = RoundedCornerShape(10.dp)
-                            ) {
-                                Icon(Icons.Default.FolderOpen, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("Scan Device Storage", fontSize = 12.sp)
+                                Text(if (isLlamaTab) "Import .gguf Model" else "Import .litertlm Model", fontSize = 12.sp)
                             }
                         }
                     }
                 }
-            }
-        } else {
-            items(availableModels, key = { it.id }) { model ->
-                val isGguf = model.modelFileType == ModelFileType.GGUF || model.name.endsWith(".gguf", ignoreCase = true)
-                val isCurrentActive = if (isGguf) {
-                    llamaSessionState.isLoaded && (llamaSessionState.modelName == model.name || settings.activeModelName == model.name)
-                } else {
-                    liteRtSessionState.isLoaded && (liteRtSessionState.modelName == model.name || settings.activeModelName == model.name)
-                }
-                val isLoadingThis = if (isGguf) llamaLoadingProgress.isLoading else liteRtLoadingProgress.isLoading
+            } else {
+                items(filteredModels, key = { it.id }) { model ->
+                    val isCurrentActive = isEngineActive && activeSessionState.isLoaded &&
+                            (activeSessionState.modelName == model.name || settings.activeModelName == model.name)
+                    val isLoadingThis = isEngineActive && activeLoading.isLoading
 
-                ModelItemCard(
-                    model = model,
-                    isCurrentActive = isCurrentActive,
-                    isLoadingEngine = isLoadingThis,
-                    onActivate = {
-                        scope.launch {
-                            val targetEngine = if (isGguf) EngineType.ON_DEVICE_LLAMA_CPP else EngineType.ON_DEVICE_LITERT
-                            val coordinator = EngineActivationCoordinator.getInstance(context)
-                            val res = coordinator.activateEngine(targetEngine = targetEngine, targetModel = model)
-                            res.onSuccess {
-                                Toast.makeText(context, "Activating: ${model.name}...", Toast.LENGTH_SHORT).show()
-                            }.onFailure { err ->
-                                Toast.makeText(context, "Activation failed: ${err.message}", Toast.LENGTH_LONG).show()
+                    ModelItemCard(
+                        model = model,
+                        isCurrentActive = isCurrentActive,
+                        isLoadingEngine = isLoadingThis,
+                        onActivate = {
+                            scope.launch {
+                                val coordinator = EngineActivationCoordinator.getInstance(context)
+                                val res = coordinator.activateEngine(targetEngine = selectedEngineTab, targetModel = model)
+                                if (res.isSuccess) {
+                                    Toast.makeText(context, "Activating: ${model.name}...", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    val err = res.exceptionOrNull()?.message ?: "Unknown error"
+                                    Toast.makeText(context, "Activation failed: $err", Toast.LENGTH_LONG).show()
+                                }
                             }
-                        }
-                    },
-                    onOffload = {
-                        scope.launch {
-                            val coordinator = EngineActivationCoordinator.getInstance(context)
-                            coordinator.offloadAll()
-                            Toast.makeText(context, "Model session offloaded from memory.", Toast.LENGTH_SHORT).show()
-                        }
-                    },
-                    onAttachMmproj = {
-                        pendingMmprojModelId = model.id
-                        mmprojSafLauncher.launch(arrayOf("*/*"))
-                    },
-                    onDetachMmproj = {
-                        scope.launch {
-                            modelRepository.detachMmprojFromModel(model.id)
-                            if (settings.activeModelName == model.name || settings.activeModelPath == model.path) {
-                                settingsRepository.setActiveMmproj(null, null, null)
+                        },
+                        onOffload = {
+                            scope.launch {
+                                val coordinator = EngineActivationCoordinator.getInstance(context)
+                                coordinator.offloadAll()
+                                Toast.makeText(context, "Model offloaded from memory.", Toast.LENGTH_SHORT).show()
                             }
-                            Toast.makeText(context, "Detached vision projector", Toast.LENGTH_SHORT).show()
-                        }
-                    },
-                    onDelete = {
-                        modelToDelete = model
-                    },
-                    onImportToPrivateStorage = {
-                        scope.launch {
-                            val imported = modelRepository.importToPrivateStorage(model)
-                            if (imported) {
-                                Toast.makeText(context, "Imported ${model.name} to private storage", Toast.LENGTH_SHORT).show()
+                        },
+                        onAttachMmproj = {
+                            pendingMmprojModelId = model.id
+                            mmprojSafLauncher.launch(arrayOf("*/*"))
+                        },
+                        onDetachMmproj = {
+                            scope.launch {
+                                modelRepository.detachMmprojFromModel(model.id)
+                                if (settings.activeModelName == model.name || settings.activeModelPath == model.path) {
+                                    settingsRepository.setActiveMmproj(null, null, null)
+                                }
+                                Toast.makeText(context, "Detached vision projector", Toast.LENGTH_SHORT).show()
                             }
-                        }
-                    },
-                    onNavigateToChat = onNavigateToChat
+                        },
+                        onDelete = { modelToDelete = model },
+                        onNavigateToChat = onNavigateToChat
+                    )
+                }
+            }
+
+            // Compact Model Loader & Hardware Acceleration Card
+            item {
+                ModelLoaderCard(
+                    settings = settings,
+                    isScanning = isScanning,
+                    onRefresh = { scope.launch { modelRepository.refreshModels() } },
+                    onBrowseModel = { safLauncher.launch(arrayOf("*/*", "application/octet-stream")) },
+                    onScanStorage = { scope.launch { modelRepository.refreshModels() } },
+                    onSelectAccelerator = { mode ->
+                        scope.launch { settingsRepository.setPreferredAccelerator(mode) }
+                    }
                 )
             }
-        }
 
-        // 2. OpenAI API Compatible Config Accordion Card
-        item {
-            CloudApiConfigAccordionCard(
-                settings = settings,
-                settingsRepository = settingsRepository,
-                liteRtEngine = liteRtEngine,
-                llamaCppEngine = llamaCppEngine
-            )
+            // Active Session Logs Card
+            item {
+                ActiveSessionLogsCard(
+                    isLoadingEngine = activeLoading.isLoading,
+                    loadingProgress = activeLoading,
+                    sessionState = activeSessionState
+                )
+            }
         }
 
         // 3. System Prompts Inspector Card
@@ -287,29 +367,6 @@ fun ModelHubContent(
             SystemPromptsInspectorCard(
                 settings = settings,
                 onOpenEditPrompts = { showEditPromptsDialog = true }
-            )
-        }
-
-        // 4. Model Loader Card (reduced size, anchored near end)
-        item {
-            ModelLoaderCard(
-                settings = settings,
-                isScanning = isScanning,
-                onRefresh = { scope.launch { modelRepository.refreshModels() } },
-                onBrowseModel = { safLauncher.launch(arrayOf("*/*", "application/octet-stream")) },
-                onScanStorage = { scope.launch { modelRepository.refreshModels() } },
-                onSelectAccelerator = { mode ->
-                    scope.launch { settingsRepository.setPreferredAccelerator(mode) }
-                }
-            )
-        }
-
-        // 5. Active Session Logs Card (Always expanded and open when loaded or loading)
-        item {
-            ActiveSessionLogsCard(
-                isLoadingEngine = activeLoadingProgress.isLoading,
-                loadingProgress = activeLoadingProgress,
-                sessionState = activeSessionState
             )
         }
     }
@@ -325,7 +382,7 @@ fun ModelHubContent(
                     modelRepository.deleteModel(target, permanentlyDeleteFile = permanently)
                     Toast.makeText(
                         context,
-                        if (permanently) "Permanently deleted ${target.name}" else "Removed ${target.name} from app catalog",
+                        if (permanently) "Permanently deleted ${target.name}" else "Removed ${target.name} from catalog",
                         Toast.LENGTH_SHORT
                     ).show()
                 }

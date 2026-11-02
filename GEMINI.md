@@ -63,7 +63,7 @@ flowchart TD
 2. **Unidirectional Data Flow (UDF)**: ViewModels emit immutable `StateFlow<UiState>` to Composables. User actions flow up as intents/function calls.
 3. **Zero Context Leaks**: Never retain Android `Context`, `Activity`, `View`, or `AccessibilityNodeInfo` references inside ViewModels, singletons, or coroutines outliving the UI lifecycle. Always recycle `AccessibilityNodeInfo` instances.
 4. **Thread Isolation**: All file I/O, LiteRT-LM model loading, database operations, and network requests MUST run on `Dispatchers.IO`. The main thread is reserved exclusively for UI rendering and window dispatching.
-5. **Zero-Copy Memory-Mapping (mmap)**: Multi-gigabyte `.litertlm` models from the user's `Downloads/` directory must be mapped directly via file path or `ParcelFileDescriptor` with `MANAGE_EXTERNAL_STORAGE` or SAF. Never copy multi-gigabyte models into internal private storage unless explicitly requested by the user.
+5. **Internal Storage Model Isolation**: Models are stored and executed exclusively from app private internal storage (`filesDir/models`). External Downloads directory scanning and SAF ParcelFileDescriptor direct loading are prohibited to eliminate SELinux revocations, stale descriptors, and native mmap crashes.
 6. **Strict No-Thinking Policy**: All on-device inference generation configs must enforce `thinking = false` so that responses are immediately insertable into editable input fields without containing raw `<think>` traces.
 
 ---
@@ -83,10 +83,13 @@ flowchart TD
 - **Compose in Service Lifecycle**: Always attach a valid `LifecycleOwner`, `ViewModelStoreOwner`, and `SavedStateRegistryOwner` to the `ComposeView` before adding it to `WindowManager`.
 - **Node Text Replacement**: Verify `node.isEditable` and ignore placeholder hints via `node.isShowingHintText`. Use `ACTION_SET_TEXT` with bundle arguments, falling back to clipboard + `ACTION_PASTE` only if direct replacement is unsupported.
 
-### C. Data Persistence & Room (`com.textmorph.app.data`)
+### C. Data Persistence, Storage & Model Isolation (`com.textmorph.app.data`)
+- **App-Internal Model Storage Isolation**: Models (.litertlm / .gguf) MUST NEVER be loaded directly from external `Downloads/` or foreign SAF storage trees due to Android 14+ SELinux permission drops and file descriptor invalidation. Models picked via SAF must be copied into `filesDir/models/` via `InternalModelStorageManager`.
+- **Single-Route Model Hub**: All model selection, engine switching (LiteRT, llama.cpp, Cloud API), preset management, and model downloads are centralized in the `ModelHub` route. Model selection in chat navigates directly to this route.
+- **Persistent Cloud API Presets**: API keys and tokens must be persisted per-preset in `AppSettings.apiPresets`. Switching or editing presets must retain tokens and never wipe saved keys.
+- **Start/Stop Engine Controls**: Active local on-device engines expose immediate Start/Stop buttons in top navigation bars and Model Hub to unload weights from VRAM/RAM on demand.
 - **Thread-Safe Repository State**: All read/write operations modifying database state must run on `Dispatchers.IO` and be synchronized using Kotlin `Mutex`.
 - **Atomic Operations**: Critical configuration and preference files must use atomic writes to prevent zero-byte file corruptions.
-- **Scoped Storage & Downloads**: Always check `Environment.isExternalStorageManager()` before scanning `/sdcard/Download/` and handle permission denials gracefully with SAF `OpenDocument` fallbacks.
 
 ### D. UI, Themes & Compose Standards (`com.textmorph.app.ui`)
 - **Charcoal Slate Default Theme**: Screens, cards, overlays, and dialogs must default to the Charcoal Slate palette (`#0B1020`, `#111827`, `#1F2937`, `#374151`, `#3B82F6`, `#2563EB`, `#E5E7EB`, `#F9FAFB`), matching the floating companion toolbar design language.
@@ -133,7 +136,7 @@ flowchart TD
 
 | Antipattern | Why it is Forbidden | Correct Approach |
 | :--- | :--- | :--- |
-| **Duplicating .litertlm into internal storage** | Wastes 2GB–4GB of user disk space | Memory-map (`mmap`) directly from `Downloads/` via path or `ParcelFileDescriptor` |
+| **Loading models directly from Downloads/SAF** | Causes SELinux permission revocations, stale descriptors, and native driver crashes | Copy models cleanly to app private internal storage (`filesDir/models`) and load via direct canonical path |
 | **Concurrent GPU LLM calls** | Crashes the Vulkan/OpenCL driver and kills the app process | Queue all inference requests through a thread-safe `Mutex` |
 | **Leaking AccessibilityNodeInfo** | Causes massive memory leaks and Android Binder exhaustion | Always call `node.recycle()` after querying attributes |
 | **Stealing focus in floating toolbar** | Closes the software keyboard while the user is typing | Set `FLAG_NOT_FOCUSABLE` on the overlay window |

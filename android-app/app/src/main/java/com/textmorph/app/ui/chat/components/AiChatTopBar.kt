@@ -42,10 +42,15 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.textmorph.app.data.model.ContextUsageMetrics
 
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material3.CircularProgressIndicator
+
 /**
  * Charcoal Slate top app bar for the AI Chat playground:
  * - Hamburger menu drawer toggle
  * - Interactive model quick-switcher pill
+ * - Local engine Start / Stop toggle
  * - Compact context capacity ring gauge
  * - (+) New chat button
  * - Overflow menu for session management (Rename, All Conversations, Clear)
@@ -62,6 +67,10 @@ fun AiChatTopBar(
     onOpenSessions: () -> Unit,
     onRenameSession: (() -> Unit)? = null,
     onClearChat: () -> Unit,
+    isLocalEngine: Boolean = false,
+    isLocalEngineLoaded: Boolean = false,
+    isLocalEngineLoading: Boolean = false,
+    onToggleEngine: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var showMenu by remember { mutableStateOf(false) }
@@ -110,6 +119,16 @@ fun AiChatTopBar(
                         fontWeight = FontWeight.Medium,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                // Local Engine Start / Stop Control Button in Navbar
+                if (isLocalEngine) {
+                    Spacer(modifier = Modifier.width(8.dp))
+                    com.textmorph.app.ui.navigation.components.EngineStartStopButton(
+                        isLoaded = isLocalEngineLoaded,
+                        isLoading = isLocalEngineLoading,
+                        onToggle = onToggleEngine
                     )
                 }
             }

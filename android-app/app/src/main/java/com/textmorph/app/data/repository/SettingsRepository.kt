@@ -117,7 +117,21 @@ class SettingsRepository(private val context: Context) {
     }
 
     suspend fun setCloudConfig(baseUrl: String, apiKey: String, modelId: String) = updateSettings {
-        it.copy(cloudBaseUrl = baseUrl, cloudApiKey = apiKey, cloudModelId = modelId)
+        val activePreset = it.apiPresets.find { p -> p.id == it.activePresetId }
+            ?: it.apiPresets.find { p -> p.baseUrl.equals(baseUrl, ignoreCase = true) }
+        val updatedPresets = if (activePreset != null) {
+            it.apiPresets.map { p ->
+                if (p.id == activePreset.id) p.copy(baseUrl = baseUrl, apiKey = apiKey, defaultModelId = modelId) else p
+            }
+        } else {
+            it.apiPresets
+        }
+        it.copy(
+            cloudBaseUrl = baseUrl,
+            cloudApiKey = apiKey,
+            cloudModelId = modelId,
+            apiPresets = updatedPresets
+        )
     }
 
     suspend fun setCloudModelId(modelId: String) = updateSettings {
@@ -201,8 +215,30 @@ class SettingsRepository(private val context: Context) {
         } else {
             existing.add(preset)
         }
-        it.copy(apiPresets = existing)
+        val isCurrent = it.activePresetId == preset.id || it.cloudBaseUrl.equals(preset.baseUrl, ignoreCase = true)
+        if (isCurrent) {
+            it.copy(
+                apiPresets = existing,
+                activePresetId = preset.id,
+                cloudBaseUrl = preset.baseUrl,
+                cloudApiKey = preset.apiKey,
+                cloudModelId = if (preset.defaultModelId.isNotBlank()) preset.defaultModelId else it.cloudModelId
+            )
+        } else {
+            it.copy(apiPresets = existing)
+        }
     }
+
+    suspend fun selectApiPreset(presetId: String) = updateSettings {
+        val preset = it.apiPresets.find { p -> p.id == presetId } ?: return@updateSettings it
+        it.copy(
+            activePresetId = preset.id,
+            cloudBaseUrl = preset.baseUrl,
+            cloudApiKey = preset.apiKey,
+            cloudModelId = if (preset.defaultModelId.isNotBlank()) preset.defaultModelId else it.cloudModelId
+        )
+    }
+
     suspend fun deleteApiPreset(presetId: String) = updateSettings {
         it.copy(apiPresets = it.apiPresets.filterNot { p -> p.id == presetId })
     }

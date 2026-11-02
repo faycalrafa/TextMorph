@@ -1,28 +1,23 @@
 package com.textmorph.app.ui.chat.components
 
-import android.content.Context
 import android.widget.Toast
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.platform.LocalContext
 import com.textmorph.app.data.model.AppSettings
-import com.textmorph.app.data.model.CloudApiPreset
 import com.textmorph.app.data.model.ContextUsageMetrics
-import com.textmorph.app.data.model.EngineType
-import com.textmorph.app.data.model.ModelFileType
 import com.textmorph.app.data.model.ModelInfo
 import com.textmorph.app.data.repository.ChatSessionRepository
 import com.textmorph.app.data.repository.SettingsRepository
-import com.textmorph.app.llm.EngineActivationCoordinator
 import com.textmorph.app.llm.LlmEngine
 import com.textmorph.app.llm.context.ChatCompactor
-import com.textmorph.app.util.AppLogger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * Encapsulates modal bottom sheets for AI Chat (attachment picker, model switcher, context capacity inspector).
+ * Encapsulates modal bottom sheets for AI Chat (attachment picker, context capacity inspector, sessions manager).
+ * Model switching is centralized into the Model Hub route.
  */
 @Composable
 fun AiChatSheets(
@@ -38,8 +33,6 @@ fun AiChatSheets(
     onDismissAttachmentSheet: () -> Unit,
     onPhotoCaptured: (AttachedMediaItem) -> Unit,
     onPickFiles: () -> Unit,
-    showModelSwitchSheet: Boolean,
-    onDismissModelSwitchSheet: () -> Unit,
     showCapacitySheet: Boolean,
     onDismissCapacitySheet: () -> Unit,
     showSessionsSheet: Boolean = false,
@@ -57,61 +50,6 @@ fun AiChatSheets(
             onDismiss = onDismissAttachmentSheet,
             onPhotoCaptured = onPhotoCaptured,
             onPickFiles = onPickFiles
-        )
-    }
-
-    if (showModelSwitchSheet) {
-        ModelQuickSwitchBottomSheet(
-            settings = settings,
-            availableModels = availableModels,
-            onDismiss = onDismissModelSwitchSheet,
-            onActivateModel = { targetEngine, targetModel, cloudModelId, stagedPreset ->
-                scope.launch {
-                    val coordinator = EngineActivationCoordinator.getInstance(context)
-                    val result = coordinator.activateEngine(
-                        targetEngine = targetEngine,
-                        targetModel = targetModel,
-                        targetCloudModelId = cloudModelId,
-                        preset = stagedPreset
-                    )
-                    result.onSuccess {
-                        val name = when (targetEngine) {
-                            EngineType.CLOUD_OPENAI -> "Cloud API (${cloudModelId ?: stagedPreset?.defaultModelId ?: settings.cloudModelId})"
-                            else -> "${targetModel?.name} on ${targetEngine.displayName}"
-                        }
-                        Toast.makeText(context, "Activated $name", Toast.LENGTH_SHORT).show()
-                    }.onFailure { err ->
-                        Toast.makeText(context, "Activation failed: ${err.message}", Toast.LENGTH_LONG).show()
-                    }
-                    onDismissModelSwitchSheet()
-                }
-            },
-            onSavePreset = { preset ->
-                scope.launch {
-                    settingsRepository.saveApiPreset(preset)
-                    Toast.makeText(context, "Preset '${preset.name}' saved", Toast.LENGTH_SHORT).show()
-                }
-            },
-            onDeletePreset = { presetId ->
-                scope.launch {
-                    settingsRepository.deleteApiPreset(presetId)
-                    Toast.makeText(context, "Preset deleted", Toast.LENGTH_SHORT).show()
-                }
-            },
-            onSaveConfig = { maxTokens, temp, topP, thinking, accel ->
-                scope.launch {
-                    settingsRepository.updateAiModelConfig(
-                        maxTokens = maxTokens,
-                        temperature = temp,
-                        topK = settings.topK,
-                        topP = topP,
-                        enableThinking = thinking,
-                        speculativeDecoding = settings.speculativeDecoding,
-                        defaultSystemPrompt = settings.defaultSystemPrompt
-                    )
-                    settingsRepository.setPreferredAccelerator(accel)
-                }
-            }
         )
     }
 

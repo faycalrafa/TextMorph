@@ -138,7 +138,8 @@ fun MainAppDestinationContent(
                 updateRepository = updateRepository,
                 onOpenDevLogs = { onSelectDestination(AppDestination.DEV_LOGS) },
                 onCheckUpdate = onTriggerUpdateCheck,
-                onOpenAccessibilityDisclosure = onOpenAccessibilityDisclosure
+                onOpenAccessibilityDisclosure = onOpenAccessibilityDisclosure,
+                onNavigateToModelHub = { onSelectDestination(AppDestination.MODEL_HUB) }
             )
         }
 

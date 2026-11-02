@@ -128,16 +128,16 @@ fun ModelLoaderCard(
                 ) {
                     Icon(Icons.Default.FileOpen, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Browse Model (.gguf / .litertlm)", fontSize = 12.sp)
+                    Text("Import Model (.litertlm / .gguf)", fontSize = 12.sp)
                 }
 
                 OutlinedButton(
-                    onClick = onScanStorage,
+                    onClick = onRefresh,
                     shape = RoundedCornerShape(10.dp)
                 ) {
-                    Icon(Icons.Default.FolderOpen, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Scan Device Storage", fontSize = 12.sp)
+                    Text("Refresh Models", fontSize = 12.sp)
                 }
             }
         }

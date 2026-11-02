@@ -29,6 +29,12 @@ object SystemTelemetryManager {
     private var lastTotalTime = 0L
     private var cachedCpuPercent: Int? = null
 
+    @Volatile
+    private var hasLoggedProcStatRestricted = false
+
+    @Volatile
+    private var hasLoggedHwPropsUnavailable = false
+
     fun getTelemetry(context: Context): SystemTelemetry {
         val (ramPercent, usedMb, totalMb) = getRamUsage(context)
         val cpuUsage = getCpuUsage()
@@ -108,7 +114,10 @@ object SystemTelemetryManager {
             }
         } catch (e: Exception) {
             // /proc/stat can be restricted by SELinux on Android 8+
-            AppLogger.d(TAG, "Cannot read /proc/stat (SELinux restricted): ${e.message}")
+            if (!hasLoggedProcStatRestricted) {
+                hasLoggedProcStatRestricted = true
+                AppLogger.d(TAG, "Cannot read /proc/stat (SELinux restricted): ${e.message}")
+            }
             null
         }
     }
@@ -137,7 +146,10 @@ object SystemTelemetryManager {
                     gpuTemp = gpuTemps[0]
                 }
             } catch (e: Exception) {
-                AppLogger.d(TAG, "HardwarePropertiesManager temperature unavailable: ${e.message}")
+                if (!hasLoggedHwPropsUnavailable) {
+                    hasLoggedHwPropsUnavailable = true
+                    AppLogger.d(TAG, "HardwarePropertiesManager temperature unavailable: ${e.message}")
+                }
             }
         }
 

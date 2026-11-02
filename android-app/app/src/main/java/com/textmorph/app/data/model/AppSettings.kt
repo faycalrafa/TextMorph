@@ -59,6 +59,7 @@ data class AppSettings(
     val agentSystemPrompt: String = com.textmorph.app.agent.prompts.AgentPrompts.AGENT_SYSTEM_PROMPT_CODE_ACTION,
     val fuseChatAndAgent: Boolean = true,
     val voiceTtsSpeed: Float = 1.5f,
+    val activePresetId: String = "openai",
     val apiPresets: List<CloudApiPreset> = listOf(
         CloudApiPreset(id = "openrouter", name = "OpenRouter", baseUrl = "https://openrouter.ai/api/v1", defaultModelId = "anthropic/claude-3.5-sonnet"),
         CloudApiPreset(id = "openai", name = "OpenAI", baseUrl = "https://api.openai.com/v1", defaultModelId = "gpt-4o-mini"),

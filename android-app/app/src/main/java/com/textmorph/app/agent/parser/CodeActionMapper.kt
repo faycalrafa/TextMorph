@@ -2,6 +2,7 @@ package com.textmorph.app.agent.parser
 
 import com.textmorph.app.agent.model.AgentAction
 import com.textmorph.app.agent.tools.registry.AgentToolRegistry
+import com.textmorph.app.util.AppLogger
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
 
@@ -378,54 +379,69 @@ object CodeActionMapper {
         var i = 0
         val len = argsStr.length
 
-        while (i < len) {
-            while (i < len && (argsStr[i].isWhitespace() || argsStr[i] == ',')) i++
-            if (i >= len) break
+        try {
+            while (i < len) {
+                while (i < len && (argsStr[i].isWhitespace() || argsStr[i] == ',' || argsStr[i] == ')')) i++
+                if (i >= len) break
+                val loopStart = i
 
-            var argName: String? = null
+                var argName: String? = null
 
-            val equalsIndex = argsStr.indexOf('=', i)
-            val commaIndex = argsStr.indexOf(',', i)
-            val quoteIndex = minOf(
-                argsStr.indexOf('"', i).takeIf { it != -1 } ?: Int.MAX_VALUE,
-                argsStr.indexOf('\'', i).takeIf { it != -1 } ?: Int.MAX_VALUE
-            )
+                val equalsIndex = argsStr.indexOf('=', i)
+                val commaIndex = argsStr.indexOf(',', i)
+                val quoteIndex = minOf(
+                    argsStr.indexOf('"', i).takeIf { it != -1 } ?: Int.MAX_VALUE,
+                    argsStr.indexOf('\'', i).takeIf { it != -1 } ?: Int.MAX_VALUE
+                )
 
-            if (equalsIndex != -1 && equalsIndex < quoteIndex && (commaIndex == -1 || equalsIndex < commaIndex)) {
-                argName = argsStr.substring(i, equalsIndex).trim()
-                i = equalsIndex + 1
-                while (i < len && argsStr[i].isWhitespace()) i++
-            }
+                if (equalsIndex != -1 && equalsIndex < quoteIndex && (commaIndex == -1 || equalsIndex < commaIndex)) {
+                    argName = argsStr.substring(i, equalsIndex).trim()
+                    i = equalsIndex + 1
+                    while (i < len && argsStr[i].isWhitespace()) i++
+                }
 
-            if (i >= len) break
+                if (i >= len) break
 
-            val charAt = argsStr[i]
-            val value = if (charAt == '"' || charAt == '\'') {
-                val quote = charAt
-                i++
-                val sb = StringBuilder()
-                while (i < len) {
-                    if (argsStr[i] == '\\' && i + 1 < len) {
-                        sb.append(argsStr[i + 1])
-                        i += 2
-                    } else if (argsStr[i] == quote) {
-                        break
-                    } else {
-                        sb.append(argsStr[i])
+                val charAt = argsStr[i]
+                val value = if (charAt == '"' || charAt == '\'') {
+                    val quote = charAt
+                    i++
+                    val sb = StringBuilder()
+                    while (i < len) {
+                        if (argsStr[i] == '\\' && i + 1 < len) {
+                            sb.append(argsStr[i + 1])
+                            i += 2
+                        } else if (argsStr[i] == quote) {
+                            break
+                        } else {
+                            sb.append(argsStr[i])
+                            i++
+                        }
+                    }
+                    if (i < len && argsStr[i] == quote) i++
+                    sb.toString()
+                } else {
+                    val valStart = i
+                    while (i < len && argsStr[i] != ',' && argsStr[i] != ')') {
                         i++
                     }
+                    argsStr.substring(valStart, i).trim()
                 }
-                if (i < len && argsStr[i] == quote) i++
-                sb.toString()
-            } else {
-                val valStart = i
-                while (i < len && argsStr[i] != ',' && argsStr[i] != ')') {
+
+                if (argName != null || value.isNotEmpty()) {
+                    tokens.add(ArgToken(argName, value))
+                }
+
+                // Strictly guarantee progress to prevent infinite loop / OOM
+                if (i <= loopStart) {
                     i++
                 }
-                argsStr.substring(valStart, i).trim()
-            }
 
-            tokens.add(ArgToken(argName, value))
+                // Safety boundary to prevent abnormal token accumulation
+                if (tokens.size >= 100) break
+            }
+        } catch (t: Throwable) {
+            AppLogger.w("CodeActionMapper", "Error parsing argument tokens: ${t.message}", t)
         }
 
         return tokens

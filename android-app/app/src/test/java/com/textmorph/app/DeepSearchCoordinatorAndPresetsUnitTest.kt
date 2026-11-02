@@ -108,4 +108,28 @@ class DeepSearchCoordinatorAndPresetsUnitTest {
         assertEquals("http://192.168.1.100:1234/v1", customPreset.baseUrl)
         assertEquals("meta-llama-3.1-8b-instruct", customPreset.defaultModelId)
     }
+
+    @Test
+    fun testCloudApiPreset_tokenPreservationAcrossPresets() {
+        var settings = AppSettings()
+        // Simulate user saving token for OpenAI preset
+        val openAiPreset = settings.apiPresets.first { it.id == "openai" }
+        val updatedOpenAi = openAiPreset.copy(apiKey = "sk-openai-secret-token")
+        val presetsAfterOpenAi = settings.apiPresets.map { if (it.id == "openai") updatedOpenAi else it }
+        settings = settings.copy(apiPresets = presetsAfterOpenAi, cloudApiKey = "sk-openai-secret-token", activePresetId = "openai")
+
+        // User switches to Groq preset
+        val groqPreset = settings.apiPresets.first { it.id == "groq" }
+        val updatedGroq = groqPreset.copy(apiKey = "gsk-groq-secret-token")
+        val presetsAfterGroq = settings.apiPresets.map { if (it.id == "groq") updatedGroq else it }
+        settings = settings.copy(apiPresets = presetsAfterGroq, cloudApiKey = "gsk-groq-secret-token", activePresetId = "groq")
+
+        // Switch back to OpenAI preset - verify OpenAI token was preserved and NOT overwritten!
+        val preservedOpenAi = settings.apiPresets.first { it.id == "openai" }
+        assertEquals("sk-openai-secret-token", preservedOpenAi.apiKey)
+
+        // Switch back to Groq preset - verify Groq token was preserved!
+        val preservedGroq = settings.apiPresets.first { it.id == "groq" }
+        assertEquals("gsk-groq-secret-token", preservedGroq.apiKey)
+    }
 }

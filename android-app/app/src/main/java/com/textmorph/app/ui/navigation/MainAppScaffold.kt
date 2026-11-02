@@ -114,6 +114,18 @@ fun MainAppScaffold(
     val chatSessions by chatRepository.sessions.collectAsState()
     val activeChatSessionId by chatRepository.activeSessionId.collectAsState()
 
+    val curSettings by settingsRepository.settingsState.collectAsState()
+    val isLlamaActive = curSettings.selectedEngine == EngineType.ON_DEVICE_LLAMA_CPP
+    val isLiteRtActive = curSettings.selectedEngine == EngineType.ON_DEVICE_LITERT
+    val isLocalEngine = isLlamaActive || isLiteRtActive
+    val llamaSession by llamaCppEngine.sessionState.collectAsState()
+    val liteRtSession by liteRtEngine.sessionState.collectAsState()
+    val llamaLoading by llamaCppEngine.loadingProgress.collectAsState()
+    val liteRtLoading by liteRtEngine.loadingProgress.collectAsState()
+    val isLocalEngineLoaded = if (isLlamaActive) llamaSession.isLoaded else liteRtSession.isLoaded
+    val isLocalEngineLoading = if (isLlamaActive) llamaLoading.isLoading else liteRtLoading.isLoading
+    val isModelSelected = curSettings.activeModelName.isNotBlank() || isLocalEngineLoaded
+
     var currentDestination by remember { mutableStateOf(AppDestination.CHAT) }
 
     // Search Top Bar State
@@ -237,11 +249,7 @@ fun MainAppScaffold(
                 onNavigateBack = { currentDestination = AppDestination.MODEL_HUB }
             )
         } else if (currentDestination == AppDestination.BENCHMARK) {
-            val curSettings by settingsRepository.settingsState.collectAsState()
-            val isLlamaActive = curSettings.selectedEngine == EngineType.ON_DEVICE_LLAMA_CPP
             val activeEngine = if (isLlamaActive) llamaCppEngine else liteRtEngine
-            val llamaSession by llamaCppEngine.sessionState.collectAsState()
-            val liteRtSession by liteRtEngine.sessionState.collectAsState()
             val activeModelName = if (isLlamaActive) llamaSession.modelName else liteRtSession.modelName
             val activeBackend = if (isLlamaActive) llamaSession.backend else liteRtSession.backend
 
@@ -298,6 +306,40 @@ fun MainAppScaffold(
                                 }
                             },
                             actions = {
+                                if (isLocalEngine && isModelSelected) {
+                                    com.textmorph.app.ui.navigation.components.EngineStartStopButton(
+                                        isLoaded = isLocalEngineLoaded,
+                                        isLoading = isLocalEngineLoading,
+                                        onToggle = {
+                                            scope.launch {
+                                                val coordinator = com.textmorph.app.llm.EngineActivationCoordinator.getInstance(context)
+                                                if (isLocalEngineLoaded) {
+                                                    coordinator.offloadAll()
+                                                    Toast.makeText(context, "Engine stopped & offloaded from memory", Toast.LENGTH_SHORT).show()
+                                                } else {
+                                                    val available = modelRepository.availableModels.value
+                                                    val targetModel = available.find { it.name.equals(curSettings.activeModelName, ignoreCase = true) }
+                                                        ?: available.firstOrNull {
+                                                            if (isLlamaActive) it.modelFileType == com.textmorph.app.data.model.ModelFileType.GGUF else it.modelFileType == com.textmorph.app.data.model.ModelFileType.LITERT_LM
+                                                        }
+                                                    if (targetModel != null) {
+                                                        val res = coordinator.activateEngine(targetEngine = curSettings.selectedEngine, targetModel = targetModel)
+                                                        if (res.isSuccess) {
+                                                            Toast.makeText(context, "Starting engine with ${targetModel.name}...", Toast.LENGTH_SHORT).show()
+                                                        } else {
+                                                            val err = res.exceptionOrNull()?.message ?: "Unknown error"
+                                                            Toast.makeText(context, "Start failed: $err", Toast.LENGTH_LONG).show()
+                                                        }
+                                                    } else {
+                                                        currentDestination = AppDestination.MODEL_HUB
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                }
+
                                 if (currentDestination == AppDestination.PROMPTS) {
                                     if (isSearchActive) {
                                         IconButton(onClick = {

@@ -27,9 +27,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import com.textmorph.app.data.model.ArtifactMetadata
 import com.textmorph.app.data.model.EngineType
+import com.textmorph.app.data.model.ModelFileType
 import com.textmorph.app.data.repository.ChatSessionRepository
 import com.textmorph.app.data.repository.ModelStorageRepository
 import com.textmorph.app.data.repository.SettingsRepository
+import com.textmorph.app.llm.EngineActivationCoordinator
 import com.textmorph.app.llm.LiteRtLmEngine
 import com.textmorph.app.llm.LlamaCppEngine
 import com.textmorph.app.llm.LlamaCppEngineManager
@@ -84,7 +86,6 @@ fun AiChatContent(
     val attachments = remember { mutableStateListOf<AttachedMediaItem>() }
     var isGenerating by remember { mutableStateOf(false) }
     var currentJob by remember { mutableStateOf<Job?>(null) }
-    var showModelSwitchSheet by remember { mutableStateOf(false) }
     var showCapacitySheet by remember { mutableStateOf(false) }
     var showAttachmentSheet by remember { mutableStateOf(false) }
     var showSessionsSheet by remember { mutableStateOf(false) }
@@ -142,6 +143,8 @@ fun AiChatContent(
     val isLlamaActive = settings.selectedEngine == EngineType.ON_DEVICE_LLAMA_CPP
     val liteRtSessionState by liteRtEngine.sessionState.collectAsState()
     val llamaSessionState by llamaCppEngine.sessionState.collectAsState()
+    val liteRtLoadingProgress by liteRtEngine.loadingProgress.collectAsState()
+    val llamaLoadingProgress by llamaCppEngine.loadingProgress.collectAsState()
     val isVisionCapable = if (isLlamaActive) llamaSessionState.isVisionCapable else liteRtSessionState.isVisionCapable
 
     val activeModelName = if (settings.selectedEngine == EngineType.CLOUD_OPENAI) {
@@ -267,12 +270,47 @@ fun AiChatContent(
             .background(Color(0xFF0B1020))
             .imePadding()
     ) {
+        val isLlamaActive = settings.selectedEngine == EngineType.ON_DEVICE_LLAMA_CPP
+        val isLiteRtActive = settings.selectedEngine == EngineType.ON_DEVICE_LITERT
+        val isLocalEngine = isLlamaActive || isLiteRtActive
+        val isLocalEngineLoaded = if (isLlamaActive) llamaSessionState.isLoaded else liteRtSessionState.isLoaded
+        val isLocalEngineLoading = if (isLlamaActive) llamaLoadingProgress.isLoading else liteRtLoadingProgress.isLoading
+
         AiChatTopBar(
             activeModelName = activeModelName,
             contextMetrics = contextMetrics,
             hasMessages = visibleMessages.isNotEmpty(),
             onOpenDrawer = onOpenDrawer,
-            onOpenModelSwitch = { showModelSwitchSheet = true },
+            onOpenModelSwitch = onNavigateToModelHub,
+            isLocalEngine = isLocalEngine,
+            isLocalEngineLoaded = isLocalEngineLoaded,
+            isLocalEngineLoading = isLocalEngineLoading,
+            onToggleEngine = {
+                scope.launch {
+                    val coordinator = EngineActivationCoordinator.getInstance(context)
+                    if (isLocalEngineLoaded) {
+                        coordinator.offloadAll()
+                        Toast.makeText(context, "Engine stopped & offloaded from memory", Toast.LENGTH_SHORT).show()
+                    } else {
+                        val available = modelRepository.availableModels.value
+                        val targetModel = available.find { it.name.equals(settings.activeModelName, ignoreCase = true) }
+                            ?: available.firstOrNull {
+                                if (isLlamaActive) it.modelFileType == ModelFileType.GGUF else it.modelFileType == ModelFileType.LITERT_LM
+                            }
+                        if (targetModel != null) {
+                            val res = coordinator.activateEngine(targetEngine = settings.selectedEngine, targetModel = targetModel)
+                            if (res.isSuccess) {
+                                Toast.makeText(context, "Starting engine with ${targetModel.name}...", Toast.LENGTH_SHORT).show()
+                            } else {
+                                val err = res.exceptionOrNull()?.message ?: "Unknown error"
+                                Toast.makeText(context, "Start failed: $err", Toast.LENGTH_LONG).show()
+                            }
+                        } else {
+                            onNavigateToModelHub()
+                        }
+                    }
+                }
+            },
             onOpenCapacitySheet = { showCapacitySheet = true },
             onNewChat = {
                 currentJob?.cancel()
@@ -414,8 +452,6 @@ fun AiChatContent(
         onDismissAttachmentSheet = { showAttachmentSheet = false },
         onPhotoCaptured = { attachments.add(it) },
         onPickFiles = { mediaPickerLauncher.launch("*/*") },
-        showModelSwitchSheet = showModelSwitchSheet,
-        onDismissModelSwitchSheet = { showModelSwitchSheet = false },
         showCapacitySheet = showCapacitySheet,
         onDismissCapacitySheet = { showCapacitySheet = false },
         showSessionsSheet = showSessionsSheet,

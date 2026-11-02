@@ -3,9 +3,6 @@ package com.textmorph.app.data.repository
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import android.os.Build
-import android.os.Environment
-import android.os.ParcelFileDescriptor
 import android.provider.OpenableColumns
 import androidx.work.Data
 import androidx.work.ExistingWorkPolicy
@@ -24,18 +21,37 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.io.FileInputStream
-import java.io.FileOutputStream
 
+/**
+ * Progress metadata for copying external models into app private internal storage.
+ */
+data class ModelImportProgress(
+    val isImporting: Boolean = false,
+    val fileName: String = "",
+    val bytesCopied: Long = 0L,
+    val totalBytes: Long = 0L
+) {
+    val progressFraction: Float
+        get() = if (totalBytes > 0L) (bytesCopied.toFloat() / totalBytes.toFloat()).coerceIn(0f, 1f) else 0f
+}
+
+/**
+ * Repository responsible for managing on-device AI models stored exclusively in app internal storage.
+ * Eliminates direct loading from external Download directories to guarantee stability and prevent SELinux crashes.
+ */
 class ModelStorageRepository(private val context: Context) {
 
     private val TAG = "ModelStorageRepository"
+    val internalStorageManager = InternalModelStorageManager(context)
 
     private val _availableModels = MutableStateFlow<List<ModelInfo>>(emptyList())
     val availableModels: StateFlow<List<ModelInfo>> = _availableModels.asStateFlow()
 
     private val _isScanning = MutableStateFlow(false)
     val isScanning: StateFlow<Boolean> = _isScanning.asStateFlow()
+
+    private val _importProgress = MutableStateFlow(ModelImportProgress())
+    val importProgress: StateFlow<ModelImportProgress> = _importProgress.asStateFlow()
 
     companion object {
         @Volatile
@@ -83,66 +99,16 @@ class ModelStorageRepository(private val context: Context) {
         )
     }
 
+    /**
+     * Refreshes model inventory from app private internal storage (filesDir/models/).
+     */
     suspend fun refreshModels() = withContext(Dispatchers.IO) {
         _isScanning.value = true
         try {
             val list = mutableListOf<ModelInfo>()
+            val files = internalStorageManager.listInternalModelFiles()
 
-            // 1. Scan External Storage directories (always include Downloads folder)
-            val searchDirs = mutableListOf<File>()
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && Environment.isExternalStorageManager()) {
-                searchDirs.addAll(listOfNotNull(
-                    Environment.getExternalStorageDirectory(),
-                    Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
-                    Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS)
-                ).filter { it.exists() && it.isDirectory })
-            } else {
-                listOfNotNull(
-                    Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
-                    File("/sdcard/Download"),
-                    File("/storage/emulated/0/Download")
-                ).filter { it.exists() && it.isDirectory && it.canRead() }.forEach {
-                    if (!searchDirs.contains(it)) searchDirs.add(it)
-                }
-            }
-
-                val seenPaths = mutableSetOf<String>()
-                for (dir in searchDirs) {
-                    val files = dir.listFiles { file ->
-                        file.isFile && (file.name.endsWith(".litertlm", ignoreCase = true) ||
-                                (file.name.endsWith(".gguf", ignoreCase = true) && !file.name.startsWith("mmproj", ignoreCase = true)))
-                    }
-                    files?.forEach { file ->
-                        val canonical = file.canonicalPath
-                        if (seenPaths.add(canonical)) {
-                            val detectedType = ModelFileType.detect(file.name)
-                            list.add(
-                                ModelInfo(
-                                    id = "ext_${canonical.hashCode()}",
-                                    name = file.name,
-                                    path = canonical,
-                                    sizeBytes = file.length(),
-                                    isDownloaded = true,
-                                    isBuiltInCatalog = false,
-                                    isExternalStorage = true,
-                                    isVisionCapable = detectedType == ModelFileType.LITERT_LM || file.name.contains("vision", ignoreCase = true) || file.name.contains("llava", ignoreCase = true),
-                                    modelFileType = detectedType,
-                                    description = "Zero-copy memory-mapped from ${file.parentFile?.name ?: "storage"}/"
-                                )
-                            )
-                        }
-                    }
-                }
-
-            // 2. Scan internal app models directory
-            val internalModelsDir = File(context.filesDir, "models")
-            if (!internalModelsDir.exists()) {
-                internalModelsDir.mkdirs()
-            }
-            internalModelsDir.listFiles { file ->
-                file.isFile && (file.name.endsWith(".litertlm", ignoreCase = true) ||
-                        (file.name.endsWith(".gguf", ignoreCase = true) && !file.name.startsWith("mmproj", ignoreCase = true)))
-            }?.forEach { file ->
+            files.forEach { file ->
                 val detectedType = ModelFileType.detect(file.name)
                 list.add(
                     ModelInfo(
@@ -155,55 +121,43 @@ class ModelStorageRepository(private val context: Context) {
                         isExternalStorage = false,
                         isVisionCapable = detectedType == ModelFileType.LITERT_LM || file.name.contains("vision", ignoreCase = true),
                         modelFileType = detectedType,
-                        description = "Located in App Private Storage."
+                        description = "App Private Storage (${detectedType.displayName})"
                     )
                 )
             }
 
-            // 3. Only include models actually present on device / in storage
-            val finalList = mutableListOf<ModelInfo>()
-            finalList.addAll(list.filter { it.isDownloaded })
-
-            // Preserve registered SAF models from current availableModels
-            val currentSafModels = _availableModels.value.filter { it.uriString != null || it.id.startsWith("saf_") }
-            currentSafModels.forEach { safModel ->
-                if (finalList.none { it.id == safModel.id || it.name.equals(safModel.name, ignoreCase = true) }) {
-                    finalList.add(0, safModel)
-                }
-            }
-
-            _availableModels.value = finalList
-            AppLogger.i(TAG, "Scanned models complete: ${finalList.size} models available (${list.size} local files found).")
+            _availableModels.value = list
+            AppLogger.i(TAG, "Scanned internal models complete: ${list.size} models available in private storage.")
         } catch (e: Exception) {
-            AppLogger.e(TAG, "Failed scanning models directory: ${e.message}", e)
+            AppLogger.e(TAG, "Failed scanning internal models: ${e.message}", e)
         } finally {
             _isScanning.value = false
         }
     }
 
+    /**
+     * Imports a model from an external SAF URI, copying it into app private internal storage.
+     * Reports copy progress via importProgress StateFlow.
+     */
     suspend fun registerSafModelUri(uri: Uri): ModelInfo? = withContext(Dispatchers.IO) {
         try {
-            // Attempt persistable permission grant (safely ignore if not supported by provider)
-            try {
-                val takeFlags: Int = Intent.FLAG_GRANT_READ_URI_PERMISSION
-                context.contentResolver.takePersistableUriPermission(uri, takeFlags)
-            } catch (secEx: SecurityException) {
-                AppLogger.w(TAG, "Could not take persistable URI permission for $uri: ${secEx.message}")
-            }
-
             var displayName = "custom_model.litertlm"
             var size = 0L
 
-            context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
-                val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                val sizeIndex = cursor.getColumnIndex(OpenableColumns.SIZE)
-                if (cursor.moveToFirst()) {
-                    if (nameIndex != -1) displayName = cursor.getString(nameIndex) ?: displayName
-                    if (sizeIndex != -1) size = cursor.getLong(sizeIndex)
+            try {
+                context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                    val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                    val sizeIndex = cursor.getColumnIndex(OpenableColumns.SIZE)
+                    if (cursor.moveToFirst()) {
+                        if (nameIndex != -1) displayName = cursor.getString(nameIndex) ?: displayName
+                        if (sizeIndex != -1) size = cursor.getLong(sizeIndex)
+                    }
                 }
+            } catch (t: Throwable) {
+                AppLogger.d(TAG, "Querying SAF display name failed: ${t.message}")
             }
 
-            // Inspect header bytes to accurately identify GGUF or LiteRT binary magic
+            // Inspect header bytes to identify GGUF or LiteRT binary magic
             val headerBytes = try {
                 context.contentResolver.openInputStream(uri)?.use { stream ->
                     val buf = ByteArray(16)
@@ -211,116 +165,88 @@ class ModelStorageRepository(private val context: Context) {
                     if (read >= 4) buf else null
                 }
             } catch (e: Exception) {
-                AppLogger.d(TAG, "Could not read header bytes for $displayName: ${e.message}")
                 null
             }
 
-            var detectedType = ModelFileType.detect(displayName, headerBytes)
+            val detectedType = ModelFileType.detect(displayName, headerBytes)
             if (detectedType == ModelFileType.GGUF && !displayName.endsWith(".gguf", ignoreCase = true)) {
                 displayName = "$displayName.gguf"
+            } else if (detectedType == ModelFileType.LITERT_LM && !displayName.endsWith(".litertlm", ignoreCase = true)) {
+                displayName = "$displayName.litertlm"
             }
 
-            // Check if direct filesystem path exists and is readable
-            var directPath: String? = null
-            if (uri.scheme == "file") {
-                directPath = uri.path
-            } else {
-                val docId = try {
-                    android.provider.DocumentsContract.getDocumentId(uri)
-                } catch (e: Exception) {
-                    AppLogger.d(TAG, "SAF getDocumentId query skipped/unsupported for $uri: ${e.message}")
-                    null
-                }
-
-                if (docId != null) {
-                    if (docId.startsWith("primary:")) {
-                        val relativePath = docId.removePrefix("primary:")
-                        val directFile = File(android.os.Environment.getExternalStorageDirectory(), relativePath)
-                        if (directFile.exists() && directFile.canRead()) {
-                            directPath = directFile.absolutePath
-                        }
-                    } else if (docId.startsWith("raw:")) {
-                        val rawPath = docId.removePrefix("raw:")
-                        val directFile = File(rawPath)
-                        if (directFile.exists() && directFile.canRead()) {
-                            directPath = directFile.absolutePath
-                        }
-                    }
-                }
-
-                if (directPath == null) {
-                    val downloadDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
-                    val downloadCandidate = File(downloadDir, displayName)
-                    if (downloadCandidate.exists() && downloadCandidate.canRead()) {
-                        directPath = downloadCandidate.absolutePath
-                    }
-                }
-            }
-
-            val modelInfo = ModelInfo(
-                id = "saf_${uri.toString().hashCode()}",
-                name = displayName,
-                path = directPath,
-                uriString = uri.toString(),
-                sizeBytes = size,
-                isDownloaded = true,
-                isBuiltInCatalog = false,
-                isExternalStorage = true,
-                isVisionCapable = detectedType == ModelFileType.LITERT_LM || displayName.contains("gemma-4", ignoreCase = true) || displayName.contains("vision", ignoreCase = true),
-                modelFileType = detectedType,
-                description = if (directPath != null) "Direct Mmap (${detectedType.displayName}): $displayName" else "SAF Zero-Copy (${detectedType.displayName}): $displayName"
+            _importProgress.value = ModelImportProgress(
+                isImporting = true,
+                fileName = displayName,
+                bytesCopied = 0L,
+                totalBytes = size
             )
 
-            val updated = _availableModels.value.toMutableList()
-            updated.removeAll { it.uriString == uri.toString() || it.name == displayName }
-            updated.add(0, modelInfo)
-            _availableModels.value = updated
+            val copyResult = internalStorageManager.copyFromUri(uri, displayName) { copied, total ->
+                _importProgress.value = ModelImportProgress(
+                    isImporting = true,
+                    fileName = displayName,
+                    bytesCopied = copied,
+                    totalBytes = if (total > 0L) total else size
+                )
+            }
 
-            AppLogger.i(TAG, "Successfully registered SAF model: $displayName (format=${detectedType.displayName}, directPath=$directPath, uri=$uri, size=$size bytes)")
-            modelInfo
+            _importProgress.value = ModelImportProgress(isImporting = false)
+
+            copyResult.fold(
+                onSuccess = { destFile ->
+                    refreshModels()
+                    val modelInfo = ModelInfo(
+                        id = "int_${destFile.name}",
+                        name = destFile.name,
+                        path = destFile.absolutePath,
+                        uriString = null,
+                        sizeBytes = destFile.length(),
+                        isDownloaded = true,
+                        isBuiltInCatalog = false,
+                        isExternalStorage = false,
+                        isVisionCapable = detectedType == ModelFileType.LITERT_LM || destFile.name.contains("vision", ignoreCase = true),
+                        modelFileType = detectedType,
+                        description = "App Private Storage (${detectedType.displayName})"
+                    )
+                    AppLogger.i(TAG, "Successfully imported SAF model to private storage: ${destFile.name}")
+                    modelInfo
+                },
+                onFailure = { err ->
+                    AppLogger.e(TAG, "Failed copying SAF model to private storage: ${err.message}", err)
+                    null
+                }
+            )
         } catch (e: Exception) {
-            AppLogger.e(TAG, "Failed to register SAF model URI: ${e.message}", e)
+            _importProgress.value = ModelImportProgress(isImporting = false)
+            AppLogger.e(TAG, "Failed registering SAF model URI: ${e.message}", e)
             null
         }
     }
 
+    /**
+     * Imports an mmproj vision projector into app private internal storage.
+     */
     suspend fun registerSafMmprojUri(uri: Uri): Pair<String, String?> = withContext(Dispatchers.IO) {
         try {
-            try {
-                val takeFlags: Int = Intent.FLAG_GRANT_READ_URI_PERMISSION
-                context.contentResolver.takePersistableUriPermission(uri, takeFlags)
-            } catch (secEx: SecurityException) {
-                AppLogger.w(TAG, "Could not take persistable URI permission for mmproj $uri: ${secEx.message}")
-            }
-
             var displayName = "mmproj.gguf"
-            context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
-                val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                if (cursor.moveToFirst() && nameIndex != -1) {
-                    displayName = cursor.getString(nameIndex) ?: displayName
+            try {
+                context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                    val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                    if (cursor.moveToFirst() && nameIndex != -1) {
+                        displayName = cursor.getString(nameIndex) ?: displayName
+                    }
                 }
+            } catch (t: Throwable) {
+                AppLogger.d(TAG, "Querying mmproj display name failed: ${t.message}")
             }
 
-            var directPath: String? = null
-            if (uri.scheme == "file") {
-                directPath = uri.path
-            } else {
-                val docId = try {
-                    android.provider.DocumentsContract.getDocumentId(uri)
-                } catch (e: Exception) {
-                    AppLogger.d(TAG, "SAF mmproj getDocumentId query skipped/unsupported for $uri: ${e.message}")
-                    null
-                }
-                if (docId != null && docId.startsWith("primary:")) {
-                    val relativePath = docId.removePrefix("primary:")
-                    val directFile = File(Environment.getExternalStorageDirectory(), relativePath)
-                    if (directFile.exists() && directFile.canRead()) directPath = directFile.absolutePath
-                }
-            }
-            AppLogger.i(TAG, "Registered SAF mmproj: $displayName (directPath=$directPath)")
-            Pair(displayName, directPath)
+            val copyResult = internalStorageManager.copyFromUri(uri, displayName)
+            val path = copyResult.getOrNull()?.absolutePath
+            AppLogger.i(TAG, "Imported mmproj into private storage: $displayName (path=$path)")
+            Pair(displayName, path)
         } catch (e: Exception) {
-            AppLogger.e(TAG, "Failed to register SAF mmproj URI: ${e.message}", e)
+            AppLogger.e(TAG, "Failed to import mmproj URI: ${e.message}", e)
             Pair("mmproj.gguf", null)
         }
     }
@@ -353,7 +279,7 @@ class ModelStorageRepository(private val context: Context) {
     }
 
     /**
-     * Enqueues a background WorkManager download task for a catalog model or custom URL.
+     * Enqueues a background WorkManager download task directly to internal models storage.
      */
     fun startDownload(modelInfo: ModelInfo, customUrl: String? = null, saveToDownloads: Boolean = false) {
         val url = customUrl ?: modelInfo.downloadUrl
@@ -367,7 +293,7 @@ class ModelStorageRepository(private val context: Context) {
             .putString(DownloadWorker.KEY_MODEL_NAME, modelInfo.name)
             .putString(DownloadWorker.KEY_DOWNLOAD_URL, url)
             .putLong(DownloadWorker.KEY_TOTAL_BYTES, modelInfo.sizeBytes)
-            .putBoolean(DownloadWorker.KEY_SAVE_TO_DOWNLOADS, saveToDownloads)
+            .putBoolean(DownloadWorker.KEY_SAVE_TO_DOWNLOADS, false) // Always false: internal storage only
             .build()
 
         val downloadRequest = OneTimeWorkRequestBuilder<DownloadWorker>()
@@ -376,7 +302,7 @@ class ModelStorageRepository(private val context: Context) {
             .addTag(modelInfo.id)
             .build()
 
-        AppLogger.i(TAG, "Enqueuing WorkManager download for ${modelInfo.name} (uniqueWork=download_${modelInfo.id})")
+        AppLogger.i(TAG, "Enqueuing WorkManager download to internal storage for ${modelInfo.name}")
         WorkManager.getInstance(context).enqueueUniqueWork(
             "download_${modelInfo.id}",
             ExistingWorkPolicy.REPLACE,
@@ -401,13 +327,13 @@ class ModelStorageRepository(private val context: Context) {
             .map { it.firstOrNull() }
     }
 
-    /** Removes model from app memory/cache without deleting file from disk. */
+    /** Removes model from app memory/cache. */
     suspend fun removeModelFromMemory(modelInfo: ModelInfo): Boolean = withContext(Dispatchers.IO) {
         try {
             val current = _availableModels.value.toMutableList()
             current.removeAll { it.id == modelInfo.id || it.name.equals(modelInfo.name, ignoreCase = true) }
             _availableModels.value = current
-            AppLogger.i(TAG, "Removed model ${modelInfo.name} from app memory/cache.")
+            AppLogger.i(TAG, "Removed model ${modelInfo.name} from memory list.")
             true
         } catch (e: Exception) {
             AppLogger.e(TAG, "Error removing model from memory: ${e.message}", e)
@@ -415,61 +341,42 @@ class ModelStorageRepository(private val context: Context) {
         }
     }
 
-    /** Deletes model from memory or permanently from disk. */
-    suspend fun deleteModel(modelInfo: ModelInfo, permanentlyDeleteFile: Boolean = false): Boolean = withContext(Dispatchers.IO) {
+    /** Deletes model permanently from internal disk storage. */
+    suspend fun deleteModel(modelInfo: ModelInfo, permanentlyDeleteFile: Boolean = true): Boolean = withContext(Dispatchers.IO) {
         try {
-            if (!permanentlyDeleteFile) return@withContext removeModelFromMemory(modelInfo)
-            val path = modelInfo.path ?: run {
-                AppLogger.w(TAG, "Cannot delete file for ${modelInfo.name}: path is null")
-                return@withContext removeModelFromMemory(modelInfo)
-            }
-            val file = File(path)
-            val deleted = if (file.exists()) file.delete() else false
+            val deleted = internalStorageManager.deleteInternalModel(modelInfo.name)
             removeModelFromMemory(modelInfo)
             refreshModels()
-            AppLogger.i(TAG, "Permanently deleted model file at $path: success=$deleted")
+            AppLogger.i(TAG, "Deleted model ${modelInfo.name} from internal storage: success=$deleted")
             deleted
         } catch (e: Exception) {
-            AppLogger.e(TAG, "Failed to delete model ${modelInfo.name}: ${e.message}", e)
+            AppLogger.e(TAG, "Failed deleting model ${modelInfo.name}: ${e.message}", e)
             false
         }
     }
 
     /**
-     * Copies a model from Downloads / external storage into App Private Storage (models/),
-     * allowing the user to delete the original external file without losing the model.
+     * Backward compatibility helper: copies model file to internal storage.
      */
     suspend fun importToPrivateStorage(modelInfo: ModelInfo): Boolean = withContext(Dispatchers.IO) {
         try {
-            val srcPath = modelInfo.path ?: return@withContext false
-            val srcFile = File(srcPath)
-            if (!srcFile.exists()) {
-                AppLogger.w(TAG, "Source file does not exist: $srcPath")
-                return@withContext false
-            }
-
-            val internalModelsDir = File(context.filesDir, "models")
-            if (!internalModelsDir.exists()) {
-                internalModelsDir.mkdirs()
-            }
-            val destFile = File(internalModelsDir, modelInfo.name)
-            if (destFile.canonicalPath == srcFile.canonicalPath) {
-                AppLogger.i(TAG, "Model is already in app private storage.")
+            if (internalStorageManager.hasModel(modelInfo.name)) {
                 return@withContext true
             }
+            val srcPath = modelInfo.path ?: return@withContext false
+            val srcFile = File(srcPath)
+            if (!srcFile.exists()) return@withContext false
 
-            AppLogger.i(TAG, "Importing ${srcFile.name} (${srcFile.length()} bytes) to app private storage: ${destFile.absolutePath}")
-            FileInputStream(srcFile).use { input ->
-                FileOutputStream(destFile).use { output ->
+            val destFile = File(internalStorageManager.modelsDir, modelInfo.name)
+            srcFile.inputStream().use { input ->
+                destFile.outputStream().use { output ->
                     input.copyTo(output)
                 }
             }
-
-            AppLogger.i(TAG, "Import completed successfully.")
             refreshModels()
             true
-        } catch (e: Exception) {
-            AppLogger.e(TAG, "Failed importing model to private storage: ${e.message}", e)
+        } catch (t: Throwable) {
+            AppLogger.e(TAG, "Failed importing to private storage: ${t.message}", t)
             false
         }
     }

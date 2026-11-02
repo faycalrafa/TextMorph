@@ -66,6 +66,20 @@ fun MarkdownImageCard(
     val scope = rememberCoroutineScope()
     var isLightboxOpen by remember { mutableStateOf(false) }
 
+    val effectiveUrl = remember(imageUrl) {
+        if (imageUrl.startsWith("IMG_")) {
+            com.textmorph.app.agent.concurrency.ImageAssetRegistry.resolve(imageUrl) ?: imageUrl
+        } else {
+            imageUrl
+        }
+    }
+    val isValidUrl = remember(effectiveUrl) {
+        effectiveUrl.startsWith("http://", ignoreCase = true) ||
+            effectiveUrl.startsWith("https://", ignoreCase = true) ||
+            effectiveUrl.startsWith("file://", ignoreCase = true) ||
+            effectiveUrl.startsWith("content://", ignoreCase = true)
+    }
+
     Card(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(10.dp),
@@ -79,56 +93,91 @@ fun MarkdownImageCard(
                     .fillMaxWidth()
                     .heightIn(min = 160.dp, max = 260.dp)
                     .background(Color(0xFF0B1020))
-                    .clickable { isLightboxOpen = true }
+                    .clickable(enabled = isValidUrl) { isLightboxOpen = true }
             ) {
-                SubcomposeAsyncImage(
-                    model = ImageRequest.Builder(context)
-                        .data(imageUrl)
-                        .setHeader("User-Agent", "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36")
-                        .setHeader("Accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8")
-                        .crossfade(true)
-                        .listener(
-                            onError = { _, result ->
-                                AppLogger.w("MarkdownImageCard", "Failed loading image '$imageUrl': ${result.throwable.message}", result.throwable)
+                if (isValidUrl) {
+                    SubcomposeAsyncImage(
+                        model = ImageRequest.Builder(context)
+                            .data(effectiveUrl)
+                            .setHeader("User-Agent", "TextMorph/5.0 (Android; Mobile; +https://github.com/faycalrafa/TextMorph)")
+                            .setHeader("Accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8")
+                            .crossfade(true)
+                            .listener(
+                                onError = { _, result ->
+                                    val msg = result.throwable.message ?: ""
+                                    if (msg.contains("429") || msg.contains("403")) {
+                                        AppLogger.d("MarkdownImageCard", "Remote rate limit on '$effectiveUrl': $msg")
+                                    } else {
+                                        AppLogger.d("MarkdownImageCard", "Failed loading image '$effectiveUrl': $msg")
+                                    }
+                                }
+                            )
+                            .build(),
+                        contentDescription = caption,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize(),
+                        loading = {
+                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(24.dp),
+                                    strokeWidth = 2.dp,
+                                    color = Color(0xFF3B82F6)
+                                )
                             }
-                        )
-                        .build(),
-                    contentDescription = caption,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize(),
-                    loading = {
-                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(24.dp),
-                                strokeWidth = 2.dp,
-                                color = Color(0xFF3B82F6)
+                        },
+                        error = {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(16.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Icon(
+                                        imageVector = Icons.Default.Image,
+                                        contentDescription = null,
+                                        tint = Color(0xFF6B7280),
+                                        modifier = Modifier.size(32.dp)
+                                    )
+                                    Spacer(Modifier.height(6.dp))
+                                    Text(
+                                        text = "Preview unavailable",
+                                        color = Color(0xFF9CA3AF),
+                                        fontSize = 12.sp
+                                    )
+                                }
+                            }
+                        }
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(16.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(
+                                imageVector = Icons.Default.Image,
+                                contentDescription = null,
+                                tint = Color(0xFF4B5563),
+                                modifier = Modifier.size(36.dp)
+                            )
+                            Spacer(Modifier.height(6.dp))
+                            Text(
+                                text = "Image reference: $effectiveUrl",
+                                color = Color(0xFF9CA3AF),
+                                fontSize = 12.sp,
+                                fontStyle = FontStyle.Italic
+                            )
+                            Text(
+                                text = "(Original image URL unavailable in this session)",
+                                color = Color(0xFF6B7280),
+                                fontSize = 10.5.sp
                             )
                         }
-                    },
-                    error = {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(16.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Icon(
-                                    imageVector = Icons.Default.Image,
-                                    contentDescription = null,
-                                    tint = Color(0xFF6B7280),
-                                    modifier = Modifier.size(32.dp)
-                                )
-                                Spacer(Modifier.height(6.dp))
-                                Text(
-                                    text = "Preview unavailable",
-                                    color = Color(0xFF9CA3AF),
-                                    fontSize = 12.sp
-                                )
-                            }
-                        }
                     }
-                )
+                }
             }
 
             // Caption & Action Row
@@ -184,14 +233,14 @@ fun MarkdownImageCard(
         }
     }
 
-    if (isLightboxOpen) {
+    if (isLightboxOpen && isValidUrl) {
         ImageViewerLightboxDialog(
-            imageUrl = imageUrl,
+            imageUrl = effectiveUrl,
             caption = caption,
             onDismiss = { isLightboxOpen = false },
             onDownload = {
                 scope.launch {
-                    ImageDownloadHelper.downloadAndSaveImage(context, imageUrl, caption)
+                    ImageDownloadHelper.downloadAndSaveImage(context, effectiveUrl, caption)
                 }
             }
         )
@@ -261,7 +310,7 @@ fun ImageViewerLightboxDialog(
                     SubcomposeAsyncImage(
                         model = ImageRequest.Builder(context)
                             .data(imageUrl)
-                            .setHeader("User-Agent", "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36")
+                            .setHeader("User-Agent", "TextMorph/5.0 (Android; Mobile; +https://github.com/faycalrafa/TextMorph)")
                             .setHeader("Accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8")
                             .crossfade(true)
                             .build(),

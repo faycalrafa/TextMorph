@@ -69,7 +69,11 @@ class EngineActivationCoordinator private constructor(private val appContext: Co
                     EngineType.CLOUD_OPENAI -> {
                         val currentSettings = settingsRepository.settingsState.value
                         val effectiveUrl = preset?.baseUrl ?: currentSettings.cloudBaseUrl
-                        val effectiveKey = preset?.apiKey ?: currentSettings.cloudApiKey
+                        val effectiveKey = when {
+                            preset != null && preset.apiKey.isNotBlank() -> preset.apiKey
+                            currentSettings.cloudApiKey.isNotBlank() -> currentSettings.cloudApiKey
+                            else -> ""
+                        }
                         val effectiveModel = targetCloudModelId?.takeIf { it.isNotBlank() }
                             ?: preset?.defaultModelId?.takeIf { it.isNotBlank() }
                             ?: currentSettings.cloudModelId
@@ -92,8 +96,14 @@ class EngineActivationCoordinator private constructor(private val appContext: Co
                             }
                         }
 
-                        // Persist clean cloud settings
-                        settingsRepository.setCloudConfig(effectiveUrl, effectiveKey, effectiveModel)
+                        // Persist clean cloud settings & preset token
+                        if (preset != null) {
+                            settingsRepository.saveApiPreset(
+                                preset.copy(baseUrl = effectiveUrl, apiKey = effectiveKey, defaultModelId = effectiveModel)
+                            )
+                        } else {
+                            settingsRepository.setCloudConfig(effectiveUrl, effectiveKey, effectiveModel)
+                        }
                         settingsRepository.setEngine(EngineType.CLOUD_OPENAI)
                         settingsRepository.setActiveModel("No Model Loaded", null, null, EngineType.CLOUD_OPENAI)
                         AppLogger.i(TAG, "Cloud API activated successfully: url=$effectiveUrl, model=$effectiveModel")
