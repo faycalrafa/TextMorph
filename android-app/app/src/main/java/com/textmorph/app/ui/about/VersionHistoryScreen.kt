@@ -58,9 +58,21 @@ fun VersionHistoryScreen(
 
     val releaseLog = listOf(
         ReleaseItem(
-            version = "v5.4.0",
+            version = "v5.5.0",
             tag = "Latest Release",
             isLatest = true,
+            changes = listOf(
+                "Icon-Only Engine Toggle: Compact 32×32dp rounded Start/Stop button in Model Hub top navigation bar.",
+                "Chat Navbar Overflow Menu: Engine Start/Stop toggle integrated into 3-dots dropdown menu with dynamic state colors.",
+                "Fixed Chat Navbar Spacing: Refined padding and element separation between drawer toggle, model pill, and action items.",
+                "Model Hub Decluttering: Unified model import into a single primary header button, removing duplicate upload cards.",
+                "AI Config Dialog Cleanup: Eradicated redundant context window vs generation limit info card to streamline configuration."
+            )
+        ),
+        ReleaseItem(
+            version = "v5.4.0",
+            tag = "Previous Release",
+            isLatest = false,
             changes = listOf(
                 "3-Tier AI Thinking Budget Modes: Low (fast, 0 tokens), Medium (balanced, up to 800 tokens), and High (deep reasoning, capped at 1500 tokens).",
                 "Native Engine Thinking: Wire native ThinkingConfig in LiteRT-LM, stream token clamping in llama.cpp, and reasoning_content / reasoning_effort support in Cloud API.",

@@ -117,18 +117,19 @@ fun MainAppScaffold(
     val curSettings by settingsRepository.settingsState.collectAsState()
     val isLlamaActive = curSettings.selectedEngine == EngineType.ON_DEVICE_LLAMA_CPP
     val isLiteRtActive = curSettings.selectedEngine == EngineType.ON_DEVICE_LITERT
-    val isLocalEngine = isLlamaActive || isLiteRtActive
     val llamaSession by llamaCppEngine.sessionState.collectAsState()
     val liteRtSession by liteRtEngine.sessionState.collectAsState()
     val llamaLoading by llamaCppEngine.loadingProgress.collectAsState()
     val liteRtLoading by liteRtEngine.loadingProgress.collectAsState()
-    val isLocalEngineLoaded = if (isLlamaActive) llamaSession.isLoaded else liteRtSession.isLoaded
-    val isLocalEngineLoading = if (isLlamaActive) llamaLoading.isLoading else liteRtLoading.isLoading
-    val isModelSelected = curSettings.activeModelName.isNotBlank() || isLocalEngineLoaded
+    val isLocalEngineLoaded = llamaSession.isLoaded || liteRtSession.isLoaded
+    val isLocalEngineLoading = llamaLoading.isLoading || liteRtLoading.isLoading
     val activationCoordinator = remember { com.textmorph.app.llm.EngineActivationCoordinator.getInstance(context) }
     val pendingBenchmarkPrompt by activationCoordinator.pendingBenchmarkPrompt.collectAsState()
 
     var currentDestination by remember { mutableStateOf(AppDestination.CHAT) }
+
+    val isLocalEngine = isLlamaActive || isLiteRtActive || currentDestination == AppDestination.MODEL_HUB
+    val isModelSelected = curSettings.activeModelName.isNotBlank() || isLocalEngineLoaded || (currentDestination == AppDestination.MODEL_HUB && modelRepository.availableModels.value.isNotEmpty())
 
     // Search Top Bar State
     var isSearchActive by remember { mutableStateOf(false) }
@@ -328,6 +329,7 @@ fun MainAppScaffold(
                                     com.textmorph.app.ui.navigation.components.EngineStartStopButton(
                                         isLoaded = isLocalEngineLoaded,
                                         isLoading = isLocalEngineLoading,
+                                        iconOnly = true,
                                         onToggle = {
                                             scope.launch {
                                                 val coordinator = com.textmorph.app.llm.EngineActivationCoordinator.getInstance(context)
@@ -336,12 +338,20 @@ fun MainAppScaffold(
                                                     Toast.makeText(context, "Engine stopped & offloaded from memory", Toast.LENGTH_SHORT).show()
                                                 } else {
                                                     val available = modelRepository.availableModels.value
+                                                    val targetEngine = if (isLlamaActive) {
+                                                        EngineType.ON_DEVICE_LLAMA_CPP
+                                                    } else if (isLiteRtActive) {
+                                                        EngineType.ON_DEVICE_LITERT
+                                                    } else {
+                                                        val firstModel = available.firstOrNull()
+                                                        if (firstModel?.modelFileType == com.textmorph.app.data.model.ModelFileType.GGUF) EngineType.ON_DEVICE_LLAMA_CPP else EngineType.ON_DEVICE_LITERT
+                                                    }
                                                     val targetModel = available.find { it.name.equals(curSettings.activeModelName, ignoreCase = true) }
                                                         ?: available.firstOrNull {
-                                                            if (isLlamaActive) it.modelFileType == com.textmorph.app.data.model.ModelFileType.GGUF else it.modelFileType == com.textmorph.app.data.model.ModelFileType.LITERT_LM
+                                                            if (targetEngine == EngineType.ON_DEVICE_LLAMA_CPP) it.modelFileType == com.textmorph.app.data.model.ModelFileType.GGUF else it.modelFileType == com.textmorph.app.data.model.ModelFileType.LITERT_LM
                                                         }
                                                     if (targetModel != null) {
-                                                        val res = coordinator.activateEngine(targetEngine = curSettings.selectedEngine, targetModel = targetModel)
+                                                        val res = coordinator.activateEngine(targetEngine = targetEngine, targetModel = targetModel)
                                                         if (res.isSuccess) {
                                                             Toast.makeText(context, "Starting engine with ${targetModel.name}...", Toast.LENGTH_SHORT).show()
                                                         } else {

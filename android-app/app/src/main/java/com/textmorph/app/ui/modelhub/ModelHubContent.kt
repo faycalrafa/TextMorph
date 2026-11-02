@@ -7,6 +7,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -61,7 +62,6 @@ import com.textmorph.app.ui.modelhub.components.ModelHubActiveBanner
 import com.textmorph.app.ui.modelhub.components.ModelHubEngineSelector
 import com.textmorph.app.ui.modelhub.components.ModelImportProgressCard
 import com.textmorph.app.ui.modelhub.components.ModelItemCard
-import com.textmorph.app.ui.modelhub.components.ModelLoaderCard
 import com.textmorph.app.ui.modelhub.components.SystemPromptsInspectorCard
 import kotlinx.coroutines.launch
 
@@ -221,7 +221,7 @@ fun ModelHubContent(
                 ModelImportProgressCard(importProgress = importProgress)
             }
 
-            // Available Models Section Header
+            // Available Models Section Header with single primary Import action
             item {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -235,13 +235,14 @@ fun ModelHubContent(
                         color = MaterialTheme.colorScheme.primary
                     )
 
-                    OutlinedButton(
+                    Button(
                         onClick = { safLauncher.launch(arrayOf("*/*", "application/octet-stream")) },
-                        shape = RoundedCornerShape(8.dp)
+                        shape = RoundedCornerShape(8.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
                     ) {
-                        Icon(Icons.Default.FileOpen, contentDescription = null, modifier = Modifier.size(14.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Import", fontSize = 11.5.sp)
+                        Icon(Icons.Default.FileOpen, contentDescription = null, modifier = Modifier.size(15.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Import Model", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                     }
                 }
             }
@@ -251,14 +252,14 @@ fun ModelHubContent(
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(14.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
                     ) {
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(20.dp),
+                                .padding(24.dp),
                             horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Inbox,
@@ -273,20 +274,11 @@ fun ModelHubContent(
                                 color = MaterialTheme.colorScheme.onSurface
                             )
                             Text(
-                                text = "Models must be copied into app internal storage to avoid file permission drops.",
+                                text = "Tap 'Import Model' above to select a ${if (isLlamaTab) ".gguf" else ".litertlm"} model file to copy into app storage.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 textAlign = androidx.compose.ui.text.style.TextAlign.Center
                             )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Button(
-                                onClick = { safLauncher.launch(arrayOf("*/*", "application/octet-stream")) },
-                                shape = RoundedCornerShape(10.dp)
-                            ) {
-                                Icon(Icons.Default.FileOpen, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(if (isLlamaTab) "Import .gguf Model" else "Import .litertlm Model", fontSize = 12.sp)
-                            }
                         }
                     }
                 }
@@ -336,20 +328,6 @@ fun ModelHubContent(
                         onNavigateToChat = onNavigateToChat
                     )
                 }
-            }
-
-            // Compact Model Loader & Hardware Acceleration Card
-            item {
-                ModelLoaderCard(
-                    settings = settings,
-                    isScanning = isScanning,
-                    onRefresh = { scope.launch { modelRepository.refreshModels() } },
-                    onBrowseModel = { safLauncher.launch(arrayOf("*/*", "application/octet-stream")) },
-                    onScanStorage = { scope.launch { modelRepository.refreshModels() } },
-                    onSelectAccelerator = { mode ->
-                        scope.launch { settingsRepository.setPreferredAccelerator(mode) }
-                    }
-                )
             }
 
             // Active Session Logs Card

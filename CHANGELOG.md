@@ -4,6 +4,23 @@ All notable changes to **TextMorph** are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.5.0] - 2026-11-02
+
+### Added
+- **Icon-Only Engine Start/Stop Button**: Added `iconOnly: Boolean` support to `EngineStartStopButton`, rendering a compact 32×32dp rounded surface with an 18dp icon (`Stop` / `PlayArrow` / progress spinner) for cleaner navigation bars without text clutter.
+- **Overflow Menu Engine Control**: Moved the Start/Stop local engine toggle into the AI Chat 3-dots overflow menu (`AiChatTopBar`), displaying live engine state, color-coded status, and loading spinner without overcrowding chat header actions.
+
+### Changed
+- **Unified Single Import in Model Hub**: Consolidated redundant model import/scan buttons across Model Hub into a single, prominent primary `[Import Model]` action in the Available Models section header.
+- **Refined AI Chat Navbar Spacing**: Balanced spacing across `AiChatTopBar` by adding 4dp separation between the drawer menu icon and the active model switcher pill, and 6dp spacing on the right-hand action cluster.
+- **Model Hub Top Bar Refactor**: Switched Model Hub navigation bar Start/Stop button to icon-only mode, and refined local engine detection logic so the control reliably displays whenever on-device SLMs are selected.
+
+### Fixed
+- **AI Config Dialog Clutter**: Removed the redundant "Model Context Window vs Generation Limit" information card from `AiModelConfigDialog`, freeing up vertical space for immediate parameter tuning without cognitive overhead.
+- **Eliminated Duplicate Upload Components**: Removed the duplicate import button from the empty state card and safely purged the obsolete `ModelLoaderCard` component.
+
+---
+
 ## [5.4.0] - 2026-11-02
 
 ### Added

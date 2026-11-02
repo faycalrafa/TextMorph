@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Surface
@@ -99,6 +100,8 @@ fun AiChatTopBar(
                     Icon(Icons.Default.Menu, contentDescription = "Menu", tint = Color(0xFFE5E7EB))
                 }
 
+                Spacer(modifier = Modifier.width(4.dp))
+
                 // Quick Model Switcher Pill
                 Row(
                     modifier = Modifier
@@ -163,19 +166,12 @@ fun AiChatTopBar(
                         }
                     }
                 }
-
-                // Local Engine Start / Stop Control Button in Navbar
-                if (isLocalEngine) {
-                    Spacer(modifier = Modifier.width(8.dp))
-                    com.textmorph.app.ui.navigation.components.EngineStartStopButton(
-                        isLoaded = isLocalEngineLoaded,
-                        isLoading = isLocalEngineLoading,
-                        onToggle = onToggleEngine
-                    )
-                }
             }
 
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
                 // Context Capacity Gauge Ring Icon
                 ContextCapacityRingIcon(
                     metrics = contextMetrics,
@@ -197,6 +193,44 @@ fun AiChatTopBar(
                         onDismissRequest = { showMenu = false },
                         modifier = Modifier.background(Color(0xFF1F2937))
                     ) {
+                        if (isLocalEngine) {
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        text = if (isLocalEngineLoaded) "Stop Engine (Offload)" else if (isLocalEngineLoading) "Starting Engine..." else "Start Engine",
+                                        color = if (isLocalEngineLoaded) Color(0xFFEF4444) else Color(0xFF22C55E),
+                                        fontSize = 13.5.sp,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                },
+                                leadingIcon = {
+                                    if (isLocalEngineLoading) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(16.dp),
+                                            strokeWidth = 2.dp,
+                                            color = Color(0xFF3B82F6)
+                                        )
+                                    } else {
+                                        Icon(
+                                            imageVector = if (isLocalEngineLoaded) Icons.Default.Stop else Icons.Default.PlayArrow,
+                                            contentDescription = null,
+                                            tint = if (isLocalEngineLoaded) Color(0xFFEF4444) else Color(0xFF22C55E),
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                },
+                                enabled = !isLocalEngineLoading,
+                                onClick = {
+                                    showMenu = false
+                                    onToggleEngine()
+                                }
+                            )
+
+                            HorizontalDivider(
+                                color = Color(0xFF374151),
+                                modifier = Modifier.padding(vertical = 4.dp)
+                            )
+                        }
                         DropdownMenuItem(
                             text = { Text("New Conversation", color = Color(0xFFF9FAFB), fontSize = 13.5.sp) },
                             leadingIcon = {
