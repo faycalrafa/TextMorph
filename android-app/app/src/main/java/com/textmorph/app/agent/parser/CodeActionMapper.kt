@@ -335,6 +335,16 @@ object CodeActionMapper {
                 )
             }
 
+            "request_user_approval", "user_approval" -> {
+                val question = getArg(0, "question", "message", "prompt", default = "Do you confirm?")
+                val options = getArg(1, "options", "choices", default = "[\"Yes\", \"No\"]")
+                AgentAction(
+                    action = AgentAction.ACTION_REQUEST_USER_APPROVAL,
+                    params = toJsonParams(mapOf("question" to question, "options" to options)),
+                    response = "Requesting approval: $question"
+                )
+            }
+
             "suggest_next_actions", "suggest_actions", "next_actions" -> {
                 AgentAction(
                     action = AgentAction.ACTION_SUGGEST_NEXT_ACTIONS,

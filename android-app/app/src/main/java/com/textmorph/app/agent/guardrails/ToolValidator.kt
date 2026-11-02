@@ -26,7 +26,9 @@ object ToolValidator {
     private const val TAG = "ToolValidator"
 
     fun synthesizeCorrectionPrompt(action: AgentAction, error: String): String {
-        return "[Validation Error for ${action.action}]: $error\nPlease fix the tool call parameters and emit only a corrected command."
+        return "[Validation Error for ${action.action}]: $error\n" +
+            "Please fix the tool call parameters and emit only a corrected command.\n" +
+            "Do NOT apologize or provide conversational text. Output ONLY the single corrected action command (e.g. ${action.action}(...))."
     }
 
     fun validate(

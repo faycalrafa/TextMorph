@@ -61,8 +61,192 @@ object ChatToolCallExtractor {
         RegexOption.DOT_MATCHES_ALL
     )
 
+    data class BalancedCallMatch(
+        val startIndex: Int,
+        val endIndex: Int,
+        val fullCall: String,
+        val functionName: String,
+        val rawArgs: String
+    )
+
+    fun findBalancedCall(text: String, targetFunctions: Set<String>): BalancedCallMatch? {
+        if (text.isBlank()) return null
+        for (func in targetFunctions) {
+            val pattern = Regex("""(?:^|[\s`:>\]|])(""" + Regex.escape(func) + """)\s*\(""")
+            val match = pattern.find(text) ?: continue
+            val funcName = match.groupValues[1]
+            val openParenIdx = text.indexOf('(', match.range.first)
+            if (openParenIdx == -1) continue
+
+            var depth = 0
+            var inDoubleQuote = false
+            var inSingleQuote = false
+            var escape = false
+            var closeParenIdx = -1
+
+            for (i in openParenIdx until text.length) {
+                val c = text[i]
+                if (escape) {
+                    escape = false
+                    continue
+                }
+                if (c == '\\') {
+                    escape = true
+                    continue
+                }
+                if (c == '"' && !inSingleQuote) {
+                    inDoubleQuote = !inDoubleQuote
+                } else if (c == '\'' && !inDoubleQuote) {
+                    inSingleQuote = !inSingleQuote
+                } else if (!inDoubleQuote && !inSingleQuote) {
+                    if (c == '(') {
+                        depth++
+                    } else if (c == ')') {
+                        depth--
+                        if (depth == 0) {
+                            closeParenIdx = i
+                            break
+                        }
+                    }
+                }
+            }
+
+            if (closeParenIdx != -1) {
+                var start = match.range.first
+                // Expand start backwards if enclosed in backticks or code fences
+                if (start > 0 && text[start - 1] == '`') {
+                    start--
+                    if (start >= 2 && text.substring(start - 2, start + 1) == "```") {
+                        start -= 2
+                    }
+                }
+                var end = closeParenIdx + 1
+                // Expand end forwards if enclosed in backticks or code fences
+                if (end < text.length && text[end] == '`') {
+                    end++
+                    if (end + 2 <= text.length && text.substring(end - 1, end + 2) == "```") {
+                        end += 2
+                    }
+                }
+
+                val fullCall = text.substring(start, end)
+                val rawArgs = text.substring(openParenIdx + 1, closeParenIdx).trim()
+                return BalancedCallMatch(start, end, fullCall, funcName, rawArgs)
+            }
+        }
+        return null
+    }
+
+    fun splitTopLevelArguments(raw: String): List<String> {
+        val trimmed = raw.trim()
+        if (trimmed.isBlank()) return emptyList()
+
+        val result = mutableListOf<String>()
+        var depthParen = 0
+        var depthBracket = 0
+        var depthBrace = 0
+        var inDoubleQuote = false
+        var inSingleQuote = false
+        var escape = false
+        var current = StringBuilder()
+
+        for (i in 0 until trimmed.length) {
+            val c = trimmed[i]
+            if (escape) {
+                escape = false
+                current.append(c)
+                continue
+            }
+            if (c == '\\') {
+                escape = true
+                current.append(c)
+                continue
+            }
+            if (c == '"' && !inSingleQuote) {
+                inDoubleQuote = !inDoubleQuote
+                current.append(c)
+            } else if (c == '\'' && !inDoubleQuote) {
+                inSingleQuote = !inSingleQuote
+                current.append(c)
+            } else if (!inDoubleQuote && !inSingleQuote) {
+                when (c) {
+                    '(' -> { depthParen++; current.append(c) }
+                    ')' -> { depthParen--; current.append(c) }
+                    '[' -> { depthBracket++; current.append(c) }
+                    ']' -> { depthBracket--; current.append(c) }
+                    '{' -> { depthBrace++; current.append(c) }
+                    '}' -> { depthBrace--; current.append(c) }
+                    ',' -> {
+                        if (depthParen == 0 && depthBracket == 0 && depthBrace == 0) {
+                            val token = current.toString().trim()
+                            if (token.isNotBlank()) result.add(token)
+                            current = StringBuilder()
+                        } else {
+                            current.append(c)
+                        }
+                    }
+                    else -> current.append(c)
+                }
+            } else {
+                current.append(c)
+            }
+        }
+        val last = current.toString().trim()
+        if (last.isNotBlank()) result.add(last)
+        return result
+    }
+
     fun extractApproval(content: String): UserApprovalRequest? {
         val trimmed = content.trim()
+        val match = findBalancedCall(trimmed, setOf("request_user_approval", "user_approval"))
+        if (match != null) {
+            val preText = trimmed.substring(0, match.startIndex).trim()
+            val postText = trimmed.substring(match.endIndex).trim()
+            val rawArgs = match.rawArgs.trim()
+
+            var question = ""
+            var options = listOf<String>()
+
+            // Look for named parameters
+            val qNamed = Regex("""(?:question|message|prompt)\s*=\s*(?:"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)')""").find(rawArgs)
+            if (qNamed != null) {
+                question = (qNamed.groups[1]?.value ?: qNamed.groups[2]?.value ?: "").replace("\\\"", "\"").replace("\\'", "'").trim()
+            }
+
+            val optNamed = Regex("""(?:options|choices)\s*=\s*(?:\[([\s\S]*?)\]|\(([\s\S]*?)\))""").find(rawArgs)
+            if (optNamed != null) {
+                val listContent = optNamed.groups[1]?.value ?: optNamed.groups[2]?.value ?: ""
+                options = splitTopLevelArguments(listContent).map { it.trim('"', '\'', '`', ' ') }.filter { it.isNotBlank() }
+            }
+
+            if (question.isBlank()) {
+                val args = splitTopLevelArguments(rawArgs)
+                if (args.isNotEmpty()) {
+                    val first = args[0].removePrefix("question=").removePrefix("message=").removePrefix("prompt=").trim().trim('"', '\'', '`')
+                    question = first
+                    if (options.isEmpty()) {
+                        if (args.size > 1) {
+                            val second = args[1].trim()
+                            if ((second.startsWith("[") && second.endsWith("]")) || (second.startsWith("(") && second.endsWith(")"))) {
+                                val inner = second.substring(1, second.length - 1)
+                                options = splitTopLevelArguments(inner).map { it.trim('"', '\'', '`', ' ') }.filter { it.isNotBlank() }
+                            } else {
+                                options = args.drop(1).map { it.trim('"', '\'', '`', ' ') }.filter { it.isNotBlank() }
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (question.isNotBlank()) {
+                if (options.isEmpty()) {
+                    options = listOf("Yes", "No")
+                }
+                return UserApprovalRequest(question, options, preText, postText)
+            }
+        }
+
+        // Regex fallback
         val codeMatch = APPROVAL_CODE_REGEX.find(trimmed)
         if (codeMatch != null) {
             val question = codeMatch.groupValues[1].ifEmpty { codeMatch.groupValues[2] }.trim()
@@ -80,13 +264,21 @@ object ChatToolCallExtractor {
     fun extractFollowUps(content: String): FollowUpSuggestionsRequest? {
         val trimmed = content.trim()
 
-        // 1. Check Code-as-Action suggest_next_actions
-        val codeMatch = SUGGESTIONS_CODE_REGEX.find(trimmed)
-        if (codeMatch != null) {
-            val rawList = codeMatch.groupValues[1].ifEmpty { codeMatch.groupValues[2] }
-            val rawItems = parseListElements(rawList)
-            val options = rawItems.map { parseFollowUpOption(it) }.filter { it.title.isNotBlank() }
-            val remaining = (trimmed.substring(0, codeMatch.range.first) + " " + trimmed.substring(codeMatch.range.last + 1)).trim()
+        // 1. Check Code-as-Action suggest_next_actions via balanced call parser
+        val match = findBalancedCall(trimmed, setOf("suggest_next_actions", "suggest_actions", "next_actions"))
+        if (match != null) {
+            var raw = match.rawArgs.trim()
+            if (raw.startsWith("suggestions=", ignoreCase = true)) {
+                raw = raw.substringAfter("=").trim()
+            } else if (raw.startsWith("actions=", ignoreCase = true)) {
+                raw = raw.substringAfter("=").trim()
+            }
+            if ((raw.startsWith("[") && raw.endsWith("]")) || (raw.startsWith("(") && raw.endsWith(")"))) {
+                raw = raw.substring(1, raw.length - 1).trim()
+            }
+            val tokens = splitTopLevelArguments(raw)
+            val options = tokens.map { parseFollowUpOption(it) }.filter { it.title.isNotBlank() }
+            val remaining = (trimmed.substring(0, match.startIndex) + " " + trimmed.substring(match.endIndex)).trim()
             if (options.isNotEmpty()) {
                 return FollowUpSuggestionsRequest(options, remaining)
             }
@@ -114,7 +306,11 @@ object ChatToolCallExtractor {
     }
 
     fun parseFollowUpOption(rawItem: String): FollowUpOption {
-        val trimmed = rawItem.trim().trim('"', '\'', '`', '*', '-')
+        var trimmed = rawItem.trim().trim('`', '*', '-')
+        if ((trimmed.startsWith("\"") && trimmed.endsWith("\"")) || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
+            trimmed = trimmed.substring(1, trimmed.length - 1).trim()
+        }
+        trimmed = trimmed.replace("\\\"", "\"").replace("\\'", "'")
         if (trimmed.isBlank()) {
             return FollowUpOption(title = "", isAction = false)
         }

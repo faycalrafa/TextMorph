@@ -155,7 +155,7 @@ object ChatToolExecutionHandler {
             $toolOutput
 
             INSTRUCTION: Review the tool output above. If further information is needed, call the next required tool via code block. Otherwise, provide your comprehensive final response to the user.
-            Remember to offer helpful follow-up suggestions using suggest_next_actions(...) if there are natural next steps.
+            Remember to offer helpful follow-up suggestions using suggest_next_actions("Action 1", "Action 2") or suggest_next_actions(search_web("..."), search_images("...")) if there are natural next steps.
         """.trimIndent()
     }
 

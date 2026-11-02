@@ -51,12 +51,13 @@ object AiChatInferenceUtils {
         engine: LlmEngine,
         prompt: String,
         imageBytes: ByteArray? = null,
+        temperature: Float? = null,
         onMetrics: ((com.textmorph.app.llm.InferenceMetrics) -> Unit)? = null
     ): Flow<String> = when (engine) {
-        is LiteRtLmEngine -> engine.generateStreamWithMetrics(prompt = prompt, imageBytes = imageBytes, onMetricsUpdated = { onMetrics?.invoke(it) })
-        is LlamaCppEngine -> engine.generateStreamWithMetrics(prompt = prompt, imageBytes = imageBytes, onMetricsUpdated = { onMetrics?.invoke(it) })
-        is OpenAiCloudEngine -> engine.generateStreamWithMetrics(prompt = prompt, imageBytes = imageBytes, onMetricsUpdated = { onMetrics?.invoke(it) })
-        else -> engine.generateStream(prompt = prompt, imageBytes = imageBytes)
+        is LiteRtLmEngine -> engine.generateStreamWithMetrics(prompt = prompt, imageBytes = imageBytes, temperature = temperature, onMetricsUpdated = { onMetrics?.invoke(it) })
+        is LlamaCppEngine -> engine.generateStreamWithMetrics(prompt = prompt, imageBytes = imageBytes, temperature = temperature, onMetricsUpdated = { onMetrics?.invoke(it) })
+        is OpenAiCloudEngine -> engine.generateStreamWithMetrics(prompt = prompt, imageBytes = imageBytes, temperature = temperature, onMetricsUpdated = { onMetrics?.invoke(it) })
+        else -> engine.generateStream(prompt = prompt, imageBytes = imageBytes, temperature = temperature)
     }
 
     fun extractSourcesFromToolOutput(

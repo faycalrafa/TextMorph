@@ -16,7 +16,8 @@ interface LlmEngine {
     fun generateStream(
         prompt: String,
         systemInstruction: String? = null,
-        imageBytes: ByteArray? = null
+        imageBytes: ByteArray? = null,
+        temperature: Float? = null
     ): Flow<String>
 
     /**
@@ -25,7 +26,8 @@ interface LlmEngine {
     suspend fun generate(
         prompt: String,
         systemInstruction: String? = null,
-        imageBytes: ByteArray? = null
+        imageBytes: ByteArray? = null,
+        temperature: Float? = null
     ): String
 
     /**

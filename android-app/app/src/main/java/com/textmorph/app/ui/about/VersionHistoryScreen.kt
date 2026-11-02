@@ -58,9 +58,22 @@ fun VersionHistoryScreen(
 
     val releaseLog = listOf(
         ReleaseItem(
-            version = "v5.2.0",
+            version = "v5.3.0",
             tag = "Latest Release",
             isLatest = true,
+            changes = listOf(
+                "Web-Wide Image Scraping: ImageSearchTool crawls top organic search results, extracting relevant images and OpenGraph visuals via Jsoup while filtering noise.",
+                "Image Health Pre-Probing: Parallel HTTP liveness probes automatically verify image availability and eliminate dead, 403, and 429 links.",
+                "Balanced Action AST Parser: ChatToolCallExtractor gracefully parses unquoted nested tool actions like suggest_next_actions(search_web(...)) into actionable chips without text leakage.",
+                "Streamlined 2B Model Approval: Simplified request_user_approval tool patterns, observation schemas, and single-parameter question support.",
+                "Silent Broken Image Degradation: MarkdownImageCard seamlessly falls back or collapses without displaying dark 'Preview unavailable' placeholder boxes.",
+                "Wikimedia Edge Thumbnails: Migrated Wikimedia Commons requests to lightweight 1024px thumb CDN endpoints, avoiding rate-limiting Envoy 429 responses."
+            )
+        ),
+        ReleaseItem(
+            version = "v5.2.0",
+            tag = "Previous Release",
+            isLatest = false,
             changes = listOf(
                 "Agentic Readiness Suite Overhaul: Real-time sub-test streaming console with active prompt display, live token output, and verdict explanations.",
                 "Deep Inspection Accordions: Expandable scenario results with one-click copying for test prompts and raw model responses.",

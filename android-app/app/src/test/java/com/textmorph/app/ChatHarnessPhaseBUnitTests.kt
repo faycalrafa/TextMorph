@@ -112,8 +112,8 @@ class ChatHarnessPhaseBUnitTests {
         // Mock engine is not needed for pure parsing tests
         val engine = object : com.textmorph.app.llm.LlmEngine {
             override suspend fun initialize(modelPath: String?) = true
-            override fun generateStream(prompt: String, systemInstruction: String?, imageBytes: ByteArray?) = kotlinx.coroutines.flow.emptyFlow<String>()
-            override suspend fun generate(prompt: String, systemInstruction: String?, imageBytes: ByteArray?) = ""
+            override fun generateStream(prompt: String, systemInstruction: String?, imageBytes: ByteArray?, temperature: Float?) = kotlinx.coroutines.flow.emptyFlow<String>()
+            override suspend fun generate(prompt: String, systemInstruction: String?, imageBytes: ByteArray?, temperature: Float?) = ""
             override fun isLoaded() = true
             override suspend fun unload() {}
         }

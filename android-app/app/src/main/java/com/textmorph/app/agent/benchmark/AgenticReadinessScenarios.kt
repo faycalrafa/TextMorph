@@ -73,7 +73,7 @@ object AgenticReadinessScenarios {
         onSubTestStart: (title: String, prompt: String) -> Unit
     ): ScenarioResult {
         val toolsDesc = formatToolSignatures()
-        val sysPrompt = "You are an autonomous mobile agent. Use Code-as-Action when an action is required.\n$toolsDesc"
+        val sysPrompt = "You are an autonomous mobile agent. Use Code-as-Action when an action is required. Output ONLY the tool command without conversational preamble or apologies.\n$toolsDesc"
         val subTests = mutableListOf<SubTestResult>()
 
         // Sub-test 1.1: Actionable query
@@ -162,7 +162,7 @@ object AgenticReadinessScenarios {
         onSubTestStart: (title: String, prompt: String) -> Unit
     ): ScenarioResult {
         val toolsDesc = formatToolSignatures()
-        val sysPrompt = "You are a mobile agent. Invoke actions with exact signatures.\n$toolsDesc"
+        val sysPrompt = "You are a mobile agent. Invoke actions with exact signatures. Output ONLY the tool command without conversational preamble or apologies.\n$toolsDesc"
         val subTests = mutableListOf<SubTestResult>()
 
         // Pass 2.1: Strict valid syntax
@@ -487,7 +487,7 @@ object AgenticReadinessScenarios {
 
     suspend fun generateGuarded(engine: LlmEngine, prompt: String, instruction: String): String {
         return GpuInferenceGate.withLock("Benchmark") {
-            engine.generate(prompt, instruction)
+            engine.generate(prompt, instruction, imageBytes = null, temperature = 0.0f)
         }
     }
 }

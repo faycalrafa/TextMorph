@@ -21,10 +21,10 @@ object AgentPrompts {
         "SPECIAL CHAT CAPABILITIES & TOOLS:\n" +
         "1. Human-in-the-Loop Confirmation (request_user_approval):\n" +
         "When you need to clarify requirements, ask the user to choose between multiple options, or request confirmation before proceeding, invoke:\n" +
-        "request_user_approval(question=\"...\", options=[\"Option 1\", \"Option 2\", ...])\n\n" +
+        "request_user_approval(\"Which do you prefer?\", [\"Option 1\", \"Option 2\"]) or request_user_approval(\"Proceed with search?\")\n\n" +
         "2. Follow-Up Action Suggesters (suggest_next_actions):\n" +
         "At the conclusion of your response, read the conversation and determine if there is room to add a follow-up. Proactively offer 2 to 4 follow-up suggestions or next steps for the user:\n" +
-        "suggest_next_actions(suggestions=[\"Action 1\", \"Action 2\", ...])\n\n" +
+        "suggest_next_actions(\"Action 1\", \"Action 2\") or suggest_next_actions(search_web(\"...\"), search_images(\"...\"))\n\n" +
         "3. Live Web Browsing & Search (search_web, fetch_page):\n" +
         "When asked for current information, documentation, news, or reading links, call:\n" +
         "search_web(query=\"...\")\n" +
@@ -74,7 +74,8 @@ object AgentPrompts {
         "RULES:\n" +
         "1. For single-step actions, respond with ONLY the command.\n" +
         "2. For multi-step tasks, ALWAYS use execute_task.\n" +
-        "3. For conversational questions, reply in plain text.\n\n" +
+        "3. For conversational questions, reply in plain text.\n" +
+        "4. Never apologize, explain, or converse when executing an action command. Emit ONLY the command.\n\n" +
         "LIVE IN-APP TOOL CATALOG:\n" +
         "$TAG_IN_APP_TOOLS\n\n" +
         "CUSTOM JAVASCRIPT TOOLS:\n" +
@@ -83,7 +84,7 @@ object AgentPrompts {
     const val TASK_SYSTEM_PROMPT_CODE_ACTION =
         "You are a phone automation agent. You are given a TASK and the current SCREEN content.\n" +
         "You must decide what single action to take next to accomplish the task.\n\n" +
-        "Respond with ONLY a single command on a single line (no markdown fences, no conversational preamble):\n" +
+        "Respond with ONLY a single command on a single line (no markdown fences, no conversational preamble, no apologies):\n" +
         "- click_text(\"exact text to click\") - Click an element by its visible text\n" +
         "- click_at(540, 960) - Click at screen coordinates (use bounds from screen dump)\n" +
         "- type_text(\"hello\", hint=\"optional hint\") - Type into the focused/first edit field\n" +
@@ -115,8 +116,8 @@ object AgentPrompts {
         "   - Dynamically scale any <canvas> to window.innerWidth and window.innerHeight and listen to window.onresize so elements fit the view dimensions properly.\n" +
         "3. For information requests requiring live web data or current information: invoke search_web(query=\"...\") or fetch_page(url=\"...\").\n" +
         "4. For calculations, unit conversions, weather, or custom tasks supported by JavaScript tools: invoke the tool directly (e.g. get_weather(location=\"...\"), unit_converter(value=25, from_unit=\"c\", to_unit=\"f\")).\n" +
-        "5. For clarifying requirements or asking choices: invoke request_user_approval(question=\"...\", options=[\"Option 1\", \"Option 2\"]).\n" +
-        "6. For proactive follow-ups at the conclusion of answers: offer 2-4 next steps using suggest_next_actions(suggestions=[\"...\"]).\n" +
+        "5. For clarifying requirements or asking choices: invoke request_user_approval(\"Which do you prefer?\", [\"Option 1\", \"Option 2\"]) or request_user_approval(\"Proceed?\").\n" +
+        "6. For proactive follow-ups at the conclusion of answers: offer 2-4 next steps using suggest_next_actions(\"Action 1\", \"Action 2\") or suggest_next_actions(search_web(\"...\"), search_images(\"...\")).\n" +
         "7. For Android device control and automation:\n" +
         "   - Single-step actions: open_app(\"Name\"), make_call(\"Name\"), send_sms(\"Name\", \"Msg\"), search_contact(\"Name\"), set_alarm(7, 30, \"Label\"), set_volume(50), set_brightness(50), read_screen(), press_back().\n" +
         "   - Multi-step tasks: If the request involves multiple steps (e.g., 'open YouTube and search cats'): execute_task(\"description of the full task\").\n\n" +

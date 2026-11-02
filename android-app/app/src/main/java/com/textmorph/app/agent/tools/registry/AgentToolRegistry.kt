@@ -273,7 +273,7 @@ object AgentToolRegistry {
             name = "Follow-Up Action Suggesters",
             category = AgentToolCategory.INTERACTIVE,
             description = "Offers proactive follow-up suggestions or next questions at the end of a response.",
-            codeSignature = "suggest_next_actions([\"Show code example\", \"Explain trade-offs\"])",
+            codeSignature = "suggest_next_actions(\"Show code example\", \"Explain trade-offs\")",
             parameters = listOf(
                 AgentToolParameter("suggestions", "Suggestions", defaultValue = "[\"Tell me more\", \"Show next step\"]", description = "Array of follow-up suggestion chips")
             )

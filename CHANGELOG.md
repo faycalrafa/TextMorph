@@ -4,6 +4,22 @@ All notable changes to **TextMorph** are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.3.0] - 2026-11-02
+
+### Added
+- **Web-Wide Image Scraping Engine**: `ImageSearchTool` dynamically scrapes relevant image URLs across top organic web results using Jsoup and DuckDuckGo, inspecting OpenGraph metadata (`og:image`) and semantic body `<img>` tags while intelligently filtering noise, tracking pixels, SVG logos, and ad banners.
+- **Parallel Image Health Probing**: Added asynchronous pre-flight HTTP HEAD/GET probes (`probeImageHealth`) validating Content-Type and HTTP 200 OK liveness in parallel before presenting images to models or users, automatically discarding 403, 404, 429, and dead URLs.
+- **Balanced Parenthesis AST Action Parser**: Added recursive balanced parenthesis extraction in `ChatToolCallExtractor` to effortlessly extract unquoted nested tool actions like `suggest_next_actions(search_web("..."), search_images("..."))` into actionable follow-up suggestion chips (`[⚡ Web Search]`, `[⚡ Image Search]`) without trailing syntax fragments leaking into chat.
+- **Single-Argument and Positional User Approvals**: Added robust support for simplified 2B model tool calls like `request_user_approval("Proceed with search?")` defaulting to `["Yes", "No"]`, and positional parameter approvals.
+
+### Changed
+- **Wikimedia Edge Thumbnail Optimization**: Switched Wikimedia Commons queries from uncompressed multi-megabyte master files (`iiprop=url`) to fast, edge-cached 1024px web thumbnails (`thumb.wikimedia.org` via `&iiurlwidth=1024`), dramatically reducing bandwidth and preventing Wikimedia Envoy 429 rate limits.
+- **Tiny 2B Model Action Prompts**: Streamlined system prompts and observation examples for `suggest_next_actions` and `request_user_approval`, providing clean single-turn patterns that eliminate syntax confusion on small on-device SLMs.
+
+### Fixed
+- **Silent Broken Image Card Degradation**: If an image URL fails to load, `MarkdownImageCard` automatically tries registered fallback mirrors or cleanly collapses without rendering dark, jarring "Preview unavailable" placeholder boxes.
+- **Chat Code Fragment Leakage**: Prevented unparsed trailing action text (such as `, search_images("..."))`) from remaining stranded in the conversation text when tiny models output nested actions without string quotation.
+
 ---
 
 ## [5.2.0] - 2026-11-02

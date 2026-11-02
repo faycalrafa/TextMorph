@@ -15,6 +15,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -121,7 +122,8 @@ class OpenAiCloudEngine(
     override fun generateStream(
         prompt: String,
         systemInstruction: String?,
-        imageBytes: ByteArray?
+        imageBytes: ByteArray?,
+        temperature: Float?
     ): Flow<String> = flow {
         if (apiKey.isBlank() && !baseUrl.contains("localhost") && !baseUrl.contains("127.0.0.1")) {
             val msg = "Error: OpenAI API key is missing. Please configure your API key in Settings or switch to On-Device LiteRT-LM."
@@ -145,10 +147,26 @@ class OpenAiCloudEngine(
             }
         }
 
+        val effectiveTemp = temperature?.toDouble() ?: if (
+            systemInstruction?.contains("Code-as-Action", ignoreCase = true) == true ||
+            systemInstruction?.contains("Benchmark", ignoreCase = true) == true ||
+            systemInstruction?.contains("autonomous", ignoreCase = true) == true ||
+            systemInstruction?.contains("automation", ignoreCase = true) == true ||
+            systemInstruction?.contains("planner", ignoreCase = true) == true ||
+            prompt.contains("Code-as-Action", ignoreCase = true)
+        ) 0.0 else 0.7
+
         val requestPayload = buildJsonObject {
             put("model", modelId)
             put("stream", true)
-            put("temperature", 0.7)
+            put("temperature", effectiveTemp)
+            put("max_tokens", 1024)
+            put("stop", buildJsonArray {
+                add(JsonPrimitive("<end_of_turn>"))
+                add(JsonPrimitive("<|end_of_turn|>"))
+                add(JsonPrimitive("<|eot_id|>"))
+                add(JsonPrimitive("<|im_end|>"))
+            })
             put("messages", buildJsonArray {
                 if (!systemInstruction.isNullOrBlank()) {
                     add(buildJsonObject {
@@ -237,13 +255,14 @@ class OpenAiCloudEngine(
         prompt: String,
         systemInstruction: String? = null,
         imageBytes: ByteArray? = null,
+        temperature: Float? = null,
         onMetricsUpdated: ((InferenceMetrics) -> Unit)? = null
     ): Flow<String> = channelFlow {
         val startTime = System.currentTimeMillis()
         var firstTokenTime: Long? = null
         var tokenCount = 0
 
-        generateStream(prompt, systemInstruction, imageBytes).collect { chunk ->
+        generateStream(prompt, systemInstruction, imageBytes, temperature).collect { chunk ->
             if (firstTokenTime == null && chunk.isNotBlank()) {
                 firstTokenTime = System.currentTimeMillis()
             }
@@ -270,10 +289,11 @@ class OpenAiCloudEngine(
     override suspend fun generate(
         prompt: String,
         systemInstruction: String?,
-        imageBytes: ByteArray?
+        imageBytes: ByteArray?,
+        temperature: Float?
     ): String = withContext(Dispatchers.IO) {
         val sb = StringBuilder()
-        generateStream(prompt, systemInstruction, imageBytes).collect { chunk ->
+        generateStream(prompt, systemInstruction, imageBytes, temperature).collect { chunk ->
             sb.append(chunk)
         }
         sb.toString()

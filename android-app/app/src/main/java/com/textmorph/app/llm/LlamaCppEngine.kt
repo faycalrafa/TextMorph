@@ -254,7 +254,8 @@ class LlamaCppEngine(private val context: Context) : LlmEngine {
     override fun generateStream(
         prompt: String,
         systemInstruction: String?,
-        imageBytes: ByteArray?
+        imageBytes: ByteArray?,
+        temperature: Float?
     ): Flow<String> = channelFlow {
         inferenceMutex.withLock {
             if (!isLoaded()) {
@@ -304,10 +305,10 @@ class LlamaCppEngine(private val context: Context) : LlmEngine {
                         "prompt" to fullPrompt,
                         "emit_partial_completion" to true,
                         "n_predict" to (settings?.maxTokens ?: 1024),
-                        "temperature" to (settings?.temperature ?: 0.7f),
+                        "temperature" to (temperature ?: settings?.temperature ?: 0.7f),
                         "top_p" to (settings?.topP ?: 0.95f),
                         "top_k" to (settings?.topK ?: 40),
-                        "stop" to listOf("<|im_end|>", "<|endoftext|>", "</s>")
+                        "stop" to listOf("<|im_end|>", "<|endoftext|>", "</s>", "<end_of_turn>", "<|end_of_turn|>", "<|eot_id|>")
                     )
                     if (imageFds.isNotEmpty()) {
                         completionParams["image_fds"] = imageFds
@@ -345,13 +346,14 @@ class LlamaCppEngine(private val context: Context) : LlmEngine {
         prompt: String,
         systemInstruction: String? = null,
         imageBytes: ByteArray? = null,
+        temperature: Float? = null,
         onMetricsUpdated: ((InferenceMetrics) -> Unit)? = null
     ): Flow<String> = channelFlow {
         val startTime = System.currentTimeMillis()
         var firstTokenTime: Long? = null
         var tokenCount = 0
 
-        generateStream(prompt, systemInstruction, imageBytes).collect { chunk ->
+        generateStream(prompt, systemInstruction, imageBytes, temperature).collect { chunk ->
             if (firstTokenTime == null && chunk.isNotBlank()) {
                 firstTokenTime = System.currentTimeMillis()
             }
@@ -378,10 +380,11 @@ class LlamaCppEngine(private val context: Context) : LlmEngine {
     override suspend fun generate(
         prompt: String,
         systemInstruction: String?,
-        imageBytes: ByteArray?
+        imageBytes: ByteArray?,
+        temperature: Float?
     ): String = withContext(Dispatchers.IO) {
         val sb = StringBuilder()
-        generateStream(prompt, systemInstruction, imageBytes).collect { sb.append(it) }
+        generateStream(prompt, systemInstruction, imageBytes, temperature).collect { sb.append(it) }
         sb.toString()
     }
 

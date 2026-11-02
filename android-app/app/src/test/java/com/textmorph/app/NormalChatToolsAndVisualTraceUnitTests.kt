@@ -246,4 +246,68 @@ class NormalChatToolsAndVisualTraceUnitTests {
         assertTrue(prompt.contains("auto-play immediately upon loading"))
         assertTrue(prompt.contains("10-second 24fps GIF animation"))
     }
+
+    // ─── 6. 2B Model Tooling & Nested Call Robustness ──────────────────
+
+    @Test
+    fun testChatToolCallExtractor_nestedActionsWithoutQuotes() {
+        val rawMessage = "![20231125 housecat south meadows PD100306](IMG_1)\n" +
+            "![Cat November 2010-1a](IMG_2)\n" +
+            "![Cat playing with a lizard](IMG_3)\n" +
+            "![Felis catus-cat on snow](IMG_4)\n\n" +
+            "suggest_next_actions(search_web(\"cute cat breeds\"), search_images(\"Maine Coon cat\"))"
+
+        val followUps = ChatToolCallExtractor.extractFollowUps(rawMessage)
+        assertNotNull(followUps)
+        assertEquals(2, followUps?.options?.size)
+
+        val opt0 = followUps?.options?.get(0)
+        assertNotNull(opt0)
+        assertTrue(opt0!!.isAction)
+        assertEquals("search_web", opt0.toolName)
+        assertEquals("Web Search", opt0.toolDisplayName)
+        assertTrue(opt0.title.contains("cute cat breeds"))
+        assertEquals("search_web(\"cute cat breeds\")", opt0.actionCommand)
+
+        val opt1 = followUps.options[1]
+        assertTrue(opt1.isAction)
+        assertEquals("search_images", opt1.toolName)
+        assertEquals("Image Search", opt1.toolDisplayName)
+        assertTrue(opt1.title.contains("Maine Coon cat"))
+        assertEquals("search_images(\"Maine Coon cat\")", opt1.actionCommand)
+
+        // Verify ZERO syntax leakage in remaining content
+        val remaining = followUps.remainingContent
+        assertFalse(remaining.contains("suggest_next_actions"))
+        assertFalse(remaining.contains("search_images"))
+        assertFalse(remaining.contains("cute cat breeds"))
+        assertTrue(remaining.contains("IMG_1"))
+        assertTrue(remaining.contains("IMG_4"))
+    }
+
+    @Test
+    fun testChatToolCallExtractor_singleArgumentApproval() {
+        val rawMessage = "I found 4 pictures.\nrequest_user_approval(\"Would you like me to find more cat breeds?\")"
+        val approval = ChatToolCallExtractor.extractApproval(rawMessage)
+        assertNotNull(approval)
+        assertEquals("Would you like me to find more cat breeds?", approval?.question)
+        assertEquals(listOf("Yes", "No"), approval?.options)
+        assertEquals("I found 4 pictures.", approval?.preText?.trim())
+    }
+
+    @Test
+    fun testChatToolCallExtractor_positionalApprovalWithOptions() {
+        val rawMessage = "request_user_approval(\"Which breed do you prefer?\", \"Maine Coon\", \"Persian\", \"Bengal\")"
+        val approval = ChatToolCallExtractor.extractApproval(rawMessage)
+        assertNotNull(approval)
+        assertEquals("Which breed do you prefer?", approval?.question)
+        assertEquals(listOf("Maine Coon", "Persian", "Bengal"), approval?.options)
+    }
+
+    @Test
+    fun testImageSearchTool_topicRelevance() {
+        assertTrue(com.textmorph.app.agent.tools.web.ImageSearchTool.isTopicRelevant("Fluffy Maine Coon cat", "Maine Coon cat"))
+        assertTrue(com.textmorph.app.agent.tools.web.ImageSearchTool.isTopicRelevant("Cute cat breeds on grass", "/search for cats pics"))
+        assertFalse(com.textmorph.app.agent.tools.web.ImageSearchTool.isTopicRelevant("Airplane in sky", "cute cat breeds"))
+    }
 }

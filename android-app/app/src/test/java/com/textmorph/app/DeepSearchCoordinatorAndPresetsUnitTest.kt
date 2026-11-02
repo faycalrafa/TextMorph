@@ -66,6 +66,50 @@ class DeepSearchCoordinatorAndPresetsUnitTest {
     }
 
     @Test
+    fun testCodeActionParser_multiDialectAndControlTokenEnvelopes() {
+        // Gemma-4 native tool-call envelopes
+        val gemmaCall = CodeActionParser.parse("<|tool_call>call:search_web(query=\"latest quarterly earnings report for Apple\")")
+        assertNotNull(gemmaCall)
+        org.junit.Assert.assertEquals("search_web", gemmaCall?.action)
+        assertTrue(gemmaCall?.params?.get("query").toString().contains("Apple"))
+
+        val gemmaCallClosed = CodeActionParser.parse("<|tool_call>call:search_web(query=\"Android 15 features\")<|tool_call_end>")
+        assertNotNull(gemmaCallClosed)
+        org.junit.Assert.assertEquals("search_web", gemmaCallClosed?.action)
+
+        // Qwen XML tool-call envelope
+        val qwenCall = CodeActionParser.parse("<tool_call>\nsearch_web(query=\"Kotlin 2.1\")\n</tool_call>")
+        assertNotNull(qwenCall)
+        org.junit.Assert.assertEquals("search_web", qwenCall?.action)
+
+        // Llama python tag envelope
+        val llamaCall = CodeActionParser.parse("<|python_tag|>open_app(\"Settings\")<|eot_id|>")
+        assertNotNull(llamaCall)
+        org.junit.Assert.assertEquals("open_app", llamaCall?.action)
+
+        // Action / call prefix formats
+        val actionPrefix = CodeActionParser.parse("Action: click_text(\"Submit\")")
+        assertNotNull(actionPrefix)
+        org.junit.Assert.assertEquals("click_text", actionPrefix?.action)
+
+        val callPrefix = CodeActionParser.parse("call:open_app(\"YouTube\")")
+        assertNotNull(callPrefix)
+        org.junit.Assert.assertEquals("open_app", callPrefix?.action)
+
+        // stripActionPayload clean UI checks
+        val stripped1 = CodeActionParser.stripActionPayload("<|tool_call>call:search_web(query=\"Apple\")")
+        org.junit.Assert.assertEquals("", stripped1)
+
+        val stripped2 = CodeActionParser.stripActionPayload("I'll look that up:\n<|tool_call>call:search_web(query=\"Apple\")")
+        assertTrue(stripped2.contains("I'll look that up:"))
+        assertFalse(stripped2.contains("<|tool_call>"))
+
+        // hasCompleteAction checks
+        assertTrue(CodeActionParser.hasCompleteAction("<|tool_call>call:search_web(query=\"Apple\")"))
+        assertFalse(CodeActionParser.hasCompleteAction("<|tool_call>call:search_web(query="))
+    }
+
+    @Test
     fun testChatCommandRouter_questionsAboutCommands() {
         // Questions about slash commands must NOT trigger execution
         val q1 = ChatCommandRouter.route("What does /plan do?")

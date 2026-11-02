@@ -371,6 +371,15 @@ object LiteRtLmSessionDelegate {
         clean = clean.replace("<start_of_turn>", "")
         clean = clean.replace("<eos>", "")
         clean = clean.replace("<bos>", "")
+        clean = clean.replace("<|end_of_turn|>", "")
+        clean = clean.replace("<|start_of_turn|>", "")
+        clean = clean.replace("<|eot_id|>", "")
+        clean = clean.replace("<|im_end|>", "")
+        clean = clean.replace("<|im_start|>", "")
+        clean = clean.replace("<|tool_call>", "")
+        clean = clean.replace("<|tool_call_end>", "")
+        clean = clean.replace("<tool_call>", "")
+        clean = clean.replace("</tool_call>", "")
         return clean
     }
 

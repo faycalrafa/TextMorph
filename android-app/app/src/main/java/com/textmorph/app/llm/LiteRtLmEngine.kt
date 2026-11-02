@@ -210,13 +210,15 @@ class LiteRtLmEngine(private val context: Context) : LlmEngine {
     override fun generateStream(
         prompt: String,
         systemInstruction: String?,
-        imageBytes: ByteArray?
-    ): Flow<String> = generateStreamWithMetrics(prompt, systemInstruction, imageBytes, null)
+        imageBytes: ByteArray?,
+        temperature: Float?
+    ): Flow<String> = generateStreamWithMetrics(prompt, systemInstruction, imageBytes, temperature, null)
 
     fun generateStreamWithMetrics(
         prompt: String,
         systemInstruction: String? = null,
         imageBytes: ByteArray? = null,
+        temperature: Float? = null,
         onMetricsUpdated: ((InferenceMetrics) -> Unit)? = null
     ): Flow<String> = channelFlow {
         inferenceMutex.withLock {
@@ -274,12 +276,13 @@ class LiteRtLmEngine(private val context: Context) : LlmEngine {
                     try {
                         val settings = runCatching { SettingsRepository.getInstance(context).settingsState.value }.getOrNull()
                         val maxOutTokens = (settings?.maxTokens ?: 1024).coerceIn(64, tokenCapacity)
+                        val effTemp = temperature?.toDouble() ?: (settings?.temperature ?: 0.7f).toDouble()
                         val convConfig = ConversationConfig(
                             samplerConfig = if (activeBackend.contains("GPU") || activeBackend.contains("CPU")) {
                                 SamplerConfig(
                                     topK = settings?.topK ?: 40,
                                     topP = (settings?.topP ?: 0.95f).toDouble(),
-                                    temperature = (settings?.temperature ?: 0.7f).toDouble()
+                                    temperature = effTemp
                                 )
                             } else null,
                             maxOutputToken = maxOutTokens,
@@ -441,10 +444,11 @@ class LiteRtLmEngine(private val context: Context) : LlmEngine {
     override suspend fun generate(
         prompt: String,
         systemInstruction: String?,
-        imageBytes: ByteArray?
+        imageBytes: ByteArray?,
+        temperature: Float?
     ): String = withContext(Dispatchers.IO) {
         val sb = StringBuilder()
-        generateStream(prompt, systemInstruction, imageBytes).collect { sb.append(it) }
+        generateStream(prompt, systemInstruction, imageBytes, temperature).collect { sb.append(it) }
         sb.toString()
     }
 

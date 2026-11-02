@@ -31,10 +31,10 @@ class AgenticReadinessSuiteUnitTests {
             override fun isLoaded() = true
             override suspend fun unload() {}
 
-            override fun generateStream(prompt: String, systemInstruction: String?, imageBytes: ByteArray?) =
+            override fun generateStream(prompt: String, systemInstruction: String?, imageBytes: ByteArray?, temperature: Float?) =
                 listOf("Attention ", "mechanisms ", "compute ", "contextualized ", "token ", "embeddings.").asFlow()
 
-            override suspend fun generate(prompt: String, systemInstruction: String?, imageBytes: ByteArray?): String {
+            override suspend fun generate(prompt: String, systemInstruction: String?, imageBytes: ByteArray?, temperature: Float?): String {
                 return when {
                     // Scenario 1: Actionable query
                     prompt.contains("quarterly earnings") -> """
@@ -102,10 +102,10 @@ class AgenticReadinessSuiteUnitTests {
             override fun isLoaded() = true
             override suspend fun unload() {}
 
-            override fun generateStream(prompt: String, systemInstruction: String?, imageBytes: ByteArray?) =
+            override fun generateStream(prompt: String, systemInstruction: String?, imageBytes: ByteArray?, temperature: Float?) =
                 listOf("Token").asFlow()
 
-            override suspend fun generate(prompt: String, systemInstruction: String?, imageBytes: ByteArray?): String {
+            override suspend fun generate(prompt: String, systemInstruction: String?, imageBytes: ByteArray?, temperature: Float?): String {
                 // Returns search_web on EVERY prompt, including greetings!
                 return """
                     ```
@@ -135,9 +135,9 @@ class AgenticReadinessSuiteUnitTests {
             override suspend fun initialize(modelPath: String?) = true
             override fun isLoaded() = true
             override suspend fun unload() {}
-            override fun generateStream(prompt: String, systemInstruction: String?, imageBytes: ByteArray?) =
+            override fun generateStream(prompt: String, systemInstruction: String?, imageBytes: ByteArray?, temperature: Float?) =
                 listOf("Telemetry ", "tokens ").asFlow()
-            override suspend fun generate(prompt: String, systemInstruction: String?, imageBytes: ByteArray?): String {
+            override suspend fun generate(prompt: String, systemInstruction: String?, imageBytes: ByteArray?, temperature: Float?): String {
                 return when {
                     prompt.contains("quarterly earnings") -> "search_web(query=\"Apple\")"
                     prompt.contains("Hello!") -> "Hello there!"
@@ -178,9 +178,9 @@ class AgenticReadinessSuiteUnitTests {
             override suspend fun initialize(modelPath: String?) = true
             override fun isLoaded() = true
             override suspend fun unload() {}
-            override fun generateStream(prompt: String, systemInstruction: String?, imageBytes: ByteArray?) =
+            override fun generateStream(prompt: String, systemInstruction: String?, imageBytes: ByteArray?, temperature: Float?) =
                 listOf("Token").asFlow()
-            override suspend fun generate(prompt: String, systemInstruction: String?, imageBytes: ByteArray?): String {
+            override suspend fun generate(prompt: String, systemInstruction: String?, imageBytes: ByteArray?, temperature: Float?): String {
                 // Echoes literal placeholder template
                 return """
                     1. [Section Title] - [Focus]
@@ -209,8 +209,8 @@ class AgenticReadinessSuiteUnitTests {
             override suspend fun initialize(modelPath: String?) = false
             override fun isLoaded() = false
             override suspend fun unload() {}
-            override fun generateStream(prompt: String, systemInstruction: String?, imageBytes: ByteArray?) = listOf<String>().asFlow()
-            override suspend fun generate(prompt: String, systemInstruction: String?, imageBytes: ByteArray?) = ""
+            override fun generateStream(prompt: String, systemInstruction: String?, imageBytes: ByteArray?, temperature: Float?) = listOf<String>().asFlow()
+            override suspend fun generate(prompt: String, systemInstruction: String?, imageBytes: ByteArray?, temperature: Float?) = ""
         }
 
         AgenticReadinessSuite.runReadinessSuite(
@@ -220,5 +220,65 @@ class AgenticReadinessSuiteUnitTests {
             onProgress = {}
         )
         Unit
+    }
+
+    @Test
+    fun testGemma4NativeToolCallingAchievesAutonomousReady() = runBlocking {
+        val gemmaEngine = object : LlmEngine {
+            override suspend fun initialize(modelPath: String?) = true
+            override fun isLoaded() = true
+            override suspend fun unload() {}
+
+            override fun generateStream(prompt: String, systemInstruction: String?, imageBytes: ByteArray?, temperature: Float?) =
+                listOf("Attention ", "mechanisms ", "compute ", "contextualized ", "token ", "embeddings.").asFlow()
+
+            override suspend fun generate(prompt: String, systemInstruction: String?, imageBytes: ByteArray?, temperature: Float?): String {
+                return when {
+                    // Scenario 1: Actionable query (Gemma raw control token)
+                    prompt.contains("quarterly earnings") ->
+                        "<|tool_call>call:search_web(query=\"latest quarterly earnings report for Apple\")"
+
+                    // Scenario 1: Casual greeting
+                    prompt.contains("Hello!") ->
+                        "I am doing well, thank you for asking! I am ready to assist you with any tasks you have. How can I help you today?"
+
+                    // Scenario 2: Strict syntax pass 1 (Gemma raw control token)
+                    prompt.contains("Android 15 features") ->
+                        "<|tool_call>call:search_web(query=\"latest Android 15 features Code-as-Action\")"
+
+                    // Scenario 2: Self-correction recovery
+                    prompt.contains("prior call failed") || prompt.contains("Validation Error") || prompt.contains("Missing required parameter") ->
+                        "<|tool_call>call:search_web(query=\"latest Android 15 features\")"
+
+                    // Scenario 3: Grounded observation
+                    prompt.contains("Perseverance") ->
+                        "February 18, 2021"
+
+                    // Scenario 4: Plan decomposition
+                    prompt.contains("Quantum Supremacy") -> """
+                        1. Literature Review: Establish a comprehensive understanding of quantum supremacy demonstrations.
+                        2. Benchmarking: Analyze superconducting and neutral atom architectures.
+                        3. Error Correction: Model surface code thresholds and fault tolerance.
+                        4. Future Outlook: Assess strategic impact on cryptography.
+                    """.trimIndent()
+
+                    else -> "Concise output"
+                }
+            }
+        }
+
+        val report = AgenticReadinessSuite.runReadinessSuite(
+            engine = gemmaEngine,
+            modelName = "Cloud: gemma-4-E2B-it.litertlm",
+            backend = "OpenAI-Compatible Cloud",
+            onProgress = {}
+        )
+
+        assertEquals(5, report.scenarioResults.size)
+        // Verify all 5 scenarios passed
+        assertTrue("Expected score >= 85 for Gemma-4 with multi-dialect support, got: ${report.totalScore}", report.totalScore >= 85)
+        assertEquals(ReadinessTier.AUTONOMOUS_READY, report.tier)
+        assertTrue(report.scenarioResults.first { it.scenarioId == "scenario_1" }.passed)
+        assertTrue(report.scenarioResults.first { it.scenarioId == "scenario_2" }.passed)
     }
 }

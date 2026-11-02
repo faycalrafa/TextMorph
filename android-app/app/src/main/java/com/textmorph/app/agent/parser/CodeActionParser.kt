@@ -28,12 +28,31 @@ object CodeActionParser {
         "try running", "such as", "syntax:", "example:", "command:"
     )
 
+    fun stripControlTokens(text: String): String {
+        var clean = text
+        clean = clean.replace(Regex("""<\|tool_call>call:\s*"""), "")
+        clean = clean.replace(Regex("""<\|tool_call>\s*"""), "")
+        clean = clean.replace(Regex("""<\|tool_call_end>\s*"""), "")
+        clean = clean.replace(Regex("""</?tool_call>\s*"""), "")
+        clean = clean.replace(Regex("""<\|im_start\|>\s*(?:assistant|model|tool)?\s*"""), "")
+        clean = clean.replace(Regex("""<\|im_end\|>\s*"""), "")
+        clean = clean.replace(Regex("""<\|end_of_turn\|>\s*"""), "")
+        clean = clean.replace(Regex("""<\|eot_id\|>\s*"""), "")
+        clean = clean.replace(Regex("""<end_of_turn>\s*"""), "")
+        clean = clean.replace(Regex("""<start_of_turn>\s*(?:model|assistant)?\s*"""), "")
+        clean = clean.replace(Regex("""<\|python_tag\|>\s*"""), "")
+        clean = clean.replace(Regex("""\[/?(?:TOOL_CALL|ACTION)\]\s*""", RegexOption.IGNORE_CASE), "")
+        clean = clean.replace(Regex("""<call:([a-zA-Z0-9_]+)\s*\("""), "$1(")
+        clean = clean.replace(Regex("""(?i)(?:^|[\s`])(?:call|action):\s*([a-zA-Z0-9_]+)\s*\("""), " $1(")
+        return clean.trim()
+    }
+
     fun parse(rawText: String): AgentAction? {
-        val trimmed = rawText.trim()
+        val trimmed = stripControlTokens(rawText)
         if (trimmed.isBlank()) return null
 
         // 1. Direct Code-as-Action parse
-        val codeAction = parseCodeAction(trimmed)
+        val codeAction = parseCodeAction(trimmed, originalFullText = trimmed)
         if (codeAction != null) {
             return codeAction
         }
@@ -41,7 +60,7 @@ object CodeActionParser {
         // 2. Unnest markdown code fence if present
         if (trimmed.contains("```")) {
             val fenceContent = trimmed.substringAfter("```").substringBefore("```")
-            val embeddedCode = parseCodeAction(fenceContent)
+            val embeddedCode = parseCodeAction(stripControlTokens(fenceContent), originalFullText = trimmed)
             if (embeddedCode != null) return embeddedCode
         }
 
@@ -77,7 +96,7 @@ object CodeActionParser {
      * while respecting string literals and balanced parentheses.
      */
     fun findFunctionCall(text: String): Triple<String, String, String>? {
-        val idRegex = Regex("""(?:^|[\s`])([a-zA-Z0-9_]+)\s*\(""")
+        val idRegex = Regex("""(?:^|[\s`:>\]|])([a-zA-Z0-9_]+)\s*\(""")
         val match = idRegex.find(text) ?: return null
         val funcName = match.groupValues[1]
 
@@ -125,7 +144,7 @@ object CodeActionParser {
     }
 
     private fun isConversationalOrQuestionMention(fullText: String, funcName: String, matchedCall: String): Boolean {
-        val trimmed = fullText.trim()
+        val trimmed = stripControlTokens(fullText).trim()
         val cleanCall = matchedCall.trim('`', ' ')
 
         // 1. If the match is practically the whole text (or whole code block), it's an intended command
@@ -168,7 +187,7 @@ object CodeActionParser {
     }
 
     fun hasCompleteAction(text: String): Boolean {
-        val trimmed = text.trim()
+        val trimmed = stripControlTokens(text).trim()
         if (trimmed.isBlank()) return false
 
         // If a code fence is present, it must be closed
@@ -177,7 +196,7 @@ object CodeActionParser {
             val secondFence = trimmed.indexOf("```", firstFence + 3)
             if (secondFence == -1) return false
             val fencedBlock = trimmed.substring(firstFence, secondFence + 3)
-            return findFunctionCall(fencedBlock) != null
+            return findFunctionCall(stripControlTokens(fencedBlock)) != null
         }
 
         val call = findFunctionCall(trimmed) ?: return false
@@ -186,12 +205,12 @@ object CodeActionParser {
     }
 
     fun stripActionPayload(rawText: String): String {
-        val text = rawText
-        val call = findFunctionCall(text)
-        if (call != null && !text.contains("\n\n")) {
-            return text.replace(call.third, "").trim('`', ' ', '\n')
+        val cleaned = stripControlTokens(rawText)
+        val call = findFunctionCall(cleaned)
+        if (call != null && !cleaned.contains("\n\n")) {
+            return stripControlTokens(cleaned.replace(call.third, "")).trim('`', ' ', '\n')
         }
-        return text.trim()
+        return cleaned.trim()
     }
 
     fun cleanResponse(rawText: String): String = stripActionPayload(rawText)

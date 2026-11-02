@@ -206,7 +206,12 @@ object AiChatInferenceExecutor {
 
                 while (hop < MAX_TOOL_HOPS) {
                     val sb = StringBuilder()
-                    val flow = AiChatInferenceUtils.streamFromEngine(engine, currentPromptForInference, currentImagePayload) {
+                    val flow = AiChatInferenceUtils.streamFromEngine(
+                        engine = engine,
+                        prompt = currentPromptForInference,
+                        imageBytes = currentImagePayload,
+                        temperature = if (hop > 0) 0.0f else null
+                    ) {
                         lastMetrics = it
                     }
 

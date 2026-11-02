@@ -66,18 +66,25 @@ fun MarkdownImageCard(
     val scope = rememberCoroutineScope()
     var isLightboxOpen by remember { mutableStateOf(false) }
 
-    val effectiveUrl = remember(imageUrl) {
-        if (imageUrl.startsWith("IMG_")) {
+    var activeUrl by remember(imageUrl) {
+        val resolved = if (imageUrl.startsWith("IMG_")) {
             com.textmorph.app.agent.concurrency.ImageAssetRegistry.resolve(imageUrl) ?: imageUrl
         } else {
             imageUrl
         }
+        mutableStateOf(resolved)
     }
-    val isValidUrl = remember(effectiveUrl) {
-        effectiveUrl.startsWith("http://", ignoreCase = true) ||
-            effectiveUrl.startsWith("https://", ignoreCase = true) ||
-            effectiveUrl.startsWith("file://", ignoreCase = true) ||
-            effectiveUrl.startsWith("content://", ignoreCase = true)
+    var hasFailedCompletely by remember(imageUrl) { mutableStateOf(false) }
+
+    val isValidUrl = remember(activeUrl) {
+        activeUrl.startsWith("http://", ignoreCase = true) ||
+            activeUrl.startsWith("https://", ignoreCase = true) ||
+            activeUrl.startsWith("file://", ignoreCase = true) ||
+            activeUrl.startsWith("content://", ignoreCase = true)
+    }
+
+    if (hasFailedCompletely || !isValidUrl) {
+        return
     }
 
     Card(
@@ -98,17 +105,20 @@ fun MarkdownImageCard(
                 if (isValidUrl) {
                     SubcomposeAsyncImage(
                         model = ImageRequest.Builder(context)
-                            .data(effectiveUrl)
+                            .data(activeUrl)
                             .setHeader("User-Agent", "TextMorph/5.0 (Android; Mobile; +https://github.com/faycalrafa/TextMorph)")
                             .setHeader("Accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8")
                             .crossfade(true)
                             .listener(
                                 onError = { _, result ->
                                     val msg = result.throwable.message ?: ""
-                                    if (msg.contains("429") || msg.contains("403")) {
-                                        AppLogger.d("MarkdownImageCard", "Remote rate limit on '$effectiveUrl': $msg")
+                                    AppLogger.d("MarkdownImageCard", "Failed loading image '$activeUrl': $msg")
+                                    val fallback = com.textmorph.app.agent.concurrency.ImageAssetRegistry.getFallbackUrl(activeUrl)
+                                    if (fallback != null && fallback != activeUrl) {
+                                        AppLogger.d("MarkdownImageCard", "Switching to fallback image: $fallback")
+                                        activeUrl = fallback
                                     } else {
-                                        AppLogger.d("MarkdownImageCard", "Failed loading image '$effectiveUrl': $msg")
+                                        hasFailedCompletely = true
                                     }
                                 }
                             )
@@ -126,57 +136,9 @@ fun MarkdownImageCard(
                             }
                         },
                         error = {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .padding(16.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Icon(
-                                        imageVector = Icons.Default.Image,
-                                        contentDescription = null,
-                                        tint = Color(0xFF6B7280),
-                                        modifier = Modifier.size(32.dp)
-                                    )
-                                    Spacer(Modifier.height(6.dp))
-                                    Text(
-                                        text = "Preview unavailable",
-                                        color = Color(0xFF9CA3AF),
-                                        fontSize = 12.sp
-                                    )
-                                }
-                            }
+                            // Silently collapse without rendering broken placeholder
                         }
                     )
-                } else {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(16.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(
-                                imageVector = Icons.Default.Image,
-                                contentDescription = null,
-                                tint = Color(0xFF4B5563),
-                                modifier = Modifier.size(36.dp)
-                            )
-                            Spacer(Modifier.height(6.dp))
-                            Text(
-                                text = "Image reference: $effectiveUrl",
-                                color = Color(0xFF9CA3AF),
-                                fontSize = 12.sp,
-                                fontStyle = FontStyle.Italic
-                            )
-                            Text(
-                                text = "(Original image URL unavailable in this session)",
-                                color = Color(0xFF6B7280),
-                                fontSize = 10.5.sp
-                            )
-                        }
-                    }
                 }
             }
 
@@ -235,12 +197,12 @@ fun MarkdownImageCard(
 
     if (isLightboxOpen && isValidUrl) {
         ImageViewerLightboxDialog(
-            imageUrl = effectiveUrl,
+            imageUrl = activeUrl,
             caption = caption,
             onDismiss = { isLightboxOpen = false },
             onDownload = {
                 scope.launch {
-                    ImageDownloadHelper.downloadAndSaveImage(context, effectiveUrl, caption)
+                    ImageDownloadHelper.downloadAndSaveImage(context, activeUrl, caption)
                 }
             }
         )

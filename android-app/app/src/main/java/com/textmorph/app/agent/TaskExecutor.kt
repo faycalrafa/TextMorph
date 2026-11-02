@@ -419,7 +419,7 @@ class TaskExecutor(
         return try {
             val engine = engineProvider()
             val sb = StringBuilder()
-            engine.generateStream(prompt, systemInstruction, imageBytes).collect { token ->
+            engine.generateStream(prompt, systemInstruction, imageBytes, temperature = 0.0f).collect { token ->
                 sb.append(token)
             }
             sb.toString().trim()

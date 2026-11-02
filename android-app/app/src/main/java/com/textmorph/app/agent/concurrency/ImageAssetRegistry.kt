@@ -13,6 +13,7 @@ data class ImageAssetRecord(
     val originalUrl: String, // e.g. "https://upload.wikimedia.org/.../front.jpg"
     val title: String,       // e.g. "Sony WH-1000XM5 Front View"
     val sourceUrl: String? = null,
+    val fallbackUrls: List<String> = emptyList(),
     val registeredAt: Long = System.currentTimeMillis()
 )
 
@@ -38,7 +39,12 @@ object ImageAssetRegistry {
      * Registers a URL and returns a unique short alias (e.g. "IMG_1").
      * Deduplicates identical URLs to preserve consistency.
      */
-    fun register(url: String, title: String, sourceUrl: String? = null): String {
+    fun register(
+        url: String,
+        title: String,
+        sourceUrl: String? = null,
+        fallbackUrls: List<String> = emptyList()
+    ): String {
         val trimmedUrl = url.trim()
         if (trimmedUrl.isBlank()) return ""
 
@@ -53,7 +59,8 @@ object ImageAssetRegistry {
             alias = alias,
             originalUrl = trimmedUrl,
             title = title.trim(),
-            sourceUrl = sourceUrl?.trim()
+            sourceUrl = sourceUrl?.trim(),
+            fallbackUrls = fallbackUrls.map { it.trim() }.filter { it.isNotBlank() }
         )
 
         aliasToRecord[alias] = record
@@ -74,8 +81,10 @@ object ImageAssetRegistry {
 
         val sb = StringBuilder()
         sb.append("[Image Search Results]:\n")
+        val allCandidateUrls = results.map { it.imageUrl }
         for (item in results) {
-            val alias = register(item.imageUrl, item.title, item.sourceUrl)
+            val fallbacks = allCandidateUrls.filter { it != item.imageUrl }
+            val alias = register(item.imageUrl, item.title, item.sourceUrl, fallbacks)
             sb.append("- ").append(alias).append(": \"").append(item.title).append("\" (URL safely stored in registry)\n")
         }
         sb.append("To reference an image in your section, write standard Markdown: ![Caption](IMG_1)")
@@ -96,6 +105,20 @@ object ImageAssetRegistry {
     fun getRecord(alias: String): ImageAssetRecord? {
         val cleanAlias = alias.trim().removeSurrounding("(", ")").removeSurrounding("[", "]")
         return aliasToRecord[cleanAlias]
+    }
+
+    /**
+     * Returns a secondary/fallback URL for a given alias or URL if the primary fails.
+     */
+    fun getFallbackUrl(aliasOrUrl: String): String? {
+        val clean = aliasOrUrl.trim().removeSurrounding("(", ")").removeSurrounding("[", "]")
+        val record = if (clean.startsWith("IMG_")) {
+            aliasToRecord[clean]
+        } else {
+            val alias = urlToAlias[clean]
+            alias?.let { aliasToRecord[it] }
+        }
+        return record?.fallbackUrls?.firstOrNull { it != record.originalUrl }
     }
 
     /**
