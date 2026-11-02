@@ -35,7 +35,7 @@ jobs:
       - name: Determine Release Tag
         id: tag_version
         run: |
-          VERSION="5.1.0"
+          VERSION="5.2.0"
           DATE_TAG="v$VERSION"
           echo "RELEASE_TAG=$DATE_TAG" >> $GITHUB_ENV
           echo "APP_VERSION=$VERSION" >> $GITHUB_ENV
@@ -52,6 +52,34 @@ jobs:
           cp android-app/app/build/outputs/apk/release/app-release.apk build-artifacts/TextMorph-${{ env.RELEASE_TAG }}.apk
           cp android-app/app/build/outputs/apk/release/app-release.apk build-artifacts/update-latest.apk
 
+      - name: Extract Release Notes from CHANGELOG.md
+        run: |
+          mkdir -p build-artifacts
+          python3 -c "
+          import re, sys
+
+          version = '${{ env.APP_VERSION }}'
+          notes = ''
+          try:
+              with open('CHANGELOG.md', 'r', encoding='utf-8') as f:
+                  content = f.read()
+              pattern = rf'##\s+\[?v?{re.escape(version)}\]?[^\n]*\n(.*?)(?=\n##\s+\[|\Z)'
+              match = re.search(pattern, content, re.DOTALL)
+              if match and match.group(1).strip():
+                  notes = match.group(1).strip()
+          except Exception as e:
+              print(f'Warning: Could not read CHANGELOG.md: {e}', file=sys.stderr)
+
+          if not notes:
+              notes = f'### TextMorph v{version}\n\nPerformance improvements and bug fixes.'
+
+          header = f'### TextMorph v{version} ✨🪄\n\n'
+          with open('build-artifacts/RELEASE_NOTES.md', 'w', encoding='utf-8') as out:
+              out.write(header + notes + '\n')
+          "
+          echo '=== Generated Release Notes ==='
+          cat build-artifacts/RELEASE_NOTES.md
+
       - name: Upload Build Artifacts
         uses: actions/upload-artifact@v7
         with:
@@ -67,17 +95,6 @@ jobs:
           files: |
             build-artifacts/TextMorph-${{ env.RELEASE_TAG }}.apk
             build-artifacts/update-latest.apk
-          body: |
-            ### TextMorph ${{ env.RELEASE_TAG }} ✨🪄
-
-            **TextMorph** is an on-device, privacy-first multimodal AI writing assistant, vision analyzer, and smart reply generator for Android.
-
-            #### Features:
-            - **On-Device LiteRT-LM**: Accelerated local inference with direct zero-copy mmap from Downloads/ folder.
-            - **Zero-Permission Selection Mode**: Instant `ACTION_PROCESS_TEXT` integration.
-            - **Floating AI & Vision Toolbar**: System-wide input overlay via Accessibility Service.
-            - **Forest Clay Design System**: Deep woodland palette with full-width responsive dialogs.
-            - **Localhost OpenAI Server**: Embedded Ktor HTTP server on `127.0.0.1:8080`.
-            - **In-App Update System**: Direct APK download and installation from GitHub releases.
+          body_path: build-artifacts/RELEASE_NOTES.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

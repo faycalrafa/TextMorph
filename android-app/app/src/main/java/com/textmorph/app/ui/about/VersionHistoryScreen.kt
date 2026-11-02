@@ -58,9 +58,62 @@ fun VersionHistoryScreen(
 
     val releaseLog = listOf(
         ReleaseItem(
-            version = "v2.4.0",
+            version = "v5.2.0",
             tag = "Latest Release",
             isLatest = true,
+            changes = listOf(
+                "Agentic Readiness Suite Overhaul: Real-time sub-test streaming console with active prompt display, live token output, and verdict explanations.",
+                "Deep Inspection Accordions: Expandable scenario results with one-click copying for test prompts and raw model responses.",
+                "Zero-Mocking Purge: Completely eradicated synthetic standby fallbacks and fake inference mocks across LiteRtLmEngine and LlamaCppEngine.",
+                "Persistent Benchmark Storage: AtomicFile JSON persistence (benchmark_reports_v1.json) saving readiness reports across app restarts.",
+                "Model Activation Benchmark Prompt: Prompts user to run readiness benchmarks upon loading newly activated models or Cloud APIs.",
+                "Chat Header Readiness Score Badge: Tier-colored circular score badge in the Chat top bar with adaptive model name ellipsis truncation.",
+                "Automated Release Notes: GitHub Releases and in-app update dialogs now dynamically extract real release notes from CHANGELOG.md."
+            )
+        ),
+        ReleaseItem(
+            version = "v5.1.0",
+            tag = "Previous Release",
+            isLatest = false,
+            changes = listOf(
+                "Centralized Model Hub: Unified model selection, format auto-detection, and engine switching into a single dedicated route.",
+                "Internal Model Storage Isolation: Migrated models exclusively into app-private internal storage (filesDir/models) to prevent Android 14+ SELinux crashes.",
+                "On-Demand Engine Controls: Immediate Start/Stop controls in top navigation bar and Model Hub to unload weights from VRAM/RAM on demand.",
+                "Rolling 1MB Disk Logger: Robust diagnostic log buffering surviving process death and restoring on launch."
+            )
+        ),
+        ReleaseItem(
+            version = "v5.0.0",
+            tag = "Major Release (v5)",
+            isLatest = false,
+            changes = listOf(
+                "Event-Sourced Agentic Engine: Autonomous agent missions powered by SQLite WAL event store and reactive Compose projections.",
+                "Autonomous Daemon Service: Background AgentDaemonService with partial wake locks surviving process backgrounding.",
+                "Session Inbox Steering: Real-time steer directives (STEER, QUEUE, ABORT) allowing user steering mid-task without aborting.",
+                "Mobile CodeMode Sandbox: Sandboxed WebView executing batched multi-tool JavaScript operations in a single LLM turn."
+            )
+        ),
+        ReleaseItem(
+            version = "v4.8.0",
+            tag = "Recent Release",
+            isLatest = false,
+            changes = listOf(
+                "DeepSearch Coordinator: Multi-hop web search and synthesis with human-in-the-loop clarification chips.",
+                "Persistent Cloud API Presets: Per-preset storage of API keys and endpoint configurations preserving tokens across switches."
+            )
+        ),
+        ReleaseItem(
+            version = "v4.5.0",
+            tag = "Recent Release",
+            isLatest = false,
+            changes = listOf(
+                "Pure Code-as-Action Standardization: Eradicated legacy JSON prompting in favor of pure Code-as-Action syntax (click_text, type_text, open_app, done), saving 60% token overhead on on-device SLMs."
+            )
+        ),
+        ReleaseItem(
+            version = "v2.4.0",
+            tag = "Previous Release",
+            isLatest = false,
             changes = listOf(
                 "Native Flight Breadcrumbs: Detects native C++ / GPU driver crashes (SIGSEGV/Vulkan OOM) and records persistent crash reports across app restarts.",
                 "Persistent Crash Recording & Export: Stores structured crash logs on disk with 10-crash rolling window and stack trace explorer in Dev Logs.",

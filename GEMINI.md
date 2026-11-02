@@ -8,6 +8,7 @@
 > **Primary Rule 3 (Architectural Contracts)**: Read and strictly adhere to these architectural contracts before proposing or implementing changes.
 > **Primary Rule 4 (Strict 500-Line Limit & Modular Architecture)**: Every source file (`.kt`) in the project must strictly stay **under 500 lines of code**. Monolithic files are strictly forbidden. Any file approaching 500 lines must be decomposed into dedicated sub-components, repository delegates, or state handlers.
 > **Primary Rule 5 (Strict Responsive UI & Anti-Squish Contract)**: All UI layouts, action rows, button clusters, and status cards MUST be fully responsive and tested against narrow mobile viewports (~360dp). Never constrain action buttons with hardcoded fractional widths (e.g. `fillMaxWidth(0.48f)`) inside horizontal rows or `FlowRow`. Always allow buttons to jump lanes (`FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp))` or full-width `Column`) rather than compressing or squishing text into vertical character columns. Do not place horizontal `Spacer` inside `FlowRow`; rely on `Arrangement.spacedBy(...)`.
+> **Primary Rule 6 (Mandatory Version Bumping, Release Notes & CHANGELOG Maintenance)**: Every time you complete a feature, refactor, or fix that bumps the application version, you MUST write a proper, detailed, structured release note in `CHANGELOG.md` under `## [X.Y.Z] - YYYY-MM-DD` and synchronize `VersionHistoryScreen.kt`. Never leave release notes blank, generic ("Bug fixes and improvements"), or copy-pasted with obsolete descriptions. The in-app update system and GitHub Releases automatically parse and display `CHANGELOG.md` notes to real users; stale or inaccurate release notes are strictly forbidden.
 
 ---
 
@@ -159,15 +160,31 @@ flowchart TD
 
 ## 5. Version Bumping & Release Lifecycle
 
-Whenever you finish adding a feature, refactoring, or fixing a bug, you **MUST increment the application version**:
+Whenever you finish adding a feature, refactoring, or fixing a bug, you **MUST increment the application version and document the changes**:
 1. **`android-app/app/build.gradle.kts`**:
    - Increment `versionCode` by +1 (`versionCode = N + 1`).
-   - Update fallback `appVersionName` (e.g. `1.1.0`).
+   - Update fallback `appVersionName` (e.g. `5.2.0`).
 2. **`.github/workflows/release.yml`**:
-   - Update `VERSION` in `tag_version` step.
-3. Commit and push:
+   - Update `VERSION` in `tag_version` step (`VERSION="5.2.0"`).
+3. **`CHANGELOG.md` (Single Source of Truth for Releases)**:
+   - Add a new section at the top of `CHANGELOG.md` formatted as:
+     ```markdown
+     ## [X.Y.Z] - YYYY-MM-DD
+     ### Added
+     - Specific, user-facing and technical feature descriptions
+     ### Changed
+     - Architectural updates, refactors, and optimizations
+     ### Fixed
+     - Bug fixes, crash mitigations, and stability enhancements
+     ```
+   - GitHub Actions dynamically extracts this section via `body_path` and publishes it as the GitHub Release notes.
+4. **`android-app/app/src/main/java/com/textmorph/app/ui/about/VersionHistoryScreen.kt`**:
+   - Add the new version as the latest `ReleaseItem` with bullet points matching the changelog.
+   - Ensure the file remains strictly `< 500 lines`.
+5. Commit and push:
    ```bash
    git add -A
    git commit -m "Bump version to X.Y.Z: ..."
    git push origin main
    ```
+
