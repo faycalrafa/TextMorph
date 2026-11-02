@@ -125,6 +125,8 @@ fun MainAppScaffold(
     val isLocalEngineLoaded = if (isLlamaActive) llamaSession.isLoaded else liteRtSession.isLoaded
     val isLocalEngineLoading = if (isLlamaActive) llamaLoading.isLoading else liteRtLoading.isLoading
     val isModelSelected = curSettings.activeModelName.isNotBlank() || isLocalEngineLoaded
+    val activationCoordinator = remember { com.textmorph.app.llm.EngineActivationCoordinator.getInstance(context) }
+    val pendingBenchmarkPrompt by activationCoordinator.pendingBenchmarkPrompt.collectAsState()
 
     var currentDestination by remember { mutableStateOf(AppDestination.CHAT) }
 
@@ -249,9 +251,25 @@ fun MainAppScaffold(
                 onNavigateBack = { currentDestination = AppDestination.MODEL_HUB }
             )
         } else if (currentDestination == AppDestination.BENCHMARK) {
-            val activeEngine = if (isLlamaActive) llamaCppEngine else liteRtEngine
-            val activeModelName = if (isLlamaActive) llamaSession.modelName else liteRtSession.modelName
-            val activeBackend = if (isLlamaActive) llamaSession.backend else liteRtSession.backend
+            val activeEngine = when (curSettings.selectedEngine) {
+                EngineType.CLOUD_OPENAI -> remember(curSettings.cloudBaseUrl, curSettings.cloudApiKey, curSettings.cloudModelId) {
+                    com.textmorph.app.llm.OpenAiCloudEngine().apply {
+                        updateConfig(curSettings.cloudBaseUrl, curSettings.cloudApiKey, curSettings.cloudModelId)
+                    }
+                }
+                EngineType.ON_DEVICE_LLAMA_CPP -> llamaCppEngine
+                EngineType.ON_DEVICE_LITERT -> liteRtEngine
+            }
+            val activeModelName = when (curSettings.selectedEngine) {
+                EngineType.CLOUD_OPENAI -> "Cloud: ${curSettings.cloudModelId}"
+                EngineType.ON_DEVICE_LLAMA_CPP -> llamaSession.modelName.ifBlank { curSettings.activeModelName }
+                EngineType.ON_DEVICE_LITERT -> liteRtSession.modelName.ifBlank { curSettings.activeModelName }
+            }
+            val activeBackend = when (curSettings.selectedEngine) {
+                EngineType.CLOUD_OPENAI -> "OpenAI-Compatible Cloud"
+                EngineType.ON_DEVICE_LLAMA_CPP -> llamaSession.backend
+                EngineType.ON_DEVICE_LITERT -> liteRtSession.backend
+            }
 
             com.textmorph.app.ui.modelhub.AgenticReadinessScreen(
                 engine = activeEngine,
@@ -461,7 +479,15 @@ fun MainAppScaffold(
             },
             onDownloadStateChanged = { downloadState = it },
             showAiConfigDialog = showAiConfigDialog,
-            onDismissAiConfigDialog = { showAiConfigDialog = false }
+            onDismissAiConfigDialog = { showAiConfigDialog = false },
+            pendingBenchmarkPrompt = pendingBenchmarkPrompt,
+            onConfirmBenchmark = {
+                activationCoordinator.clearPendingBenchmarkPrompt()
+                currentDestination = AppDestination.BENCHMARK
+            },
+            onDismissBenchmarkPrompt = {
+                activationCoordinator.clearPendingBenchmarkPrompt()
+            }
         )
     }
 }

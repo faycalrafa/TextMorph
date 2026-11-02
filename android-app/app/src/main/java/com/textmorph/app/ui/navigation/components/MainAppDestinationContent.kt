@@ -128,7 +128,8 @@ fun MainAppDestinationContent(
                 chatRepository = chatRepository,
                 onNavigateToModelHub = { onSelectDestination(AppDestination.MODEL_HUB) },
                 onOpenDrawer = onOpenDrawer,
-                onOpenAccessibilityDisclosure = onOpenAccessibilityDisclosure
+                onOpenAccessibilityDisclosure = onOpenAccessibilityDisclosure,
+                onNavigateToBenchmark = { onSelectDestination(AppDestination.BENCHMARK) }
             )
         }
 

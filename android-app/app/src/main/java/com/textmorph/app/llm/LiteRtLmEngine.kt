@@ -202,7 +202,7 @@ class LiteRtLmEngine(private val context: Context) : LlmEngine {
         _sessionState.value = ModelSessionState(
             isLoaded = false,
             modelName = currentModelName,
-            backend = "Standby (Simulated)"
+            backend = "None"
         )
     }
 
@@ -432,16 +432,8 @@ class LiteRtLmEngine(private val context: Context) : LlmEngine {
                     NativeFlightRecorder.recordFlightEnd(context)
                 }
             } else {
-                AppLogger.d(TAG, "No native model session active. Generating simulated standby response.")
-                LiteRtLmSessionDelegate.streamStandbyFallback(
-                    scope = this,
-                    prompt = prompt,
-                    instruction = cleanInstruction,
-                    hasImage = imageBytes != null,
-                    startTime = startTime,
-                    currentModelName = currentModelName,
-                    onMetricsUpdated = onMetricsUpdated
-                )
+                AppLogger.w(TAG, "No native model session active. Inference rejected.")
+                trySend("[Error: No LiteRT-LM model is loaded into memory. Please load a valid .litertlm model in Model Hub.]")
             }
         }
     }.flowOn(Dispatchers.IO)

@@ -4,8 +4,8 @@ data class ModelSessionState(
     val isLoaded: Boolean = false,
     val modelName: String = "No Model Loaded",
     val modelPath: String? = null,
-    val backend: String = "Standby (Simulated)",
-    val isVisionCapable: Boolean = true
+    val backend: String = "None",
+    val isVisionCapable: Boolean = false
 )
 
 data class ModelLoadingProgress(

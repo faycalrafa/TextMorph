@@ -15,6 +15,22 @@ data class ScenarioTelemetry(
 )
 
 /**
+ * Result of evaluating an individual sub-test within a benchmark scenario.
+ */
+@Serializable
+data class SubTestResult(
+    val id: String,
+    val title: String,
+    val prompt: String,
+    val rawResponse: String,
+    val passed: Boolean,
+    val pointsAwarded: Int,
+    val maxPoints: Int,
+    val explanation: String,
+    val durationMs: Long = 0
+)
+
+/**
  * Result of evaluating an individual scenario in the Agentic Readiness Suite.
  */
 @Serializable
@@ -25,7 +41,8 @@ data class ScenarioResult(
     val maxScore: Int,
     val passed: Boolean,
     val details: String,
-    val telemetry: ScenarioTelemetry? = null
+    val telemetry: ScenarioTelemetry? = null,
+    val subTests: List<SubTestResult> = emptyList()
 )
 
 /**
@@ -92,7 +109,11 @@ data class ReadinessProgressState(
     val currentScenarioIndex: Int = 0,
     val totalScenarios: Int = 5,
     val currentScenarioName: String = "",
+    val currentSubTestTitle: String = "",
+    val currentSubTestPrompt: String = "",
+    val liveResponseChunk: String = "",
     val partialScore: Int = 0,
+    val completedSubTests: List<SubTestResult> = emptyList(),
     val completedReport: AgenticReadinessReport? = null,
     val errorMessage: String? = null
 )

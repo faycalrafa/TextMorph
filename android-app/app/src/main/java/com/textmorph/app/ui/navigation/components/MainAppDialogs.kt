@@ -8,6 +8,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.material.icons.filled.Speed
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.textmorph.app.data.model.PromptEntity
 import com.textmorph.app.data.repository.AppReleaseInfo
 import com.textmorph.app.data.repository.DownloadState
@@ -46,9 +49,59 @@ fun MainAppDialogs(
     onDismissUpdateDialog: () -> Unit,
     onDownloadStateChanged: (DownloadState?) -> Unit,
     showAiConfigDialog: Boolean = false,
-    onDismissAiConfigDialog: () -> Unit = {}
+    onDismissAiConfigDialog: () -> Unit = {},
+    pendingBenchmarkPrompt: com.textmorph.app.llm.ModelActivationEvent? = null,
+    onConfirmBenchmark: () -> Unit = {},
+    onDismissBenchmarkPrompt: () -> Unit = {}
 ) {
     val settings by settingsRepository.settingsState.collectAsState(initial = settingsRepository.settingsState.value)
+
+    pendingBenchmarkPrompt?.let { event ->
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = onDismissBenchmarkPrompt,
+            icon = {
+                androidx.compose.material3.Icon(
+                    imageVector = androidx.compose.material.icons.Icons.Default.Speed,
+                    contentDescription = null,
+                    tint = androidx.compose.ui.graphics.Color(0xFF3B82F6)
+                )
+            },
+            title = {
+                androidx.compose.material3.Text(
+                    text = "Benchmark Model?",
+                    color = androidx.compose.ui.graphics.Color(0xFFF9FAFB),
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                )
+            },
+            text = {
+                androidx.compose.material3.Text(
+                    text = "You just loaded \"${event.modelName}\" (${event.backend}).\n\nWould you like to run the Agentic Readiness Suite to benchmark its tool-calling accuracy, schema strictness, and latency?",
+                    color = androidx.compose.ui.graphics.Color(0xFFD1D5DB),
+                    fontSize = 13.5.sp
+                )
+            },
+            confirmButton = {
+                androidx.compose.material3.Button(
+                    onClick = onConfirmBenchmark,
+                    colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                        containerColor = androidx.compose.ui.graphics.Color(0xFF3B82F6)
+                    )
+                ) {
+                    androidx.compose.material3.Text("Benchmark Now")
+                }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(onClick = onDismissBenchmarkPrompt) {
+                    androidx.compose.material3.Text(
+                        "Maybe Later",
+                        color = androidx.compose.ui.graphics.Color(0xFF9CA3AF)
+                    )
+                }
+            },
+            containerColor = androidx.compose.ui.graphics.Color(0xFF111827),
+            shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
+        )
+    }
 
     if (showAiConfigDialog) {
         com.textmorph.app.ui.modelhub.components.AiModelConfigDialog(

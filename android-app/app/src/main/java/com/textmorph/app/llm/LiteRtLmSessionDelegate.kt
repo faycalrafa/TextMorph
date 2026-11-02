@@ -365,61 +365,6 @@ object LiteRtLmSessionDelegate {
         }
     }
 
-    suspend fun streamStandbyFallback(
-        scope: ProducerScope<String>,
-        prompt: String,
-        instruction: String,
-        hasImage: Boolean,
-        startTime: Long,
-        currentModelName: String,
-        onMetricsUpdated: ((InferenceMetrics) -> Unit)?
-    ) {
-        val fullText = generateStandbyResponse(prompt, instruction, hasImage)
-        val words = fullText.split(" ")
-        var firstTokenTime: Long? = null
-        var tokenCount = 0
-
-        for ((index, word) in words.withIndex()) {
-            val now = System.currentTimeMillis()
-            if (firstTokenTime == null) {
-                firstTokenTime = now
-            }
-            val ftTime = firstTokenTime
-            val space = if (index < words.size - 1) "$word " else word
-            tokenCount++
-            scope.send(space)
-
-            val ttft = ftTime - startTime
-            val elapsed = (now - ftTime).coerceAtLeast(1L)
-            val speed = if (tokenCount > 1) (tokenCount - 1) / (elapsed / 1000f) else 25f
-
-            onMetricsUpdated?.invoke(
-                InferenceMetrics(
-                    timeToFirstTokenMs = ttft,
-                    totalDurationMs = now - startTime,
-                    tokenCount = tokenCount,
-                    tokensPerSecond = speed,
-                    activeBackend = "Standby (Simulated)",
-                    modelName = currentModelName
-                )
-            )
-            delay(16)
-        }
-
-        val totalMs = System.currentTimeMillis() - startTime
-        val ftFinal = firstTokenTime ?: startTime
-        onMetricsUpdated?.invoke(
-            InferenceMetrics(
-                timeToFirstTokenMs = ftFinal - startTime,
-                totalDurationMs = totalMs,
-                tokenCount = tokenCount,
-                tokensPerSecond = if (totalMs > 0) (tokenCount / (totalMs / 1000f)) else 25f,
-                activeBackend = "Standby (Simulated)",
-                modelName = currentModelName
-            )
-        )
-    }
-
     fun sanitizeControlTokens(text: String): String {
         var clean = text
         clean = clean.replace("<end_of_turn>", "")
@@ -436,31 +381,5 @@ object LiteRtLmSessionDelegate {
         clean = sanitizeControlTokens(clean)
         return clean
     }
-
-    fun generateStandbyResponse(prompt: String, system: String, hasImage: Boolean): String {
-        return when {
-            system.contains("writing assistant", ignoreCase = true) || system.contains("Execute", ignoreCase = true) -> {
-                when {
-                    prompt.contains("translate to french", ignoreCase = true) -> "Bonjour, comment allez-vous ?"
-                    prompt.contains("translate to spanish", ignoreCase = true) -> "Hola, ¿cómo estás?"
-                    prompt.contains("summarize", ignoreCase = true) -> prompt.split(" ").take(8).joinToString(" ") + "..."
-                    prompt.contains("professional", ignoreCase = true) -> "I would like to articulate that: " + prompt.replace(Regex("(?i)rewrite(:)?|professional(:)?"), "").trim()
-                    prompt.contains("fix", ignoreCase = true) -> prompt.replace(Regex("(?i)fix(:)?|grammar(:)?"), "").trim().replaceFirstChar { it.uppercase() } + "."
-                    else -> prompt.replace(Regex("(?i)execute(:)?|please(:)?"), "").trim()
-                }
-            }
-            system.contains("Fix Grammar", ignoreCase = true) ->
-                prompt.trim().replaceFirstChar { it.uppercase() } + (if (!prompt.endsWith(".")) "." else "")
-            system.contains("Make Concise", ignoreCase = true) ->
-                "Concise summary: ${prompt.take(60)}..."
-            system.contains("Professional Tone", ignoreCase = true) ->
-                "Thank you for sharing your thoughts. In regard to your message: \"${prompt.trim()}\", we appreciate your insights and will follow up accordingly."
-            system.contains("Casual Tone", ignoreCase = true) ->
-                "Hey there! Looks great: ${prompt.trim()} 🙌"
-            hasImage ->
-                "Visual analysis: The image depicts an on-screen view with clear textual content and structured layout."
-            else ->
-                "Note: No local model weights loaded. You can select and load a .litertlm model in Model Hub.\n\nInput received: \"${prompt.trim()}\""
-        }
-    }
 }
+

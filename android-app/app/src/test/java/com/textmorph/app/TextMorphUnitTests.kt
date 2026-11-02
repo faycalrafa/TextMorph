@@ -128,7 +128,7 @@ class TextMorphUnitTests {
         val defaultSession = ModelSessionState()
         assertFalse(defaultSession.isLoaded)
         assertEquals("No Model Loaded", defaultSession.modelName)
-        assertEquals("Standby (Simulated)", defaultSession.backend)
+        assertEquals("None", defaultSession.backend)
 
         val defaultProgress = ModelLoadingProgress()
         assertFalse(defaultProgress.isLoading)

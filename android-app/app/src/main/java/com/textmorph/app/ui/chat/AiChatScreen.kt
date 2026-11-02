@@ -64,7 +64,8 @@ fun AiChatContent(
     chatRepository: ChatSessionRepository = ChatSessionRepository.getInstance(LocalContext.current),
     onNavigateToModelHub: () -> Unit,
     onOpenDrawer: () -> Unit = {},
-    onOpenAccessibilityDisclosure: () -> Unit = {}
+    onOpenAccessibilityDisclosure: () -> Unit = {},
+    onNavigateToBenchmark: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -276,6 +277,10 @@ fun AiChatContent(
         val isLocalEngineLoaded = if (isLlamaActive) llamaSessionState.isLoaded else liteRtSessionState.isLoaded
         val isLocalEngineLoading = if (isLlamaActive) llamaLoadingProgress.isLoading else liteRtLoadingProgress.isLoading
 
+        val benchmarkRepository = remember { com.textmorph.app.agent.benchmark.BenchmarkRepository.getInstance(context) }
+        val benchmarkReports by benchmarkRepository.reportsState.collectAsState()
+        val activeModelScore = remember(activeModelName, benchmarkReports) { benchmarkRepository.getScore(activeModelName) }
+
         AiChatTopBar(
             activeModelName = activeModelName,
             contextMetrics = contextMetrics,
@@ -285,6 +290,8 @@ fun AiChatContent(
             isLocalEngine = isLocalEngine,
             isLocalEngineLoaded = isLocalEngineLoaded,
             isLocalEngineLoading = isLocalEngineLoading,
+            activeModelScore = activeModelScore,
+            onNavigateToBenchmark = onNavigateToBenchmark,
             onToggleEngine = {
                 scope.launch {
                     val coordinator = EngineActivationCoordinator.getInstance(context)

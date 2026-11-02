@@ -127,4 +127,98 @@ class AgenticReadinessSuiteUnitTests {
         assertFalse(s1.passed)
         assertTrue(s1.details.contains("hammer syndrome"))
     }
+
+    @Test
+    fun testSubTestResultsAndLiveProgressCaptured() = runBlocking {
+        val recordedSubTestTitles = mutableListOf<String>()
+        val mockEngine = object : LlmEngine {
+            override suspend fun initialize(modelPath: String?) = true
+            override fun isLoaded() = true
+            override suspend fun unload() {}
+            override fun generateStream(prompt: String, systemInstruction: String?, imageBytes: ByteArray?) =
+                listOf("Telemetry ", "tokens ").asFlow()
+            override suspend fun generate(prompt: String, systemInstruction: String?, imageBytes: ByteArray?): String {
+                return when {
+                    prompt.contains("quarterly earnings") -> "search_web(query=\"Apple\")"
+                    prompt.contains("Hello!") -> "Hello there!"
+                    prompt.contains("Android 15 features") -> "search_web(query=\"Android 15\")"
+                    prompt.contains("prior call failed") -> "search_web(query=\"Android 15 features\")"
+                    prompt.contains("Perseverance") -> "February 18, 2021"
+                    prompt.contains("Quantum Supremacy") -> "1. Overview: Foundations\n2. Hardware: Qubits\n3. Future: Outlook"
+                    else -> "Output"
+                }
+            }
+        }
+
+        val report = AgenticReadinessSuite.runReadinessSuite(
+            engine = mockEngine,
+            modelName = "test-model",
+            backend = "CPU",
+            onProgress = { state ->
+                if (state.currentSubTestTitle.isNotBlank() && !recordedSubTestTitles.contains(state.currentSubTestTitle)) {
+                    recordedSubTestTitles.add(state.currentSubTestTitle)
+                }
+            }
+        )
+
+        // Verify sub-tests were recorded in scenario results
+        assertTrue(report.scenarioResults.all { it.subTests.isNotEmpty() })
+        val s1 = report.scenarioResults.first { it.scenarioId == "scenario_1" }
+        assertEquals(2, s1.subTests.size)
+        assertEquals("Sub-Test 1.1: Tool Picking (Actionable Query)", s1.subTests[0].title)
+        assertTrue(s1.subTests[0].rawResponse.contains("search_web"))
+
+        // Verify live progress callback reported sub-tests
+        assertTrue("Expected live sub-test titles, got: $recordedSubTestTitles", recordedSubTestTitles.isNotEmpty())
+    }
+
+    @Test
+    fun testEchoedPlaceholdersDisqualifiedInScenario4() = runBlocking {
+        val mockEchoEngine = object : LlmEngine {
+            override suspend fun initialize(modelPath: String?) = true
+            override fun isLoaded() = true
+            override suspend fun unload() {}
+            override fun generateStream(prompt: String, systemInstruction: String?, imageBytes: ByteArray?) =
+                listOf("Token").asFlow()
+            override suspend fun generate(prompt: String, systemInstruction: String?, imageBytes: ByteArray?): String {
+                // Echoes literal placeholder template
+                return """
+                    1. [Section Title] - [Focus]
+                    2. [Section Title] - [Focus]
+                    3. [Section Title] - [Focus]
+                """.trimIndent()
+            }
+        }
+
+        val report = AgenticReadinessSuite.runReadinessSuite(
+            engine = mockEchoEngine,
+            modelName = "echo-model",
+            backend = "CPU",
+            onProgress = {}
+        )
+
+        val s4 = report.scenarioResults.first { it.scenarioId == "scenario_4" }
+        assertEquals(0, s4.score)
+        assertFalse(s4.passed)
+        assertTrue(s4.details.contains("template placeholders") || s4.details.contains("Echoed"))
+    }
+
+    @Test(expected = IllegalStateException::class)
+    fun testUnloadedEngineRejectedWithException() = runBlocking {
+        val unloadedEngine = object : LlmEngine {
+            override suspend fun initialize(modelPath: String?) = false
+            override fun isLoaded() = false
+            override suspend fun unload() {}
+            override fun generateStream(prompt: String, systemInstruction: String?, imageBytes: ByteArray?) = listOf<String>().asFlow()
+            override suspend fun generate(prompt: String, systemInstruction: String?, imageBytes: ByteArray?) = ""
+        }
+
+        AgenticReadinessSuite.runReadinessSuite(
+            engine = unloadedEngine,
+            modelName = "unloaded-model",
+            backend = "None",
+            onProgress = {}
+        )
+        Unit
+    }
 }

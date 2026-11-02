@@ -42,14 +42,16 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.textmorph.app.data.model.ContextUsageMetrics
 
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.CircularProgressIndicator
 
 /**
  * Charcoal Slate top app bar for the AI Chat playground:
  * - Hamburger menu drawer toggle
- * - Interactive model quick-switcher pill
+ * - Interactive model quick-switcher pill with circular benchmark score badge
  * - Local engine Start / Stop toggle
  * - Compact context capacity ring gauge
  * - (+) New chat button
@@ -71,6 +73,8 @@ fun AiChatTopBar(
     isLocalEngineLoaded: Boolean = false,
     isLocalEngineLoading: Boolean = false,
     onToggleEngine: () -> Unit = {},
+    activeModelScore: Int? = null,
+    onNavigateToBenchmark: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var showMenu by remember { mutableStateOf(false) }
@@ -98,28 +102,66 @@ fun AiChatTopBar(
                 // Quick Model Switcher Pill
                 Row(
                     modifier = Modifier
+                        .weight(1f, fill = false)
                         .clip(RoundedCornerShape(8.dp))
                         .background(Color(0xFF1F2937))
                         .border(1.dp, Color(0xFF374151), RoundedCornerShape(8.dp))
                         .clickable(onClick = onOpenModelSwitch)
-                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                        .padding(horizontal = 8.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
                         Icons.Default.Tune,
                         contentDescription = null,
                         tint = Color(0xFF3B82F6),
-                        modifier = Modifier.size(16.dp)
+                        modifier = Modifier.size(15.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = activeModelName,
                         color = Color(0xFFF9FAFB),
-                        fontSize = 12.5.sp,
+                        fontSize = 12.sp,
                         fontWeight = FontWeight.Medium,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
                     )
+                    Spacer(modifier = Modifier.width(6.dp))
+
+                    // Small Circular Score Badge (takes space from model name)
+                    val badgeColor = when {
+                        activeModelScore == null -> Color(0xFF4B5563)
+                        activeModelScore >= 85 -> Color(0xFF10B981)
+                        activeModelScore >= 65 -> Color(0xFF3B82F6)
+                        activeModelScore >= 45 -> Color(0xFFF59E0B)
+                        else -> Color(0xFFEF4444)
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .size(20.dp)
+                            .clip(CircleShape)
+                            .background(badgeColor.copy(alpha = if (activeModelScore != null) 0.2f else 0.15f))
+                            .border(1.dp, badgeColor, CircleShape)
+                            .clickable(onClick = onNavigateToBenchmark),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (activeModelScore != null) {
+                            Text(
+                                text = "$activeModelScore",
+                                color = badgeColor,
+                                fontSize = 9.5.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        } else {
+                            Icon(
+                                Icons.Default.Speed,
+                                contentDescription = "Benchmark Untested",
+                                tint = Color(0xFF9CA3AF),
+                                modifier = Modifier.size(11.dp)
+                            )
+                        }
+                    }
                 }
 
                 // Local Engine Start / Stop Control Button in Navbar

@@ -215,25 +215,32 @@ class LlamaCppEngine(private val context: Context) : LlmEngine {
                 }
 
                 if (!success) {
-                    // Responsive Standby / Testing Mode
                     val elapsed = System.currentTimeMillis() - startTime
-                    activeBackend = "llama.cpp (Standby/Simulated)"
-                    isSessionActive = true
-                    addProgressLog("llama.cpp engine active in $activeBackend mode (${elapsed}ms).", 1.0f, "Model Ready")
+                    activeBackend = "Failed"
+                    isSessionActive = false
+                    addProgressLog("[ERROR] Failed to initialize native llama.cpp context (${elapsed}ms).", 1.0f, "Load Failed")
+                    _loadingProgress.update { it.copy(isLoading = false, success = false, error = "Failed to initialize native llama.cpp context") }
+                    _sessionState.value = ModelSessionState(
+                        isLoaded = false,
+                        modelName = currentModelName,
+                        modelPath = currentModelPath,
+                        backend = "Failed",
+                        isVisionCapable = false
+                    )
+                    return@withContext false
                 } else {
                     val elapsed = System.currentTimeMillis() - startTime
                     addProgressLog("llama.cpp session active on $activeBackend in ${elapsed}ms!", 1.0f, "Model Ready")
+                    _loadingProgress.update { it.copy(isLoading = false, success = true, error = null) }
+                    _sessionState.value = ModelSessionState(
+                        isLoaded = true,
+                        modelName = currentModelName,
+                        modelPath = currentModelPath,
+                        backend = activeBackend,
+                        isVisionCapable = isModelVisionCapable
+                    )
+                    return@withContext true
                 }
-
-                _loadingProgress.update { it.copy(isLoading = false, success = true, error = null) }
-                _sessionState.value = ModelSessionState(
-                    isLoaded = true,
-                    modelName = currentModelName,
-                    modelPath = currentModelPath,
-                    backend = activeBackend,
-                    isVisionCapable = isModelVisionCapable
-                )
-                true
             } catch (e: Exception) {
                 AppLogger.e(TAG, "Failed initializing llama.cpp model: ${e.message}", e)
                 addProgressLog("[ERROR] Initialization failed: ${e.message}")
@@ -319,7 +326,7 @@ class LlamaCppEngine(private val context: Context) : LlmEngine {
                     throw cancelEx
                 } catch (nativeEx: Throwable) {
                     AppLogger.e(TAG, "Native llama.cpp generation error: ${nativeEx.message}", nativeEx)
-                    streamStandbyFallback(prompt, systemInstruction, imageBytes).collect { send(it) }
+                    send("\n[llama.cpp Native Error: ${nativeEx.message ?: "Generation failure"}]")
                 } finally {
                     try { ctx.setTokenCallback { } } catch (tokenCbEx: Throwable) { AppLogger.d(TAG, "Clear token callback: ${tokenCbEx.message}") }
                     imageFds.forEach { fd -> LlamaCppFileResolver.safelyCloseDetachedFd(fd) }
@@ -328,47 +335,11 @@ class LlamaCppEngine(private val context: Context) : LlmEngine {
                     NativeFlightRecorder.recordFlightEnd(context)
                 }
             } else {
-                streamStandbyFallback(prompt, systemInstruction, imageBytes).collect { send(it) }
+                AppLogger.w(TAG, "No native model session active. Inference rejected.")
+                send("[Error: No llama.cpp model is loaded into memory. Please load a valid .gguf model in Model Hub.]")
             }
         }
     }.flowOn(Dispatchers.IO)
-
-    private fun streamStandbyFallback(
-        prompt: String,
-        systemInstruction: String?,
-        imageBytes: ByteArray?
-    ): Flow<String> = channelFlow {
-        val cleanPrompt = prompt.trim()
-        val instruction = systemInstruction?.trim().orEmpty()
-
-        val responseText = when {
-            imageBytes != null && isModelVisionCapable -> {
-                "The image provided has been processed via the attached multimodal projector (${File(currentMmprojPath ?: "mmproj").name}). Visual elements and text are extracted accurately."
-            }
-            imageBytes != null && !isModelVisionCapable -> {
-                "Notice: Image provided without an active mmproj vision extension. Processing text prompt:\n\n$cleanPrompt"
-            }
-            instruction.contains("grammar", ignoreCase = true) || cleanPrompt.contains("grammar", ignoreCase = true) -> {
-                cleanPrompt.replace(Regex("\\b(teh)\\b", RegexOption.IGNORE_CASE), "the")
-                    .replace(Regex("\\b(dont)\\b", RegexOption.IGNORE_CASE), "don't")
-            }
-            instruction.contains("concise", ignoreCase = true) -> {
-                cleanPrompt.lines().firstOrNull() ?: cleanPrompt
-            }
-            instruction.contains("polite", ignoreCase = true) || instruction.contains("enthusiastic", ignoreCase = true) -> {
-                "Sounds wonderful! Looking forward to it."
-            }
-            else -> {
-                "Executed request via llama.cpp: $cleanPrompt"
-            }
-        }
-
-        val tokens = responseText.split(Regex("(?<=\\s)|(?<=\\p{Punct})"))
-        for (token in tokens) {
-            delay(15L)
-            send(token)
-        }
-    }
 
     fun generateStreamWithMetrics(
         prompt: String,
@@ -451,7 +422,7 @@ class LlamaCppEngine(private val context: Context) : LlmEngine {
             isLoaded = false,
             modelName = "No Model Loaded",
             modelPath = null,
-            backend = "Standby (Simulated)",
+            backend = "None",
             isVisionCapable = false
         )
         _loadingProgress.value = ModelLoadingProgress()

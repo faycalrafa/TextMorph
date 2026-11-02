@@ -15,7 +15,17 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import java.io.File
+
+data class ModelActivationEvent(
+    val modelName: String,
+    val engineType: EngineType,
+    val backend: String,
+    val timestamp: Long = System.currentTimeMillis()
+)
 
 /**
  * Centralized coordinator managing clean engine activations across the application.
@@ -31,6 +41,13 @@ class EngineActivationCoordinator private constructor(private val appContext: Co
     private var activeLoadingJob: Job? = null
 
     private val settingsRepository = SettingsRepository.getInstance(appContext)
+
+    private val _pendingBenchmarkPrompt = MutableStateFlow<ModelActivationEvent?>(null)
+    val pendingBenchmarkPrompt: StateFlow<ModelActivationEvent?> = _pendingBenchmarkPrompt.asStateFlow()
+
+    fun clearPendingBenchmarkPrompt() {
+        _pendingBenchmarkPrompt.value = null
+    }
 
     /**
      * Halts any ongoing loading, unloads all existing engine sessions,
@@ -106,6 +123,11 @@ class EngineActivationCoordinator private constructor(private val appContext: Co
                         }
                         settingsRepository.setEngine(EngineType.CLOUD_OPENAI)
                         settingsRepository.setActiveModel("No Model Loaded", null, null, EngineType.CLOUD_OPENAI)
+                        _pendingBenchmarkPrompt.value = ModelActivationEvent(
+                            modelName = "Cloud: $effectiveModel",
+                            engineType = EngineType.CLOUD_OPENAI,
+                            backend = "OpenAI-Compatible Cloud"
+                        )
                         AppLogger.i(TAG, "Cloud API activated successfully: url=$effectiveUrl, model=$effectiveModel")
                         Result.success(Unit)
                     }
@@ -130,13 +152,20 @@ class EngineActivationCoordinator private constructor(private val appContext: Co
 
                         activeLoadingJob = activationScope.launch {
                             try {
-                                liteRt.initialize(
+                                val success = liteRt.initialize(
                                     modelPath = targetModel.path,
                                     modelName = targetModel.name,
                                     modelUri = uri,
                                     preferredAccelerator = settings.preferredAccelerator,
                                     probeTimeoutMs = settings.probeTimeoutMs
                                 )
+                                if (success) {
+                                    _pendingBenchmarkPrompt.value = ModelActivationEvent(
+                                        modelName = targetModel.name,
+                                        engineType = EngineType.ON_DEVICE_LITERT,
+                                        backend = "LiteRT-LM"
+                                    )
+                                }
                             } catch (t: Throwable) {
                                 AppLogger.e(TAG, "LiteRT engine initialization failed: ${t.message}", t)
                             }
@@ -168,7 +197,7 @@ class EngineActivationCoordinator private constructor(private val appContext: Co
 
                         activeLoadingJob = activationScope.launch {
                             try {
-                                llama.initialize(
+                                val success = llama.initialize(
                                     modelPath = targetModel.path,
                                     modelName = targetModel.name,
                                     modelUri = uri,
@@ -177,6 +206,13 @@ class EngineActivationCoordinator private constructor(private val appContext: Co
                                     preferredAccelerator = settings.preferredAccelerator,
                                     probeTimeoutMs = settings.probeTimeoutMs
                                 )
+                                if (success) {
+                                    _pendingBenchmarkPrompt.value = ModelActivationEvent(
+                                        modelName = targetModel.name,
+                                        engineType = EngineType.ON_DEVICE_LLAMA_CPP,
+                                        backend = "llama.cpp"
+                                    )
+                                }
                             } catch (t: Throwable) {
                                 AppLogger.e(TAG, "llama.cpp engine initialization failed: ${t.message}", t)
                             }

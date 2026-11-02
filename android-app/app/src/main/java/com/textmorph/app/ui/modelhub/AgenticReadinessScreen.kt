@@ -1,9 +1,11 @@
 package com.textmorph.app.ui.modelhub
 
 import android.content.Context
+import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,6 +26,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Speed
@@ -63,10 +68,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.textmorph.app.agent.benchmark.AgenticReadinessReport
 import com.textmorph.app.agent.benchmark.AgenticReadinessSuite
+import com.textmorph.app.agent.benchmark.BenchmarkRepository
 import com.textmorph.app.agent.benchmark.ReadinessProgressState
 import com.textmorph.app.agent.benchmark.ReadinessTier
 import com.textmorph.app.agent.benchmark.ScenarioResult
+import com.textmorph.app.agent.benchmark.SubTestResult
 import com.textmorph.app.llm.LlmEngine
+import com.textmorph.app.ui.modelhub.components.ReadinessReportView
+import com.textmorph.app.ui.modelhub.components.formatReportMarkdown
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
@@ -75,6 +84,7 @@ private val SlateBg = Color(0xFF0B1020)
 private val CardSurface = Color(0xFF111827)
 private val CardBorder = Color(0xFF1F2937)
 private val SubCardBg = Color(0xFF1F2937)
+private val CodeBoxBg = Color(0xFF070B14)
 private val AccentBlue = Color(0xFF3B82F6)
 private val TextPrimary = Color(0xFFF9FAFB)
 private val TextSecondary = Color(0xFF9CA3AF)
@@ -90,28 +100,45 @@ fun AgenticReadinessScreen(
     backend: String,
     onNavigateBack: () -> Unit
 ) {
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val benchmarkRepository = remember { BenchmarkRepository.getInstance(context) }
     var runJob by remember { mutableStateOf<Job?>(null) }
     var progressState by remember { mutableStateOf(ReadinessProgressState()) }
-    var report by remember { mutableStateOf<AgenticReadinessReport?>(null) }
+    var report by remember(modelName) { mutableStateOf(benchmarkRepository.getReport(modelName)) }
     val clipboardManager = LocalClipboardManager.current
 
+    val isEngineReady = engine.isLoaded() && modelName.isNotBlank() && !modelName.equals("No Model Loaded", ignoreCase = true)
+
     fun startSuite() {
+        if (!isEngineReady) {
+            Toast.makeText(context, "No model loaded. Please load a model or configure an API first.", Toast.LENGTH_LONG).show()
+            return
+        }
         runJob?.cancel()
         report = null
         runJob = scope.launch {
-            val rep = AgenticReadinessSuite.runReadinessSuite(
-                engine = engine,
-                modelName = modelName,
-                backend = backend,
-                onProgress = { state ->
-                    progressState = state
-                    if (state.completedReport != null) {
-                        report = state.completedReport
+            try {
+                val rep = AgenticReadinessSuite.runReadinessSuite(
+                    engine = engine,
+                    modelName = modelName,
+                    backend = backend,
+                    onProgress = { state ->
+                        progressState = state
+                        if (state.completedReport != null) {
+                            report = state.completedReport
+                        }
                     }
-                }
-            )
-            report = rep
+                )
+                report = rep
+                benchmarkRepository.saveReport(rep)
+            } catch (e: Exception) {
+                progressState = progressState.copy(
+                    isRunning = false,
+                    errorMessage = e.message ?: "Benchmark run failed"
+                )
+                Toast.makeText(context, "Benchmark failed: ${e.message}", Toast.LENGTH_LONG).show()
+            }
         }
     }
 
@@ -142,6 +169,31 @@ fun AgenticReadinessScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            // Unloaded Engine Warning Banner
+            if (!isEngineReady) {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = WarningAmber.copy(alpha = 0.12f)),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, WarningAmber.copy(alpha = 0.5f)),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.Warning, contentDescription = null, tint = WarningAmber, modifier = Modifier.size(22.dp))
+                        Spacer(Modifier.width(12.dp))
+                        Column {
+                            Text("No Active Model Loaded", color = WarningAmber, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            Text(
+                                "To run the benchmark, please load an on-device model (.litertlm or .gguf) in Model Hub or activate a Cloud API in Settings.",
+                                color = TextPrimary.copy(alpha = 0.85f),
+                                fontSize = 12.5.sp
+                            )
+                        }
+                    }
+                }
+            }
+
             // Intro Card
             Card(
                 colors = CardDefaults.cardColors(containerColor = CardSurface),
@@ -151,7 +203,7 @@ fun AgenticReadinessScreen(
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("Controlled Agentic Evaluation", color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
                     Text(
-                        "Evaluates Code-as-Action tool selection, hammer syndrome resistance, self-correction recovery, context grounding, /plan decomposition quality, and on-device hardware telemetry.",
+                        "Evaluates Code-as-Action tool selection, hammer syndrome resistance, self-correction recovery, context grounding, /plan decomposition quality, and runtime telemetry.",
                         color = TextSecondary,
                         fontSize = 13.sp,
                         lineHeight = 18.sp
@@ -163,7 +215,7 @@ fun AgenticReadinessScreen(
                     ) {
                         Button(
                             onClick = { startSuite() },
-                            enabled = !progressState.isRunning,
+                            enabled = isEngineReady && !progressState.isRunning,
                             colors = ButtonDefaults.buttonColors(containerColor = AccentBlue)
                         ) {
                             Icon(if (report != null) Icons.Default.Refresh else Icons.Default.PlayArrow, contentDescription = null)
@@ -174,23 +226,26 @@ fun AgenticReadinessScreen(
                 }
             }
 
-            // Running Progress Card
+            // Real-Time Live Execution Console
             AnimatedVisibility(visible = progressState.isRunning) {
                 Card(
                     colors = CardDefaults.cardColors(containerColor = CardSurface),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, AccentBlue.copy(alpha = 0.5f)),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, AccentBlue.copy(alpha = 0.6f)),
                     shape = RoundedCornerShape(12.dp)
                 ) {
                     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = AccentBlue)
                             Spacer(Modifier.width(12.dp))
-                            Text(
-                                "Running Scenario ${progressState.currentScenarioIndex} of ${progressState.totalScenarios}",
-                                color = TextPrimary,
-                                fontWeight = FontWeight.Medium,
-                                fontSize = 14.sp
-                            )
+                            Column {
+                                Text(
+                                    "Running Scenario ${progressState.currentScenarioIndex} of ${progressState.totalScenarios}",
+                                    color = TextPrimary,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp
+                                )
+                                Text(progressState.currentScenarioName, color = AccentBlue, fontSize = 12.sp)
+                            }
                         }
 
                         LinearProgressIndicator(
@@ -200,7 +255,49 @@ fun AgenticReadinessScreen(
                             trackColor = SubCardBg
                         )
 
-                        Text(progressState.currentScenarioName, color = TextSecondary, fontSize = 12.sp)
+                        // Active Sub-Test Box
+                        if (progressState.currentSubTestTitle.isNotBlank()) {
+                            Surface(
+                                color = SubCardBg,
+                                shape = RoundedCornerShape(8.dp),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, CardBorder)
+                            ) {
+                                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(8.dp)
+                                                .clip(CircleShape)
+                                                .background(AccentBlue)
+                                        )
+                                        Spacer(Modifier.width(6.dp))
+                                        Text(
+                                            progressState.currentSubTestTitle,
+                                            color = TextPrimary,
+                                            fontSize = 12.5.sp,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                    }
+
+                                    if (progressState.currentSubTestPrompt.isNotBlank()) {
+                                        Text("PROMPT DISPATCHED:", color = TextSecondary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                        Surface(
+                                            color = CodeBoxBg,
+                                            shape = RoundedCornerShape(6.dp),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Text(
+                                                text = progressState.currentSubTestPrompt,
+                                                color = Color(0xFF67E8F9),
+                                                fontSize = 11.5.sp,
+                                                fontFamily = FontFamily.Monospace,
+                                                modifier = Modifier.padding(8.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -212,6 +309,7 @@ fun AgenticReadinessScreen(
                     onCopyMarkdown = {
                         val md = formatReportMarkdown(rep)
                         clipboardManager.setText(AnnotatedString(md))
+                        Toast.makeText(context, "Report copied to clipboard!", Toast.LENGTH_SHORT).show()
                     }
                 )
             }
@@ -219,154 +317,3 @@ fun AgenticReadinessScreen(
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun ReadinessReportView(
-    report: AgenticReadinessReport,
-    onCopyMarkdown: () -> Unit
-) {
-    val tierColor = when (report.tier) {
-        ReadinessTier.AUTONOMOUS_READY -> SuccessGreen
-        ReadinessTier.ASSISTED_AGENT -> AccentBlue
-        ReadinessTier.EXPERIMENTAL -> WarningAmber
-        ReadinessTier.CHAT_ONLY -> ErrorRed
-    }
-
-    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        // Summary Header Card
-        Card(
-            colors = CardDefaults.cardColors(containerColor = CardSurface),
-            border = androidx.compose.foundation.BorderStroke(1.dp, CardBorder),
-            shape = RoundedCornerShape(12.dp)
-        ) {
-            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column {
-                        Text("AGENTIC READINESS", color = TextSecondary, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
-                        Text(report.tier.displayName, color = tierColor, fontSize = 22.sp, fontWeight = FontWeight.Bold)
-                    }
-
-                    Box(
-                        modifier = Modifier
-                            .background(tierColor.copy(alpha = 0.15f), shape = RoundedCornerShape(8.dp))
-                            .border(1.dp, tierColor, shape = RoundedCornerShape(8.dp))
-                            .padding(horizontal = 14.dp, vertical = 8.dp)
-                    ) {
-                        Text("${report.totalScore} / 100", color = tierColor, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                    }
-                }
-
-                Text(report.tier.description, color = TextPrimary, fontSize = 13.sp)
-
-                // Recommended Workers Pill
-                Surface(
-                    color = SubCardBg,
-                    shape = RoundedCornerShape(6.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(Icons.Default.Speed, contentDescription = null, tint = AccentBlue, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text(
-                            "Recommended Concurrency: ${report.recommendedConcurrentWorkers} Workers (Safe Mobile Limit)",
-                            color = TextPrimary,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
-                }
-
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    OutlinedButton(onClick = onCopyMarkdown) {
-                        Text("Copy Report as Markdown", color = TextPrimary, fontSize = 12.sp)
-                    }
-                }
-            }
-        }
-
-        // Scenario Breakdown Cards
-        Text("Detailed Scenario Breakdown", color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
-
-        for (scenario in report.scenarioResults) {
-            ScenarioResultCard(scenario)
-        }
-    }
-}
-
-@Composable
-private fun ScenarioResultCard(scenario: ScenarioResult) {
-    Card(
-        colors = CardDefaults.cardColors(containerColor = CardSurface),
-        border = androidx.compose.foundation.BorderStroke(1.dp, CardBorder),
-        shape = RoundedCornerShape(10.dp)
-    ) {
-        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                    Icon(
-                        if (scenario.passed) Icons.Default.CheckCircle else Icons.Default.Warning,
-                        contentDescription = null,
-                        tint = if (scenario.passed) SuccessGreen else WarningAmber,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text(scenario.name, color = TextPrimary, fontWeight = FontWeight.Medium, fontSize = 14.sp)
-                }
-
-                Text(
-                    "${scenario.score}/${scenario.maxScore} pts",
-                    color = if (scenario.passed) SuccessGreen else TextSecondary,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 13.sp
-                )
-            }
-
-            Text(scenario.details, color = TextSecondary, fontSize = 12.sp, lineHeight = 16.sp)
-
-            scenario.telemetry?.let { tel ->
-                Surface(
-                    color = SubCardBg,
-                    shape = RoundedCornerShape(6.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
-                        horizontalArrangement = Arrangement.SpaceAround
-                    ) {
-                        Text("TTFT: ${tel.ttftMs}ms", color = TextSecondary, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
-                        Text("Speed: ${"%.1f".format(tel.tokensPerSecond)} tps", color = TextSecondary, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
-                        Text("RAM Δ: ${tel.memoryDeltaMb}MB", color = TextSecondary, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
-                    }
-                }
-            }
-        }
-    }
-}
-
-private fun formatReportMarkdown(report: AgenticReadinessReport): String {
-    val sb = StringBuilder()
-    sb.append("# Agentic Readiness Suite Report\n")
-    sb.append("- **Model**: ${report.modelName}\n")
-    sb.append("- **Backend**: ${report.backend}\n")
-    sb.append("- **Total Score**: ${report.totalScore}/100\n")
-    sb.append("- **Readiness Tier**: ${report.tier.displayName}\n")
-    sb.append("- **Recommended Concurrency**: ${report.recommendedConcurrentWorkers} Workers\n\n")
-    sb.append("## Scenario Results\n")
-    for (s in report.scenarioResults) {
-        sb.append("### ${s.name} (${s.score}/${s.maxScore} pts) - ${if (s.passed) "PASSED" else "FAILED"}\n")
-        sb.append("${s.details}\n\n")
-    }
-    return sb.toString().trim()
-}
