@@ -7,6 +7,7 @@ import com.textmorph.app.data.model.CloudApiPreset
 import com.textmorph.app.data.model.EngineType
 import com.textmorph.app.data.model.ModelFileType
 import com.textmorph.app.data.model.ScreenPerceptionMode
+import com.textmorph.app.data.model.ThinkingMode
 import com.textmorph.app.theme.ThemeMode
 import com.textmorph.app.util.AppLogger
 import kotlinx.coroutines.Dispatchers
@@ -170,6 +171,13 @@ class SettingsRepository(private val context: Context) {
         it.copy(screenPerceptionMode = mode)
     }
 
+    suspend fun setThinkingMode(mode: ThinkingMode) = updateSettings {
+        it.copy(
+            thinkingMode = mode,
+            enableThinking = mode != ThinkingMode.LOW
+        )
+    }
+
     suspend fun updateAiModelConfig(
         maxTokens: Int,
         temperature: Float,
@@ -180,14 +188,17 @@ class SettingsRepository(private val context: Context) {
         defaultSystemPrompt: String,
         agentSystemPrompt: String? = null,
         screenPerceptionMode: ScreenPerceptionMode? = null,
-        contextWindowTokens: Int? = null
+        contextWindowTokens: Int? = null,
+        thinkingMode: ThinkingMode? = null
     ) = updateSettings {
+        val effectiveThinkingMode = thinkingMode ?: if (enableThinking) ThinkingMode.MEDIUM else ThinkingMode.LOW
         it.copy(
             maxTokens = maxTokens,
             temperature = temperature,
             topK = topK,
             topP = topP,
-            enableThinking = enableThinking,
+            enableThinking = effectiveThinkingMode != ThinkingMode.LOW,
+            thinkingMode = effectiveThinkingMode,
             speculativeDecoding = speculativeDecoding,
             defaultSystemPrompt = defaultSystemPrompt,
             agentSystemPrompt = agentSystemPrompt ?: it.agentSystemPrompt,

@@ -106,7 +106,7 @@ fun MainAppDialogs(
     if (showAiConfigDialog) {
         com.textmorph.app.ui.modelhub.components.AiModelConfigDialog(
             settings = settings,
-            onSave = { maxTokens, temp, k, p, thinking, speculative, contextWindow ->
+            onSave = { maxTokens, temp, k, p, thinking, speculative, contextWindow, thinkingMode ->
                 scope.launch {
                     settingsRepository.updateAiModelConfig(
                         maxTokens = maxTokens,
@@ -117,7 +117,8 @@ fun MainAppDialogs(
                         speculativeDecoding = speculative,
                         defaultSystemPrompt = settings.defaultSystemPrompt,
                         agentSystemPrompt = settings.agentSystemPrompt,
-                        contextWindowTokens = contextWindow
+                        contextWindowTokens = contextWindow,
+                        thinkingMode = thinkingMode
                     )
                     onDismissAiConfigDialog()
                     Toast.makeText(context, "AI configurations saved.", Toast.LENGTH_SHORT).show()

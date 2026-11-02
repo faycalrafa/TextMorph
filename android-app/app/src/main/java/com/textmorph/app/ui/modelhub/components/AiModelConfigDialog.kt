@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.clickable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.RestartAlt
@@ -27,16 +28,18 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.Color
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -57,7 +60,8 @@ fun AiModelConfigDialog(
         topP: Float,
         enableThinking: Boolean,
         speculativeDecoding: Boolean,
-        contextWindowTokens: Int
+        contextWindowTokens: Int,
+        thinkingMode: com.textmorph.app.data.model.ThinkingMode
     ) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -67,6 +71,7 @@ fun AiModelConfigDialog(
     var topKInput by remember { mutableStateOf(settings.topK.toString()) }
     var topP by remember { mutableFloatStateOf(settings.topP) }
     var enableThinking by remember { mutableStateOf(settings.enableThinking) }
+    var thinkingMode by remember { mutableStateOf(settings.thinkingMode) }
     var speculativeDecoding by remember { mutableStateOf(settings.speculativeDecoding) }
 
     Dialog(
@@ -255,28 +260,71 @@ fun AiModelConfigDialog(
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                // Enable Thinking Toggle (OFF by default)
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Enable Thinking (Reasoning)",
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        Text(
-                            text = "When OFF (recommended), hides <think> blocks for clean in-place text insertions.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    Switch(
-                        checked = enableThinking,
-                        onCheckedChange = { enableThinking = it }
+                // Thinking Mode (Reasoning Budget) Selector
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        text = "Thinking Mode (Reasoning Budget)",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold
                     )
+                    Text(
+                        text = when (thinkingMode) {
+                            com.textmorph.app.data.model.ThinkingMode.LOW -> "Fast response without thinking (0 tokens max)."
+                            com.textmorph.app.data.model.ThinkingMode.MEDIUM -> "Balanced reasoning before response (up to 800 tokens)."
+                            com.textmorph.app.data.model.ThinkingMode.HIGH -> "Deep step-by-step reasoning (up to 1500 tokens max)."
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        com.textmorph.app.data.model.ThinkingMode.entries.forEach { mode ->
+                            val isSelected = thinkingMode == mode
+                            Surface(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clickable {
+                                        thinkingMode = mode
+                                        enableThinking = mode != com.textmorph.app.data.model.ThinkingMode.LOW
+                                    },
+                                shape = RoundedCornerShape(8.dp),
+                                color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                border = androidx.compose.foundation.BorderStroke(
+                                    1.dp,
+                                    if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent
+                                )
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(vertical = 8.dp, horizontal = 4.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Text(
+                                        text = when (mode) {
+                                            com.textmorph.app.data.model.ThinkingMode.LOW -> "Low"
+                                            com.textmorph.app.data.model.ThinkingMode.MEDIUM -> "Medium"
+                                            com.textmorph.app.data.model.ThinkingMode.HIGH -> "High"
+                                        },
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                        color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Text(
+                                        text = when (mode) {
+                                            com.textmorph.app.data.model.ThinkingMode.LOW -> "Fast (0t)"
+                                            com.textmorph.app.data.model.ThinkingMode.MEDIUM -> "800t"
+                                            com.textmorph.app.data.model.ThinkingMode.HIGH -> "1500t"
+                                        },
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontSize = 10.sp,
+                                        color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(12.dp))
@@ -321,6 +369,7 @@ fun AiModelConfigDialog(
                             topKInput = "40"
                             topP = 0.9f
                             enableThinking = false
+                            thinkingMode = com.textmorph.app.data.model.ThinkingMode.LOW
                             speculativeDecoding = false
                         },
                         shape = RoundedCornerShape(10.dp)
@@ -349,7 +398,8 @@ fun AiModelConfigDialog(
                                 topP,
                                 enableThinking,
                                 speculativeDecoding,
-                                contextTokens
+                                contextTokens,
+                                thinkingMode
                             )
                         },
                         shape = RoundedCornerShape(10.dp)

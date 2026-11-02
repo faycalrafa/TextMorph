@@ -84,7 +84,32 @@ object CodeActionParser {
             }
 
             val parsedArgs = CodeActionMapper.parseArgumentTokens(rawArgs)
-            return CodeActionMapper.mapToCanonicalAction(rawFunc, parsedArgs)
+            val action = CodeActionMapper.mapToCanonicalAction(rawFunc, parsedArgs) ?: return null
+
+            val callSubstring = call.third
+            val preText = originalFullText.substringBefore(callSubstring)
+                .substringBefore("```")
+                .replace(Regex("(?s)<think>.*?</think>"), "")
+                .replace("<think>", "")
+                .trim()
+            val postText = originalFullText.substringAfter(callSubstring)
+                .substringAfter("```")
+                .trim()
+
+            val explanation = when {
+                preText.isNotBlank() -> preText
+                postText.isNotBlank() && !postText.startsWith("`") -> postText
+                else -> null
+            }
+
+            return if (!explanation.isNullOrBlank()) {
+                action.copy(
+                    reasoning = explanation,
+                    response = if (action.response.isBlank()) explanation else action.response
+                )
+            } else {
+                action
+            }
         } catch (e: Exception) {
             AppLogger.d(TAG, "CodeActionParser code parse error: ${e.message}")
             return null

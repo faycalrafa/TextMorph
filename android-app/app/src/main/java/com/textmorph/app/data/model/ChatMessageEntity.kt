@@ -151,11 +151,14 @@ data class AgentStepTrace(
     var durationMs: Long = 0L,
     var outputSnippet: String? = null,
     var failureReason: String? = null,
-    val startTimeMs: Long = System.currentTimeMillis()
+    val startTimeMs: Long = System.currentTimeMillis(),
+    var stepResponse: String? = null,
+    var thought: String? = null
 ) {
     val inputSummary: String get() = inputQuery
     val outputSummary: String? get() = outputSnippet
     val diagnosticReason: String? get() = failureReason
+    val hasExplanation: Boolean get() = !stepResponse.isNullOrBlank()
 }
 
 @Serializable

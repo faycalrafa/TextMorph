@@ -38,7 +38,9 @@ data class StepExecutionResult(
     val isTerminal: Boolean,
     val stepIndex: Int,
     val outputText: String,
-    val isSuccess: Boolean = true
+    val isSuccess: Boolean = true,
+    val stepResponse: String? = null,
+    val thought: String? = null
 )
 
 /**
@@ -230,11 +232,14 @@ class SingleStepExecutionEngine(
                     )
                     eventStore.appendEvent(sessionId, toolDoneEvt.eventType, json.encodeToString(toolDoneEvt))
 
+                    val (th, _) = com.textmorph.app.ui.chat.components.AiChatInferenceUtils.extractThought(rawOutput)
                     return@withContext StepExecutionResult(
                         isTerminal = stepIndex >= maxSteps,
                         stepIndex = stepIndex,
                         outputText = toolOutput,
-                        isSuccess = toolSuccess
+                        isSuccess = toolSuccess,
+                        stepResponse = action.reasoning ?: action.response,
+                        thought = th
                     )
                 }
 

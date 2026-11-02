@@ -100,14 +100,25 @@ object AiChatInferenceUtils {
         }
     }
 
-    fun createStepTrace(stepIndex: Int, action: com.textmorph.app.agent.model.AgentAction): com.textmorph.app.data.model.AgentStepTrace {
+    fun createStepTrace(
+        stepIndex: Int,
+        action: com.textmorph.app.agent.model.AgentAction,
+        stepResponse: String? = null,
+        thought: String? = null
+    ): com.textmorph.app.data.model.AgentStepTrace {
         val summary = action.params.entries.joinToString(", ") { "${it.key}=${it.value.toString().removeSurrounding("\"").take(40)}" }
+        val effectiveResponse = stepResponse?.takeIf { it.isNotBlank() }
+            ?: action.reasoning?.takeIf { it.isNotBlank() }
+            ?: action.response.takeIf { it.isNotBlank() }
+
         return com.textmorph.app.data.model.AgentStepTrace(
             stepIndex = stepIndex,
             toolName = action.action,
             inputQuery = summary,
             status = "running",
-            startTimeMs = System.currentTimeMillis()
+            startTimeMs = System.currentTimeMillis(),
+            stepResponse = effectiveResponse,
+            thought = thought
         )
     }
 
@@ -156,5 +167,31 @@ object AiChatInferenceUtils {
         }
 
         return false
+    }
+
+    fun assembleNextHopPrompt(
+        systemPrompt: String,
+        activeSession: com.textmorph.app.data.model.ChatSessionEntity?,
+        priorMessages: List<com.textmorph.app.data.model.ChatMessageEntity>,
+        turnHistory: MutableList<com.textmorph.app.data.model.ChatMessageEntity>,
+        sessionId: String,
+        effectiveContent: String,
+        nextPrompt: String,
+        maxContextTokens: Int
+    ): String {
+        turnHistory.add(com.textmorph.app.data.model.ChatMessageEntity(sessionId = sessionId, role = "assistant", content = effectiveContent))
+        return com.textmorph.app.llm.context.ChatCompactor.assembleInferencePrompt(
+            systemPrompt = systemPrompt,
+            sessionSummary = activeSession?.summary,
+            sessionState = activeSession?.sessionState,
+            historyMessages = priorMessages + turnHistory,
+            currentPrompt = nextPrompt,
+            documentText = null,
+            maxContextTokens = maxContextTokens
+        )
+    }
+
+    fun calculateTps(tokens: Int, durationMs: Long): Float {
+        return if (tokens > 0 && durationMs > 0) (tokens / (durationMs / 1000f)).coerceAtLeast(0.1f) else 0f
     }
 }

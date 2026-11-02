@@ -172,16 +172,28 @@ fun ChatMessageItemView(
         } else {
             Column(modifier = Modifier.fillMaxWidth(0.94f)) {
                 // 1. Transient status bubble when model is loading or starting thinking
-                val isPlaceholder = isGenerating && message.content.isBlank() && message.thoughtContent.isNullOrBlank()
+                val (extractedThought, _) = remember(message.content, message.thoughtContent) {
+                    if (!message.thoughtContent.isNullOrBlank()) {
+                        message.thoughtContent to message.content
+                    } else {
+                        AiChatInferenceUtils.extractThought(message.content)
+                    }
+                }
+                val isStreamingThought = isGenerating && message.content.contains("<think>") && !message.content.contains("</think>")
+                val hasThinking = !extractedThought.isNullOrBlank() || isStreamingThought
+
+                val isPlaceholder = isGenerating && message.content.isBlank() && !hasThinking
                 if (isPlaceholder) {
                     AssistantStatusBubble(statusText = generationStatus ?: "Thinking…")
                 }
 
-                // 2. Thinking Accordion (if thoughts present)
-                if (!message.thoughtContent.isNullOrBlank()) {
+                // 2. Thinking Accordion (Hidden/collapsible accordion above response)
+                if (hasThinking) {
+                    val thoughtText = extractedThought ?: message.content.substringAfter("<think>").substringBefore("</think>").trim()
                     ThinkingAccordionCard(
-                        thoughtContent = message.thoughtContent,
-                        isThinking = isGenerating && message.content.isBlank()
+                        thoughtContent = thoughtText,
+                        isThinking = isStreamingThought,
+                        durationSeconds = message.durationMs?.let { it / 1000.0 }
                     )
                     Spacer(modifier = Modifier.height(6.dp))
                 }

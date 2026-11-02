@@ -255,11 +255,17 @@ object AiChatInferenceExecutor {
                         break
                     }
 
-                    val currentTrace = AiChatInferenceUtils.createStepTrace(stepTraces.size + 1, action)
+                    val currentTrace = AiChatInferenceUtils.createStepTrace(
+                        stepIndex = stepTraces.size + 1,
+                        action = action,
+                        stepResponse = action.reasoning ?: action.response,
+                        thought = thought
+                    )
                     stepTraces.add(currentTrace)
                     chatRepository.updateLastAssistantMessage(
                         sessionId = sessionId,
                         content = effectiveFinalContent,
+                        thoughtContent = thought,
                         stepTracesJson = ChatMessageEntity.serializeStepTraces(stepTraces),
                         sourcesJson = ChatMessageEntity.serializeSources(collectedSources).takeIf { collectedSources.isNotEmpty() }
                     )
@@ -272,19 +278,20 @@ object AiChatInferenceExecutor {
                         chatRepository.updateLastAssistantMessage(
                             sessionId = sessionId,
                             content = effectiveFinalContent,
+                            thoughtContent = thought,
                             stepTracesJson = ChatMessageEntity.serializeStepTraces(stepTraces)
                         )
                         val correctionPrompt = ToolValidator.synthesizeCorrectionPrompt(action, validation.error)
                         chatRepository.setGenerationStatus("Validating tool parameters… self-correcting…")
 
-                        turnHistory.add(ChatMessageEntity(sessionId = sessionId, role = "assistant", content = effectiveFinalContent))
-                        currentPromptForInference = ChatCompactor.assembleInferencePrompt(
+                        currentPromptForInference = AiChatInferenceUtils.assembleNextHopPrompt(
                             systemPrompt = systemPrompt,
-                            sessionSummary = activeSession?.summary,
-                            sessionState = activeSession?.sessionState,
-                            historyMessages = priorMessages + turnHistory,
-                            currentPrompt = correctionPrompt,
-                            documentText = null,
+                            activeSession = activeSession,
+                            priorMessages = priorMessages,
+                            turnHistory = turnHistory,
+                            sessionId = sessionId,
+                            effectiveContent = effectiveFinalContent,
+                            nextPrompt = correctionPrompt,
                             maxContextTokens = engine.maxContextTokens
                         )
                         currentImagePayload = null
@@ -300,17 +307,18 @@ object AiChatInferenceExecutor {
                         chatRepository.updateLastAssistantMessage(
                             sessionId = sessionId,
                             content = effectiveFinalContent,
+                            thoughtContent = thought,
                             stepTracesJson = ChatMessageEntity.serializeStepTraces(stepTraces)
                         )
                         val recoveryPrompt = "Notice: The tool action '${action.action}' was already executed or blocked (${guardrailDecision.reason}). Please provide the complete final answer directly to the user based on available information without calling this tool again."
-                        turnHistory.add(ChatMessageEntity(sessionId = sessionId, role = "assistant", content = effectiveFinalContent))
-                        currentPromptForInference = ChatCompactor.assembleInferencePrompt(
+                        currentPromptForInference = AiChatInferenceUtils.assembleNextHopPrompt(
                             systemPrompt = systemPrompt,
-                            sessionSummary = activeSession?.summary,
-                            sessionState = activeSession?.sessionState,
-                            historyMessages = priorMessages + turnHistory,
-                            currentPrompt = recoveryPrompt,
-                            documentText = null,
+                            activeSession = activeSession,
+                            priorMessages = priorMessages,
+                            turnHistory = turnHistory,
+                            sessionId = sessionId,
+                            effectiveContent = effectiveFinalContent,
+                            nextPrompt = recoveryPrompt,
                             maxContextTokens = engine.maxContextTokens
                         )
                         currentImagePayload = null
@@ -326,7 +334,8 @@ object AiChatInferenceExecutor {
                         chatRepository.setGenerationStatus(statusMsg)
                         chatRepository.updateLastAssistantMessage(
                             sessionId = sessionId,
-                            content = "",
+                            content = effectiveFinalContent,
+                            thoughtContent = thought,
                             actionPayloadJson = action.action,
                             actionStatus = "running",
                             stepTracesJson = ChatMessageEntity.serializeStepTraces(stepTraces)
@@ -345,7 +354,8 @@ object AiChatInferenceExecutor {
                         chatRepository.setGenerationStatus("$toolName finished! Thinking & synthesizing answer…")
                         chatRepository.updateLastAssistantMessage(
                             sessionId = sessionId,
-                            content = "",
+                            content = effectiveFinalContent,
+                            thoughtContent = thought,
                             actionPayloadJson = action.action,
                             actionStatus = if (toolSuccess) "success" else "failed",
                             stepTracesJson = ChatMessageEntity.serializeStepTraces(stepTraces),
@@ -353,15 +363,14 @@ object AiChatInferenceExecutor {
                         )
 
                         val obsPrompt = ChatToolExecutionHandler.formatObservationPrompt(action, toolOutput)
-                        turnHistory.add(ChatMessageEntity(sessionId = sessionId, role = "assistant", content = effectiveFinalContent))
-
-                        currentPromptForInference = ChatCompactor.assembleInferencePrompt(
+                        currentPromptForInference = AiChatInferenceUtils.assembleNextHopPrompt(
                             systemPrompt = systemPrompt,
-                            sessionSummary = activeSession?.summary,
-                            sessionState = activeSession?.sessionState,
-                            historyMessages = priorMessages + turnHistory,
-                            currentPrompt = obsPrompt,
-                            documentText = null,
+                            activeSession = activeSession,
+                            priorMessages = priorMessages,
+                            turnHistory = turnHistory,
+                            sessionId = sessionId,
+                            effectiveContent = effectiveFinalContent,
+                            nextPrompt = obsPrompt,
                             maxContextTokens = engine.maxContextTokens
                         )
                         currentImagePayload = null
@@ -397,14 +406,9 @@ object AiChatInferenceExecutor {
                     }
                 }
 
-                val endNow = System.currentTimeMillis()
-                val totalDuration = (endNow - streamStartTime).coerceAtLeast(1L)
-                val finalFallbackTps = if (streamTokens > 0 && totalDuration > 0) {
-                    (streamTokens / (totalDuration / 1000f)).coerceAtLeast(0.1f)
-                } else 0f
-                val finalTps = (lastMetrics?.tokensPerSecond?.takeIf { it > 0f } ?: finalFallbackTps)
+                val finalDuration = lastMetrics?.totalDurationMs ?: (System.currentTimeMillis() - streamStartTime).coerceAtLeast(1L)
+                val finalTps = lastMetrics?.tokensPerSecond?.takeIf { it > 0f } ?: AiChatInferenceUtils.calculateTps(streamTokens, finalDuration)
                 val finalTokens = lastMetrics?.tokenCount ?: streamTokens
-                val finalDuration = lastMetrics?.totalDurationMs ?: totalDuration
 
                 chatRepository.updateLastAssistantMessage(
                     sessionId = sessionId,

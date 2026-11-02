@@ -29,7 +29,8 @@ import java.net.URL
 class OpenAiCloudEngine(
     private var baseUrl: String = "https://api.openai.com/v1",
     private var apiKey: String = "",
-    private var modelId: String = "gpt-4o-mini"
+    private var modelId: String = "gpt-4o-mini",
+    private var thinkingMode: com.textmorph.app.data.model.ThinkingMode = com.textmorph.app.data.model.ThinkingMode.LOW
 ) : LlmEngine {
 
     private val TAG = "OpenAiCloudEngine"
@@ -56,6 +57,10 @@ class OpenAiCloudEngine(
             this.baseUrl.contains("172.")
         )
         AppLogger.i(TAG, "Cloud config updated: url=$baseUrl, model=$modelId, ready=$isReady")
+    }
+
+    fun updateThinkingMode(mode: com.textmorph.app.data.model.ThinkingMode) {
+        this.thinkingMode = mode
     }
 
     suspend fun fetchAvailableModels(rawBaseUrl: String, rawApiKey: String): Result<List<String>> = withContext(Dispatchers.IO) {
@@ -156,11 +161,33 @@ class OpenAiCloudEngine(
             prompt.contains("Code-as-Action", ignoreCase = true)
         ) 0.0 else 0.7
 
+        val isThinking = thinkingMode != com.textmorph.app.data.model.ThinkingMode.LOW
+        val budget = thinkingMode.maxBudgetTokens
+
+        val effectiveSystemInstruction = buildString {
+            if (!systemInstruction.isNullOrBlank()) {
+                append(systemInstruction.trim())
+                append("\n\n")
+            }
+            if (isThinking) {
+                append("Think carefully step-by-step before answering. Wrap your entire reasoning in <think>...</think> tags.")
+            } else {
+                append("Answer directly. Do NOT output thinking tags or chain-of-thought.")
+            }
+        }
+
         val requestPayload = buildJsonObject {
             put("model", modelId)
             put("stream", true)
             put("temperature", effectiveTemp)
-            put("max_tokens", 1024)
+            put("max_tokens", 1024 + budget)
+            if (modelId.startsWith("o1") || modelId.startsWith("o3")) {
+                put("reasoning_effort", when (thinkingMode) {
+                    com.textmorph.app.data.model.ThinkingMode.LOW -> "low"
+                    com.textmorph.app.data.model.ThinkingMode.MEDIUM -> "medium"
+                    com.textmorph.app.data.model.ThinkingMode.HIGH -> "high"
+                })
+            }
             put("stop", buildJsonArray {
                 add(JsonPrimitive("<end_of_turn>"))
                 add(JsonPrimitive("<|end_of_turn|>"))
@@ -168,10 +195,10 @@ class OpenAiCloudEngine(
                 add(JsonPrimitive("<|im_end|>"))
             })
             put("messages", buildJsonArray {
-                if (!systemInstruction.isNullOrBlank()) {
+                if (effectiveSystemInstruction.isNotBlank()) {
                     add(buildJsonObject {
                         put("role", "system")
-                        put("content", if (systemInstruction.contains("think", ignoreCase = true)) systemInstruction else "$systemInstruction. Answer directly.")
+                        put("content", effectiveSystemInstruction)
                     })
                 }
                 add(buildJsonObject {
@@ -217,6 +244,9 @@ class OpenAiCloudEngine(
                 return@flow
             }
 
+            var hasOpenedThink = false
+            var hasClosedThink = false
+
             BufferedReader(InputStreamReader(conn.inputStream, Charsets.UTF_8)).use { reader ->
                 var line: String?
                 while (reader.readLine().also { line = it } != null) {
@@ -230,10 +260,31 @@ class OpenAiCloudEngine(
                             val parsed = json.parseToJsonElement(dataJson).jsonObject
                             val choices = parsed["choices"]?.jsonArray
                             val delta = choices?.firstOrNull()?.jsonObject?.get("delta")?.jsonObject
+
+                            // 1. Process reasoning content (DeepSeek-R1 / OpenRouter / Groq)
+                            val reasoningElem = delta?.get("reasoning_content") ?: delta?.get("reasoning")
+                            if (reasoningElem != null && reasoningElem !is kotlinx.serialization.json.JsonNull) {
+                                val reasoningChunk = reasoningElem.jsonPrimitive.contentOrNull
+                                if (!reasoningChunk.isNullOrEmpty() && reasoningChunk != "null") {
+                                    if (isThinking) {
+                                        if (!hasOpenedThink) {
+                                            hasOpenedThink = true
+                                            emit("<think>\n")
+                                        }
+                                        emit(reasoningChunk)
+                                    }
+                                }
+                            }
+
+                            // 2. Process primary answer content
                             val contentElem = delta?.get("content")
                             if (contentElem != null && contentElem !is kotlinx.serialization.json.JsonNull) {
                                 val content = contentElem.jsonPrimitive.contentOrNull
                                 if (!content.isNullOrEmpty() && content != "null") {
+                                    if (hasOpenedThink && !hasClosedThink) {
+                                        hasClosedThink = true
+                                        emit("\n</think>\n\n")
+                                    }
                                     emit(content)
                                 }
                             }
@@ -242,6 +293,9 @@ class OpenAiCloudEngine(
                         }
                     }
                 }
+            }
+            if (hasOpenedThink && !hasClosedThink) {
+                emit("\n</think>\n\n")
             }
         } catch (e: Exception) {
             AppLogger.e(TAG, "Exception during Cloud streaming request: ${e.message}", e)

@@ -4,6 +4,32 @@ All notable changes to **TextMorph** are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.4.0] - 2026-11-02
+
+### Added
+- **3-Tier AI Thinking Budget Modes**: Added user-selectable thinking modes: `Low` (Fast direct response, 0 budget tokens — default), `Medium` (Balanced reasoning, up to 800 tokens max), and `High` (Deep reasoning, capped strictly at 1500 tokens max).
+- **Native Engine Thinking Activation**:
+  - *LiteRT-LM*: Passed user-configured budget directly to `ThinkingConfig(enableThinking, thinkingTokenBudget)` in native conversation session initialization.
+  - *llama.cpp*: Added dynamic prompt conditioning and streaming token-budget enforcement clamping thinking tokens if budget is exceeded.
+  - *Cloud OpenAI API*: Added streaming extraction for `reasoning_content` / `reasoning` from OpenRouter, DeepSeek-R1, and Groq, mapped OpenAI `reasoning_effort` ("low", "medium", "high") for o1/o3 models, and enforced budget token bounds.
+- **Collapsible Thinking Process Accordion**: AI internal reasoning (`<think>...</think>`) renders in a sleek, collapsible "Thought Process" card directly above the response bubble in Charcoal Slate styling. Hidden and collapsed by default so users can view or ignore it at their discretion. Only renders when `<think>` blocks are present.
+- **Multi-Step AI Response & Intent Visibility**:
+  - `AgentStepTrace` now records `stepResponse` and `thought` across every tool call.
+  - In chat inference (`AiChatInferenceExecutor`), intermediate AI responses are no longer wiped during tool hops, keeping the model's explanations visible alongside running tool progress.
+  - `StepTraceAccordion` displays the AI's explanation and intent directly inside each step item alongside tool parameters and tool output snippets.
+  - Autonomous device execution (`SingleStepExecutionEngine` and `TaskExecutor`) captures and projects step reasoning to the agent state machine and event store.
+- **Thinking Mode Selector in Model Hub**: Upgraded `AiModelConfigDialog` with a 3-way segmented pill selector (`Low`, `Medium`, `High`) with clear descriptions of reasoning depth and token budgets.
+
+### Changed
+- **Preserved Intermediate Tool Context**: Eradicated blank chat bubble states while information tools (Web Search, Image Search, JS tools) are executing.
+- **Strict File Modularity (< 500 lines)**: Factored out conversation building into `LiteRtLmSessionDelegate` and prompt assembly into `AiChatInferenceUtils` to ensure every `.kt` file strictly respects the 500-line limit.
+
+### Fixed
+- **Cloud API Reasoning Payload Drop**: Fixed issue where reasoning deltas from DeepSeek and OpenRouter models were ignored in SSE streaming chunks.
+- **UI Thought Stripping**: Replaced aggressive text regex stripping with structured thought extraction that powers the collapsible thinking accordion while keeping answer bubbles clean.
+
+---
+
 ## [5.3.0] - 2026-11-02
 
 ### Added

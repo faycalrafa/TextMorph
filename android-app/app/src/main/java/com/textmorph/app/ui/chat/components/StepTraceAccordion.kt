@@ -322,6 +322,41 @@ private fun StepItemRow(
                 }
             }
 
+            // AI Step Response / Explanation
+            val response = step.stepResponse
+            if (!response.isNullOrBlank()) {
+                Spacer(modifier = Modifier.height(5.dp))
+                Text(
+                    text = response,
+                    color = Color(0xFFE5E7EB),
+                    fontSize = 11.5.sp,
+                    lineHeight = 15.sp
+                )
+            }
+
+            // Tool output snippet (if available)
+            val output = step.outputSnippet
+            if (!output.isNullOrBlank() && step.status == "success") {
+                Spacer(modifier = Modifier.height(4.dp))
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = Color(0xFF111827),
+                    border = BorderStroke(1.dp, Color(0xFF374151)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = output,
+                        color = Color(0xFF9CA3AF),
+                        fontSize = 10.5.sp,
+                        fontFamily = FontFamily.Monospace,
+                        lineHeight = 13.5.sp,
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
+                }
+            }
+
             // Diagnostic failure message (if failed)
             val failure = step.failureReason
             if (!failure.isNullOrBlank()) {

@@ -274,9 +274,25 @@ class LlamaCppEngine(private val context: Context) : LlmEngine {
                 val imageFds = mutableListOf<Int>()
 
                 try {
-                    val fullPrompt = buildString {
+                    val settings = runCatching { SettingsRepository.getInstance(context).settingsState.value }.getOrNull()
+                    val isThinking = settings?.isThinkingActive == true
+                    val budget = settings?.effectiveThinkingBudget ?: 0
+
+                    val effectiveSystemInstruction = buildString {
                         if (!systemInstruction.isNullOrBlank()) {
-                            append("<|im_start|>system\n$systemInstruction<|im_end|>\n")
+                            append(systemInstruction.trim())
+                            append("\n\n")
+                        }
+                        if (isThinking && budget > 0) {
+                            append("Think carefully step-by-step before answering. Place your entire internal reasoning process between <think> and </think> tags.")
+                        } else {
+                            append("Do NOT use thinking tags or chain-of-thought. Provide only direct, concise answers.")
+                        }
+                    }
+
+                    val fullPrompt = buildString {
+                        if (effectiveSystemInstruction.isNotBlank()) {
+                            append("<|im_start|>system\n$effectiveSystemInstruction<|im_end|>\n")
                         }
                         append("<|im_start|>user\n$prompt<|im_end|>\n<|im_start|>assistant\n")
                     }
@@ -295,16 +311,42 @@ class LlamaCppEngine(private val context: Context) : LlmEngine {
                     }
 
                     var emittedAnyToken = false
+                    var inThinkingBlock = false
+                    var thinkingTokens = 0
+                    var thinkingForcedClosed = false
+
                     ctx.setTokenCallback { token ->
                         emittedAnyToken = true
-                        trySend(token)
+                        if (!isThinking || budget <= 0) {
+                            if (token.contains("<think>")) inThinkingBlock = true
+                            if (inThinkingBlock) {
+                                if (token.contains("</think>")) inThinkingBlock = false
+                                return@setTokenCallback
+                            }
+                            trySend(token)
+                        } else {
+                            if (token.contains("<think>")) inThinkingBlock = true
+                            if (inThinkingBlock) {
+                                thinkingTokens++
+                                if (thinkingTokens > budget && !thinkingForcedClosed) {
+                                    thinkingForcedClosed = true
+                                    inThinkingBlock = false
+                                    trySend("\n</think>\n")
+                                    return@setTokenCallback
+                                }
+                                if (token.contains("</think>")) inThinkingBlock = false
+                            }
+                            trySend(token)
+                        }
                     }
 
-                    val settings = runCatching { SettingsRepository.getInstance(context).settingsState.value }.getOrNull()
+                    val baseMaxTokens = settings?.maxTokens ?: 1024
+                    val totalPredictTokens = if (isThinking && budget > 0) baseMaxTokens + budget else baseMaxTokens
+
                     val completionParams = mutableMapOf<String, Any>(
                         "prompt" to fullPrompt,
                         "emit_partial_completion" to true,
-                        "n_predict" to (settings?.maxTokens ?: 1024),
+                        "n_predict" to totalPredictTokens,
                         "temperature" to (temperature ?: settings?.temperature ?: 0.7f),
                         "top_p" to (settings?.topP ?: 0.95f),
                         "top_k" to (settings?.topK ?: 40),

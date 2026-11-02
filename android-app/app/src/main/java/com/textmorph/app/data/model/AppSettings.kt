@@ -17,6 +17,13 @@ enum class ScreenPerceptionMode(val displayName: String) {
 }
 
 @Serializable
+enum class ThinkingMode(val displayName: String, val maxBudgetTokens: Int) {
+    LOW("Low (Fast, No Thinking)", 0),
+    MEDIUM("Medium (Balanced, up to 800 tokens)", 800),
+    HIGH("High (Deep Thinking, up to 1500 tokens)", 1500)
+}
+
+@Serializable
 data class AppSettings(
     val theme: ThemeMode = ThemeMode.DARK_SLATE,
     val selectedEngine: EngineType = EngineType.ON_DEVICE_LITERT,
@@ -54,6 +61,7 @@ data class AppSettings(
     val topK: Int = 40,
     val topP: Float = 0.9f,
     val enableThinking: Boolean = false,
+    val thinkingMode: ThinkingMode = ThinkingMode.LOW,
     val speculativeDecoding: Boolean = false,
     val defaultSystemPrompt: String = "You are a helpful, concise AI writing assistant. Transform or complete text according to user instructions. Return ONLY the final output without preamble or explanations.",
     val agentSystemPrompt: String = com.textmorph.app.agent.prompts.AgentPrompts.AGENT_SYSTEM_PROMPT_CODE_ACTION,
@@ -67,7 +75,17 @@ data class AppSettings(
         CloudApiPreset(id = "ollama", name = "Ollama Local", baseUrl = "http://127.0.0.1:11434/v1", defaultModelId = "llama3.2"),
         CloudApiPreset(id = "lmstudio", name = "LM Studio", baseUrl = "http://127.0.0.1:1234/v1", defaultModelId = "local-model")
     )
-)
+) {
+    val isThinkingActive: Boolean
+        get() = thinkingMode != ThinkingMode.LOW || enableThinking
+
+    val effectiveThinkingBudget: Int
+        get() = when (thinkingMode) {
+            ThinkingMode.LOW -> if (enableThinking) 800 else 0
+            ThinkingMode.MEDIUM -> 800
+            ThinkingMode.HIGH -> 1500
+        }
+}
 
 @Serializable
 data class CloudApiPreset(

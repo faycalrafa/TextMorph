@@ -58,9 +58,21 @@ fun VersionHistoryScreen(
 
     val releaseLog = listOf(
         ReleaseItem(
-            version = "v5.3.0",
+            version = "v5.4.0",
             tag = "Latest Release",
             isLatest = true,
+            changes = listOf(
+                "3-Tier AI Thinking Budget Modes: Low (fast, 0 tokens), Medium (balanced, up to 800 tokens), and High (deep reasoning, capped at 1500 tokens).",
+                "Native Engine Thinking: Wire native ThinkingConfig in LiteRT-LM, stream token clamping in llama.cpp, and reasoning_content / reasoning_effort support in Cloud API.",
+                "Collapsible Thinking Accordion: Discreet Thought Process card above responses, collapsed by default and only visible when thinking blocks are present.",
+                "Multi-Step Intent & Step Response Visibility: Intermediate AI explanations and intent are preserved in chat and displayed directly in step trace cards.",
+                "Model Hub Thinking Selector: 3-way segmented pill selector in AI Configuration dialog with reasoning depth descriptions."
+            )
+        ),
+        ReleaseItem(
+            version = "v5.3.0",
+            tag = "Previous Release",
+            isLatest = false,
             changes = listOf(
                 "Web-Wide Image Scraping: ImageSearchTool crawls top organic search results, extracting relevant images and OpenGraph visuals via Jsoup while filtering noise.",
                 "Image Health Pre-Probing: Parallel HTTP liveness probes automatically verify image availability and eliminate dead, 403, and 429 links.",

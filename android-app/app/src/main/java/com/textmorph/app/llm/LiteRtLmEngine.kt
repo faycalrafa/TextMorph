@@ -275,18 +275,11 @@ class LiteRtLmEngine(private val context: Context) : LlmEngine {
                     var usedConversation = false
                     try {
                         val settings = runCatching { SettingsRepository.getInstance(context).settingsState.value }.getOrNull()
-                        val maxOutTokens = (settings?.maxTokens ?: 1024).coerceIn(64, tokenCapacity)
-                        val effTemp = temperature?.toDouble() ?: (settings?.temperature ?: 0.7f).toDouble()
-                        val convConfig = ConversationConfig(
-                            samplerConfig = if (activeBackend.contains("GPU") || activeBackend.contains("CPU")) {
-                                SamplerConfig(
-                                    topK = settings?.topK ?: 40,
-                                    topP = (settings?.topP ?: 0.95f).toDouble(),
-                                    temperature = effTemp
-                                )
-                            } else null,
-                            maxOutputToken = maxOutTokens,
-                            thinkingConfig = ThinkingConfig(enableThinking = settings?.enableThinking ?: false)
+                        val convConfig = LiteRtLmSessionDelegate.buildConversationConfig(
+                            settings = settings,
+                            tokenCapacity = tokenCapacity,
+                            activeBackend = activeBackend,
+                            temperature = temperature
                         )
                         conversation = eng.createConversation(convConfig)
                         usedConversation = true

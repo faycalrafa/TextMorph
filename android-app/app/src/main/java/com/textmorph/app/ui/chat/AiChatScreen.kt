@@ -107,6 +107,7 @@ fun AiChatContent(
             EngineType.CLOUD_OPENAI -> {
                 val cloudEngine = OpenAiCloudEngine()
                 cloudEngine.updateConfig(settings.cloudBaseUrl, settings.cloudApiKey, settings.cloudModelId)
+                cloudEngine.updateThinkingMode(settings.thinkingMode)
                 cloudEngine
             }
             EngineType.ON_DEVICE_LLAMA_CPP -> llamaCppEngine

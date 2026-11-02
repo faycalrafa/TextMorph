@@ -383,6 +383,38 @@ object LiteRtLmSessionDelegate {
         return clean
     }
 
+    fun buildConversationConfig(
+        settings: com.textmorph.app.data.model.AppSettings?,
+        tokenCapacity: Int,
+        activeBackend: String,
+        temperature: Float?
+    ): com.google.ai.edge.litertlm.ConversationConfig {
+        val maxOutTokens = (settings?.maxTokens ?: 1024).coerceIn(64, tokenCapacity)
+        val effTemp = temperature?.toDouble() ?: (settings?.temperature ?: 0.7f).toDouble()
+        val isThinking = settings?.isThinkingActive == true
+        val thinkingBudget = settings?.effectiveThinkingBudget ?: 0
+
+        val thinkingConfig = if (isThinking && thinkingBudget > 0) {
+            com.google.ai.edge.litertlm.ThinkingConfig(true, thinkingBudget)
+        } else {
+            com.google.ai.edge.litertlm.ThinkingConfig(false, 0)
+        }
+
+        val sampler = if (activeBackend.contains("GPU") || activeBackend.contains("CPU")) {
+            com.google.ai.edge.litertlm.SamplerConfig(
+                topK = settings?.topK ?: 40,
+                topP = (settings?.topP ?: 0.95f).toDouble(),
+                temperature = effTemp
+            )
+        } else null
+
+        return com.google.ai.edge.litertlm.ConversationConfig(
+            samplerConfig = sampler,
+            maxOutputToken = maxOutTokens,
+            thinkingConfig = thinkingConfig
+        )
+    }
+
     fun sanitizeNoThinking(text: String): String {
         var clean = text
         clean = clean.replace(Regex("(?s)<think>.*?</think>"), "")
