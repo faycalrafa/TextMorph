@@ -58,6 +58,7 @@ class BoundedWorkerPool(
         engine: LlmEngine,
         context: Context? = null,
         store: ArtifactAssemblyStore,
+        groundedFacts: Map<Int, String> = emptyMap(),
         onProgress: (index: Int, statusMessage: String) -> Unit
     ): Unit = coroutineScope {
         AppLogger.i(TAG, "Starting pool execution for ${sections.size} sections with $maxConcurrentWorkers concurrent workers.")
@@ -71,6 +72,7 @@ class BoundedWorkerPool(
                         engine = engine,
                         context = context,
                         store = store,
+                        sectionFacts = groundedFacts[section.index] ?: "",
                         onProgress = onProgress
                     )
                 }
@@ -90,6 +92,7 @@ class BoundedWorkerPool(
         engine: LlmEngine,
         context: Context? = null,
         store: ArtifactAssemblyStore,
+        sectionFacts: String = "",
         onProgress: (index: Int, statusMessage: String) -> Unit
     ) {
         val workerTag = "Worker-${section.index}"
@@ -98,7 +101,7 @@ class BoundedWorkerPool(
         onProgress(section.index, "Researching '${section.title}'…")
 
         var hop = 0
-        var promptForWorker = buildWorkerPrompt(planGoal, section)
+        var promptForWorker = buildWorkerPrompt(planGoal, section, sectionFacts)
         val workerTools = getWorkerTools()
 
         try {
@@ -114,9 +117,15 @@ class BoundedWorkerPool(
                 // Parse action
                 val action = CodeActionParser.parse(llmOutput)
                 if (action == null) {
-                    // If output has substantial markdown without code actions, accept as drafted content
+                    // If output has substantial markdown without code actions, accept as drafted content unless it contains refusal
                     if (llmOutput.length >= 100) {
-                        store.writeSection(section.index, llmOutput)
+                        val lower = llmOutput.lowercase()
+                        val hasRefusal = listOf("please provide", "what is the subject", "once you provide", "looking forward", "awaiting search").any { lower.contains(it) }
+                        if (!hasRefusal) {
+                            store.writeSection(section.index, llmOutput)
+                        } else if (sectionFacts.isNotBlank()) {
+                            store.writeSection(section.index, "## ${section.title}\n\n$sectionFacts")
+                        }
                     }
                     break
                 }
@@ -170,9 +179,10 @@ class BoundedWorkerPool(
                 onProgress(section.index, "Refining '${section.title}'…")
 
                 val retryPrompt = """
-                    Your drafted content for Section ${section.index} was too brief or incomplete: ${qualityResult.reason}
-                    Please produce a thorough, well-structured section with detailed facts and findings:
-                    write_section(index=${section.index}, markdown="## ${section.title}\n[Detailed content here]")
+                    Draft a comprehensive, detailed markdown section for Section ${section.index}: "${section.title}" regarding "$planGoal".
+                    ${if (sectionFacts.isNotBlank()) "Research Facts:\n$sectionFacts" else ""}
+                    Requirements: Write at least 150 words of rich, factual prose without conversational filler:
+                    write_section(index=${section.index}, markdown="## ${section.title}\n[Detailed factual analysis here]")
                 """.trimIndent()
 
                 val retryOutput = GpuInferenceGate.withLock(workerTag) {
@@ -184,7 +194,15 @@ class BoundedWorkerPool(
                     val markdown = (retryAction.params["markdown"] ?: retryAction.params["content"] ?: "").toString()
                     store.writeSection(section.index, markdown)
                 } else if (retryOutput.length >= 100) {
-                    store.writeSection(section.index, retryOutput)
+                    val lower = retryOutput.lowercase()
+                    val hasRefusal = listOf("please provide", "what is the subject", "once you provide", "looking forward", "awaiting search").any { lower.contains(it) }
+                    if (!hasRefusal) {
+                        store.writeSection(section.index, retryOutput)
+                    } else if (sectionFacts.isNotBlank()) {
+                        store.writeSection(section.index, "## ${section.title}\n\n$sectionFacts")
+                    }
+                } else if (sectionFacts.isNotBlank()) {
+                    store.writeSection(section.index, "## ${section.title}\n\n$sectionFacts")
                 }
             }
 
@@ -202,20 +220,32 @@ class BoundedWorkerPool(
         }
     }
 
-    private fun buildWorkerPrompt(planGoal: String, section: PlanSection): String {
+    private fun buildWorkerPrompt(planGoal: String, section: PlanSection, sectionFacts: String = ""): String {
+        val factsContext = if (sectionFacts.isNotBlank()) {
+            """
+            GROUNDED RESEARCH FINDINGS & SOURCES:
+            $sectionFacts
+
+            Synthesize the findings above into an authoritative, detailed section.
+            """.trimIndent()
+        } else {
+            "First perform any necessary searches, then invoke write_section(index=${section.index}, markdown=\"...\") with detailed content."
+        }
+
         return """
-            You are researching and drafting Section ${section.index}: "${section.title}" for a comprehensive report on "$planGoal".
+            You are drafting Section ${section.index}: "${section.title}" for a comprehensive report on "$planGoal".
             Section Objective: ${section.queryOrGoal}
 
+            $factsContext
+
             AVAILABLE ACTIONS:
+            - write_section(index=${section.index}, markdown="...") : Write full markdown content for this section
+            - append_to_section(index=${section.index}, markdown="...") : Append markdown to this section
             - search_web(query="...") : Search live web sources
             - fetch_page(url="...") : Read content from a URL
-            - search_images(query="...") : Search for high-resolution images and get short aliased IDs (e.g. IMG_1)
-            - write_section(index=${section.index}, markdown="...") : Write full markdown content for this section (reference images with ![Caption](IMG_1))
-            - append_to_section(index=${section.index}, markdown="...") : Append markdown to this section
             - done(summary="...") : Complete this section
 
-            First perform any necessary searches, then invoke write_section(index=${section.index}, markdown="...") with detailed content.
+            Directly draft the comprehensive markdown section using write_section(index=${section.index}, markdown="...").
         """.trimIndent()
     }
 

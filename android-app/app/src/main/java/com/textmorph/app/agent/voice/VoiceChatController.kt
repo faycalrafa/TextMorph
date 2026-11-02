@@ -24,19 +24,6 @@ import kotlinx.coroutines.launch
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicLong
 
-enum class VoiceChatState {
-    IDLE,
-    GREETING,
-    LISTENING,
-    THINKING,
-    SPEAKING
-}
-
-enum class VoiceSessionMode {
-    IN_APP_CHAT,
-    SCREEN_ASSIST
-}
-
 /**
  * Shared service-scoped coordinator for live hands-free voice Q&A.
  * Powering both in-app Chat (AiChatScreen) and system-wide Screen Assist overlays.
@@ -64,6 +51,12 @@ class VoiceChatController private constructor(private val appContext: Context) {
 
     private val _ttsSpeed = MutableStateFlow(1.5f)
     val ttsSpeed: StateFlow<Float> = _ttsSpeed.asStateFlow()
+
+    private val _isReadingAloud = MutableStateFlow(false)
+    val isReadingAloud: StateFlow<Boolean> = _isReadingAloud.asStateFlow()
+
+    private val _readingAloudMessageId = MutableStateFlow<String?>(null)
+    val readingAloudMessageId: StateFlow<String?> = _readingAloudMessageId.asStateFlow()
 
     // Android System TextToSpeech & Speech Client
     private var tts: TextToSpeech? = null
@@ -131,13 +124,13 @@ class VoiceChatController private constructor(private val appContext: Context) {
                         try {
                             tts?.language = Locale.getDefault()
                             val audioAttrs = AudioAttributes.Builder()
-                                .setUsage(AudioAttributes.USAGE_ASSISTANT)
+                                .setUsage(AudioAttributes.USAGE_MEDIA)
                                 .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                                 .build()
                             tts?.setAudioAttributes(audioAttrs)
                             tts?.setSpeechRate(_ttsSpeed.value)
                             setupUtteranceListener()
-                            AppLogger.i(TAG, "System TTS initialized with USAGE_ASSISTANT at ${_ttsSpeed.value}x")
+                            AppLogger.i(TAG, "System TTS initialized with USAGE_MEDIA at ${_ttsSpeed.value}x")
                         } catch (e: Exception) {
                             AppLogger.e(TAG, "Error configuring TTS: ${e.message}", e)
                         }
@@ -163,10 +156,13 @@ class VoiceChatController private constructor(private val appContext: Context) {
 
             override fun onDone(utteranceId: String?) {
                 AppLogger.d(TAG, "TTS utterance completed: $utteranceId (waitingFor=$currentFinalUtteranceId)")
-                if (utteranceId != null && utteranceId == currentFinalUtteranceId) {
-                    mainHandler.post {
+                mainHandler.post {
+                    if (utteranceId?.startsWith("read_aloud_") == true) {
+                        _isReadingAloud.value = false
+                        _readingAloudMessageId.value = null
+                        _state.value = VoiceChatState.IDLE
+                    } else if (utteranceId != null && utteranceId == currentFinalUtteranceId) {
                         if (_state.value != VoiceChatState.IDLE) {
-                            AppLogger.i(TAG, "Final TTS chunk finished. Auto-resuming listening with 15s watchdog.")
                             _state.value = VoiceChatState.LISTENING
                             startListeningWithWatchdog()
                         }
@@ -177,8 +173,12 @@ class VoiceChatController private constructor(private val appContext: Context) {
             @Deprecated("Deprecated in Java")
             override fun onError(utteranceId: String?) {
                 AppLogger.w(TAG, "TTS utterance error: $utteranceId")
-                if (utteranceId != null && utteranceId == currentFinalUtteranceId) {
-                    mainHandler.post {
+                mainHandler.post {
+                    if (utteranceId?.startsWith("read_aloud_") == true) {
+                        _isReadingAloud.value = false
+                        _readingAloudMessageId.value = null
+                        _state.value = VoiceChatState.IDLE
+                    } else if (utteranceId != null && utteranceId == currentFinalUtteranceId) {
                         if (_state.value != VoiceChatState.IDLE) {
                             _state.value = VoiceChatState.LISTENING
                             startListeningWithWatchdog()
@@ -380,6 +380,44 @@ class VoiceChatController private constructor(private val appContext: Context) {
         }
     }
 
+    fun speakText(text: String, messageId: String? = null) {
+        mainHandler.post {
+            try {
+                tts?.stop()
+                val sanitized = VoiceTextSanitizer.sanitizeForTts(text)
+                if (sanitized.isBlank()) return@post
+                _isReadingAloud.value = true
+                _readingAloudMessageId.value = messageId
+                _spokenAssistantText.value = sanitized
+                val utteranceId = "read_aloud_${System.currentTimeMillis()}"
+                currentFinalUtteranceId = utteranceId
+                tts?.setSpeechRate(_ttsSpeed.value)
+                val params = Bundle().apply {
+                    putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, 1.0f)
+                }
+                tts?.speak(sanitized, TextToSpeech.QUEUE_FLUSH, params, utteranceId)
+                AppLogger.i(TAG, "Started reading aloud text (${sanitized.length} chars, msgId=$messageId)")
+            } catch (t: Throwable) {
+                AppLogger.e(TAG, "Error in speakText: ${t.message}", t)
+                _isReadingAloud.value = false
+                _readingAloudMessageId.value = null
+            }
+        }
+    }
+
+    fun stopSpeaking() {
+        mainHandler.post {
+            try {
+                tts?.stop()
+                _isReadingAloud.value = false
+                _readingAloudMessageId.value = null
+                if (_state.value == VoiceChatState.SPEAKING) _state.value = VoiceChatState.IDLE
+            } catch (t: Throwable) {
+                AppLogger.e(TAG, "Error in stopSpeaking: ${t.message}", t)
+            }
+        }
+    }
+
     fun setSpeechRate(rate: Float) {
         val clamped = rate.coerceIn(0.5f, 3.0f)
         _ttsSpeed.value = clamped
@@ -415,6 +453,8 @@ class VoiceChatController private constructor(private val appContext: Context) {
                 tts?.stop()
                 currentFinalUtteranceId = null
                 cachedScreenContext = null
+                _isReadingAloud.value = false
+                _readingAloudMessageId.value = null
                 _state.value = VoiceChatState.IDLE
                 _transcribedUserText.value = ""
                 _spokenAssistantText.value = ""

@@ -67,7 +67,13 @@ class ChatSessionRepository private constructor(private val context: Context) {
         mutex.withLock {
             _currentMessages.value = emptyList()
             saveMessagesToDisk(sessionId, emptyList())
-            AppLogger.d(TAG, "Cleared messages for session $sessionId")
+            storageDelegate.purgeSessionArtifacts(sessionId, context.cacheDir)
+            val updated = _sessionsState.value.map {
+                if (it.id == sessionId) it.copy(summary = null, sessionState = null, updatedAt = System.currentTimeMillis()) else it
+            }
+            _sessionsState.value = updated
+            saveIndexToDisk(updated)
+            AppLogger.d(TAG, "Cleared messages and purged state/summary for session $sessionId")
         }
     }
 
@@ -183,20 +189,9 @@ class ChatSessionRepository private constructor(private val context: Context) {
     }
 
     private fun loadMessagesInternal(sessionId: String) {
-        try {
-            val sessionFile = File(sessionsDir, "session_$sessionId.json")
-            if (!sessionFile.exists()) {
-                _currentMessages.value = emptyList()
-                return
-            }
-            val content = sessionFile.readText()
-            val messages = json.decodeFromString<List<ChatMessageEntity>>(content)
-            _currentMessages.value = messages.sortedBy { it.timestamp }
-            AppLogger.d(TAG, "Loaded ${messages.size} messages for session $sessionId.")
-        } catch (e: Exception) {
-            AppLogger.e(TAG, "Error reading session messages for $sessionId: ${e.message}", e)
-            _currentMessages.value = emptyList()
-        }
+        val messages = storageDelegate.loadMessagesFromDisk(sessionId)
+        _currentMessages.value = messages
+        AppLogger.d(TAG, "Loaded ${messages.size} messages for session $sessionId.")
     }
 
     suspend fun appendMessage(message: ChatMessageEntity) = withContext(Dispatchers.IO) {
@@ -285,25 +280,24 @@ class ChatSessionRepository private constructor(private val context: Context) {
 
     suspend fun deleteSession(sessionId: String) = withContext(Dispatchers.IO) {
         mutex.withLock {
-            val updated = _sessionsState.value.filterNot { it.id == sessionId }
+            val updated = _sessionsState.value.filterNot { it.id == sessionId }.toMutableList()
+            storageDelegate.purgeSessionFiles(sessionId, context.cacheDir)
+
+            if (updated.isEmpty()) {
+                val newSession = ChatSessionEntity(title = "Default Chat")
+                updated.add(newSession)
+                saveMessagesToDisk(newSession.id, emptyList())
+            }
+
             _sessionsState.value = updated
             saveIndexToDisk(updated)
 
-            val sessionFile = File(sessionsDir, "session_$sessionId.json")
-            if (sessionFile.exists()) {
-                sessionFile.delete()
-            }
-
             if (_activeSessionId.value == sessionId) {
-                val next = updated.firstOrNull()
-                _activeSessionId.value = next?.id
-                if (next != null) {
-                    loadMessagesInternal(next.id)
-                } else {
-                    _currentMessages.value = emptyList()
-                }
+                val next = updated.first()
+                _activeSessionId.value = next.id
+                loadMessagesInternal(next.id)
             }
-            AppLogger.i(TAG, "Deleted session $sessionId (remaining=${updated.size})")
+            AppLogger.i(TAG, "Deleted session $sessionId, purged all caches (remaining=${updated.size})")
         }
     }
 

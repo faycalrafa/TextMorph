@@ -3,6 +3,7 @@ package com.textmorph.app.data.repository
 import android.content.Context
 import androidx.core.util.AtomicFile
 import com.textmorph.app.data.model.AppSettings
+import com.textmorph.app.data.model.CloudApiPreset
 import com.textmorph.app.data.model.EngineType
 import com.textmorph.app.data.model.ModelFileType
 import com.textmorph.app.data.model.ScreenPerceptionMode
@@ -192,6 +193,19 @@ class SettingsRepository(private val context: Context) {
     suspend fun setWakeWordDetectionEnabled(enabled: Boolean) = updateSettings { it.copy(wakeWordDetectionEnabled = enabled) }
     suspend fun setFuseChatAndAgent(enabled: Boolean) = updateSettings { it.copy(fuseChatAndAgent = enabled) }
     suspend fun setVoiceTtsSpeed(speed: Float) = updateSettings { it.copy(voiceTtsSpeed = speed.coerceIn(0.5f, 3.0f)) }
+    suspend fun saveApiPreset(preset: CloudApiPreset) = updateSettings {
+        val existing = it.apiPresets.toMutableList()
+        val idx = existing.indexOfFirst { p -> p.id == preset.id }
+        if (idx != -1) {
+            existing[idx] = preset
+        } else {
+            existing.add(preset)
+        }
+        it.copy(apiPresets = existing)
+    }
+    suspend fun deleteApiPreset(presetId: String) = updateSettings {
+        it.copy(apiPresets = it.apiPresets.filterNot { p -> p.id == presetId })
+    }
 
     private fun saveSettingsToDisk(settings: AppSettings) {
         try {

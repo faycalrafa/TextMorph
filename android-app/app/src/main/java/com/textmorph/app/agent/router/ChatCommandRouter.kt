@@ -89,36 +89,45 @@ object ChatCommandRouter {
             val commandToken = parts[0].lowercase(Locale.ROOT)
             val remainder = if (parts.size > 1) parts[1].trim() else ""
 
-            when (commandToken) {
-                "/benchmark" -> {
-                    AppLogger.i(TAG, "Routed to /benchmark")
-                    return CommandRouteResult.BenchmarkCommand
-                }
+            val isQuestionAboutCommand = remainder.endsWith("?") ||
+                remainder.startsWith("how ", ignoreCase = true) ||
+                remainder.startsWith("what ", ignoreCase = true) ||
+                remainder.startsWith("explain ", ignoreCase = true) ||
+                remainder.startsWith("why ", ignoreCase = true) ||
+                remainder.startsWith("can you ", ignoreCase = true)
 
-                "/workers" -> {
-                    val count = remainder.toIntOrNull() ?: 2
-                    val clamped = count.coerceIn(1, 4)
-                    val warn = if (count > 2) " (Note: Setting workers > 2 may cause thermal throttling on mobile devices)" else ""
-                    val msg = "Max concurrent workers set to $clamped.$warn"
-                    AppLogger.i(TAG, "Routed /workers: $msg")
-                    return CommandRouteResult.SetWorkersCommand(clamped, msg)
-                }
+            if (!isQuestionAboutCommand) {
+                when (commandToken) {
+                    "/benchmark" -> {
+                        AppLogger.i(TAG, "Routed to /benchmark")
+                        return CommandRouteResult.BenchmarkCommand
+                    }
 
-                "/plan" -> {
-                    val (workers, cleanTask) = extractWorkerFlags(remainder)
-                    AppLogger.i(TAG, "Routed /plan: task='$cleanTask', workers=$workers")
-                    return CommandRouteResult.PlanCommand(cleanTask, workers)
-                }
+                    "/workers" -> {
+                        val count = remainder.toIntOrNull() ?: 2
+                        val clamped = count.coerceIn(1, 4)
+                        val warn = if (count > 2) " (Note: Setting workers > 2 may cause thermal throttling on mobile devices)" else ""
+                        val msg = "Max concurrent workers set to $clamped.$warn"
+                        AppLogger.i(TAG, "Routed /workers: $msg")
+                        return CommandRouteResult.SetWorkersCommand(clamped, msg)
+                    }
 
-                "/deepsearch" -> {
-                    val (workers, cleanQuery) = extractWorkerFlags(remainder)
-                    AppLogger.i(TAG, "Routed /deepsearch: query='$cleanQuery', workers=$workers")
-                    return CommandRouteResult.DeepSearchCommand(cleanQuery, workers)
-                }
+                    "/plan" -> {
+                        val (workers, cleanTask) = extractWorkerFlags(remainder)
+                        AppLogger.i(TAG, "Routed /plan: task='$cleanTask', workers=$workers")
+                        return CommandRouteResult.PlanCommand(cleanTask, workers)
+                    }
 
-                "/goal" -> {
-                    AppLogger.i(TAG, "Routed /goal: goal='$remainder'")
-                    return CommandRouteResult.GoalCommand(remainder)
+                    "/deepsearch" -> {
+                        val (workers, cleanQuery) = extractWorkerFlags(remainder)
+                        AppLogger.i(TAG, "Routed /deepsearch: query='$cleanQuery', workers=$workers")
+                        return CommandRouteResult.DeepSearchCommand(cleanQuery, workers)
+                    }
+
+                    "/goal" -> {
+                        AppLogger.i(TAG, "Routed /goal: goal='$remainder'")
+                        return CommandRouteResult.GoalCommand(remainder)
+                    }
                 }
             }
         }
@@ -145,8 +154,8 @@ object ChatCommandRouter {
         var clean = text
         var workers: Int? = null
 
-        // Match --workers=N or -w N or -w=N
-        val longRegex = Regex("""--workers=(\d+)""")
+        // Match --workers=N or --workers N or -w N or -w=N
+        val longRegex = Regex("""--workers\s*=?\s*(\d+)""")
         val shortRegex = Regex("""-w\s*=?\s*(\d+)""")
 
         longRegex.find(clean)?.let { match ->

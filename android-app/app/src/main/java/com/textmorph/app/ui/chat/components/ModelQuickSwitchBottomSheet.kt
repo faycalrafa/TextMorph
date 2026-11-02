@@ -52,6 +52,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.textmorph.app.data.model.AppSettings
+import com.textmorph.app.data.model.CloudApiPreset
 import com.textmorph.app.data.model.EngineType
 import com.textmorph.app.data.model.ModelFileType
 import com.textmorph.app.data.model.ModelInfo
@@ -67,8 +68,10 @@ fun ModelQuickSwitchBottomSheet(
     settings: AppSettings,
     availableModels: List<ModelInfo>,
     onDismiss: () -> Unit,
-    onActivateModel: (EngineType, ModelInfo?, String?) -> Unit,
-    onSaveConfig: (maxTokens: Int, temperature: Float, topP: Float, thinking: Boolean, accelerator: String) -> Unit
+    onActivateModel: (EngineType, ModelInfo?, String?, CloudApiPreset?) -> Unit,
+    onSaveConfig: (maxTokens: Int, temperature: Float, topP: Float, thinking: Boolean, accelerator: String) -> Unit,
+    onSavePreset: (CloudApiPreset) -> Unit = {},
+    onDeletePreset: (String) -> Unit = {}
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
@@ -85,10 +88,7 @@ fun ModelQuickSwitchBottomSheet(
         mutableStateOf(downloadedModels.firstOrNull { it.name.equals(settings.activeModelName, ignoreCase = true) })
     }
     var stagedCloudModelId by remember(settings.cloudModelId) { mutableStateOf(settings.cloudModelId) }
-
-    val apiPresets = listOf(
-        "gemini-2.0-flash", "gemini-1.5-flash", "gpt-4o", "gpt-4o-mini", "deepseek-chat", "claude-3-5-sonnet"
-    )
+    var stagedPreset by remember { mutableStateOf<CloudApiPreset?>(null) }
 
     ModalBottomSheet(
         onDismissRequest = {
@@ -205,56 +205,15 @@ fun ModelQuickSwitchBottomSheet(
 
                 if (selectedEngineTab == EngineType.CLOUD_OPENAI) {
                     item {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text(
-                                text = "Quick Presets:",
-                                color = Color(0xFF9CA3AF),
-                                fontSize = 12.sp
-                            )
-                            FlowRow(
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                verticalArrangement = Arrangement.spacedBy(6.dp),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                apiPresets.forEach { preset ->
-                                    val isSelected = stagedCloudModelId.equals(preset, ignoreCase = true)
-                                    Surface(
-                                        shape = RoundedCornerShape(8.dp),
-                                        color = if (isSelected) Color(0xFF2563EB) else Color(0xFF1F2937),
-                                        border = BorderStroke(1.dp, if (isSelected) Color(0xFF60A5FA) else Color(0xFF374151)),
-                                        modifier = Modifier.clickable { stagedCloudModelId = preset }
-                                    ) {
-                                        Text(
-                                            text = preset,
-                                            fontSize = 12.sp,
-                                            color = if (isSelected) Color.White else Color(0xFFE5E7EB),
-                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-                                        )
-                                    }
-                                }
-                            }
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Text(
-                                text = "Model ID:",
-                                color = Color(0xFF9CA3AF),
-                                fontSize = 12.sp
-                            )
-                            OutlinedTextField(
-                                value = stagedCloudModelId,
-                                onValueChange = { stagedCloudModelId = it },
-                                textStyle = TextStyle(color = Color.White, fontSize = 13.5.sp),
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedBorderColor = Color(0xFF3B82F6),
-                                    unfocusedBorderColor = Color(0xFF374151),
-                                    focusedContainerColor = Color(0xFF1F2937),
-                                    unfocusedContainerColor = Color(0xFF1F2937)
-                                ),
-                                shape = RoundedCornerShape(8.dp),
-                                modifier = Modifier.fillMaxWidth(),
-                                singleLine = true
-                            )
-                        }
+                        CloudApiQuickSwitchSection(
+                            settings = settings,
+                            stagedPreset = stagedPreset,
+                            onSelectPreset = { preset -> stagedPreset = preset },
+                            stagedCloudModelId = stagedCloudModelId,
+                            onModelIdChanged = { stagedCloudModelId = it },
+                            onSavePreset = onSavePreset,
+                            onDeletePreset = onDeletePreset
+                        )
                     }
                 } else {
                     val targetFileType = if (selectedEngineTab == EngineType.ON_DEVICE_LITERT) {
@@ -361,7 +320,7 @@ fun ModelQuickSwitchBottomSheet(
 
             Button(
                 onClick = {
-                    onActivateModel(selectedEngineTab, stagedModel, stagedCloudModelId)
+                    onActivateModel(selectedEngineTab, stagedModel, stagedCloudModelId, stagedPreset)
                     onSaveConfig(maxTokens, temperature, topP, thinkingEnabled, preferredAccelerator)
                     onDismiss()
                 },

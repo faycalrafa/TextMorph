@@ -180,6 +180,32 @@ class ArtifactAssemblyStore(
             )
         }
 
+        // Check for conversational refusal or simulated meta-talk
+        val refusalPatterns = listOf(
+            "please provide the topic",
+            "please provide context",
+            "what is the subject",
+            "once you provide",
+            "looking forward to your topic",
+            "awaiting search results",
+            "simulated execution",
+            "i need the context to produce",
+            "as an expert research editor",
+            "executing search phase",
+            "please confirm if you have any",
+            "i am ready to act as your autonomous research"
+        )
+        if (refusalPatterns.any { lower.contains(it) }) {
+            val reason = "Section $index contains refusal or meta-conversational response instead of synthesized research findings."
+            AppLogger.w(TAG, "[$sessionId] Quality gate failed for section $index: $reason")
+            return QualityGateResult(
+                isValid = false,
+                reason = reason,
+                wordCount = wordCount,
+                charCount = charCount
+            )
+        }
+
         AppLogger.i(TAG, "[$sessionId] Quality gate PASSED for section $index ($wordCount words, $charCount chars).")
         return QualityGateResult(
             isValid = true,

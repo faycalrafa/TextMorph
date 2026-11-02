@@ -42,7 +42,7 @@ data class FollowUpSuggestionsRequest(
 object ChatToolCallExtractor {
 
     private val APPROVAL_CODE_REGEX = Regex(
-        """(?:```(?:python|code|js)?\s*)?request_user_approval\s*\(\s*question\s*=\s*"([^"]+)"\s*,\s*options\s*=\s*\[(.*?)\]\s*\)(?:\s*```)?""",
+        """(?:```(?:python|code|js)?\s*)?`?request_user_approval\s*\(\s*(?:(?:question|message)\s*=\s*)?(?:"([^"]*)"|'([^']*)')\s*,\s*(?:options\s*=\s*)?\[([\s\S]*?)\]\s*\)`?(?:\s*```)?""",
         RegexOption.DOT_MATCHES_ALL
     )
 
@@ -52,7 +52,7 @@ object ChatToolCallExtractor {
     )
 
     private val MARKDOWN_FOLLOW_UP_REGEX = Regex(
-        """(?i)(?:^|\n+)\s*(?:###?\s*)?(?:Follow-up suggestions?|Next steps?|Suggested actions?|Suggested follow-ups?|Follow-up questions?|Next actions?):\s*(?:[\r\n]+(?:\s*[-*•\d.]+[^\n]+)+|\s*$)"""
+        """(?i)(?:^|\n+)\s*(?:###?\s*)?(?:Follow-up suggestions?|Next steps?|Suggested actions?|Suggested follow-ups?|Follow-up questions?|Next actions?|Recommended next steps?|Suggested questions?):\s*(?:[\r\n]+(?:\s*[-*•\d.]+[^\n]+)+|\s*$)"""
     )
 
     private val INTERACTIVE_VIEW_CODE_REGEX = Regex(
@@ -65,8 +65,8 @@ object ChatToolCallExtractor {
         val trimmed = content.trim()
         val codeMatch = APPROVAL_CODE_REGEX.find(trimmed)
         if (codeMatch != null) {
-            val question = codeMatch.groupValues[1].trim()
-            val rawOptions = codeMatch.groupValues[2]
+            val question = codeMatch.groupValues[1].ifEmpty { codeMatch.groupValues[2] }.trim()
+            val rawOptions = codeMatch.groupValues[3]
             val options = parseListElements(rawOptions)
             val preText = trimmed.substring(0, codeMatch.range.first).trim()
             val postText = trimmed.substring(codeMatch.range.last + 1).trim()

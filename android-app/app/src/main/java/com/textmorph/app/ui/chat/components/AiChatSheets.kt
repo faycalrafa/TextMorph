@@ -5,12 +5,14 @@ import android.widget.Toast
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.platform.LocalContext
 import com.textmorph.app.data.model.AppSettings
+import com.textmorph.app.data.model.CloudApiPreset
 import com.textmorph.app.data.model.ContextUsageMetrics
 import com.textmorph.app.data.model.EngineType
 import com.textmorph.app.data.model.ModelFileType
 import com.textmorph.app.data.model.ModelInfo
 import com.textmorph.app.data.repository.ChatSessionRepository
 import com.textmorph.app.data.repository.SettingsRepository
+import com.textmorph.app.llm.EngineActivationCoordinator
 import com.textmorph.app.llm.LlmEngine
 import com.textmorph.app.llm.context.ChatCompactor
 import com.textmorph.app.util.AppLogger
@@ -63,27 +65,37 @@ fun AiChatSheets(
             settings = settings,
             availableModels = availableModels,
             onDismiss = onDismissModelSwitchSheet,
-            onActivateModel = { targetEngine, targetModel, cloudModelId ->
+            onActivateModel = { targetEngine, targetModel, cloudModelId, stagedPreset ->
                 scope.launch {
-                    try {
-                        withContext(Dispatchers.IO) {
-                            activeEngine.unload()
+                    val coordinator = EngineActivationCoordinator.getInstance(context)
+                    val result = coordinator.activateEngine(
+                        targetEngine = targetEngine,
+                        targetModel = targetModel,
+                        targetCloudModelId = cloudModelId,
+                        preset = stagedPreset
+                    )
+                    result.onSuccess {
+                        val name = when (targetEngine) {
+                            EngineType.CLOUD_OPENAI -> "Cloud API (${cloudModelId ?: stagedPreset?.defaultModelId ?: settings.cloudModelId})"
+                            else -> "${targetModel?.name} on ${targetEngine.displayName}"
                         }
-                    } catch (t: Throwable) {
-                        AppLogger.w("AiChatSheets", "Error unloading previous engine", t)
-                    }
-                    if (targetEngine == EngineType.CLOUD_OPENAI) {
-                        settingsRepository.setEngine(EngineType.CLOUD_OPENAI)
-                        if (!cloudModelId.isNullOrBlank()) {
-                            settingsRepository.setCloudModelId(cloudModelId)
-                        }
-                        Toast.makeText(context, "Activated Cloud API (${cloudModelId ?: settings.cloudModelId})", Toast.LENGTH_SHORT).show()
-                    } else if (targetModel != null) {
-                        settingsRepository.setActiveModel(targetModel.name, targetModel.path, targetModel.uriString, targetEngine)
-                        settingsRepository.setEngine(targetEngine)
-                        Toast.makeText(context, "Activated ${targetModel.name} on ${targetEngine.displayName}", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "Activated $name", Toast.LENGTH_SHORT).show()
+                    }.onFailure { err ->
+                        Toast.makeText(context, "Activation failed: ${err.message}", Toast.LENGTH_LONG).show()
                     }
                     onDismissModelSwitchSheet()
+                }
+            },
+            onSavePreset = { preset ->
+                scope.launch {
+                    settingsRepository.saveApiPreset(preset)
+                    Toast.makeText(context, "Preset '${preset.name}' saved", Toast.LENGTH_SHORT).show()
+                }
+            },
+            onDeletePreset = { presetId ->
+                scope.launch {
+                    settingsRepository.deleteApiPreset(presetId)
+                    Toast.makeText(context, "Preset deleted", Toast.LENGTH_SHORT).show()
                 }
             },
             onSaveConfig = { maxTokens, temp, topP, thinking, accel ->

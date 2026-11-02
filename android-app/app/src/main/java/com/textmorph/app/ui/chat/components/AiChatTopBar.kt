@@ -121,15 +121,6 @@ fun AiChatTopBar(
                     onClick = onOpenCapacitySheet
                 )
 
-                // (+) New Chat Button
-                IconButton(onClick = onNewChat) {
-                    Icon(
-                        imageVector = Icons.Default.Add,
-                        contentDescription = "New chat",
-                        tint = Color(0xFF60A5FA)
-                    )
-                }
-
                 // Overflow Menu
                 Box {
                     IconButton(onClick = { showMenu = true }) {
@@ -145,6 +136,17 @@ fun AiChatTopBar(
                         onDismissRequest = { showMenu = false },
                         modifier = Modifier.background(Color(0xFF1F2937))
                     ) {
+                        DropdownMenuItem(
+                            text = { Text("New Conversation", color = Color(0xFFF9FAFB), fontSize = 13.5.sp) },
+                            leadingIcon = {
+                                Icon(Icons.Default.Add, contentDescription = null, tint = Color(0xFF60A5FA), modifier = Modifier.size(16.dp))
+                            },
+                            onClick = {
+                                showMenu = false
+                                onNewChat()
+                            }
+                        )
+
                         DropdownMenuItem(
                             text = { Text("All Conversations", color = Color(0xFFF9FAFB), fontSize = 13.5.sp) },
                             leadingIcon = {

@@ -50,6 +50,7 @@ import com.textmorph.app.data.model.ModelFileType
 import com.textmorph.app.data.model.ModelInfo
 import com.textmorph.app.data.repository.ModelStorageRepository
 import com.textmorph.app.data.repository.SettingsRepository
+import com.textmorph.app.llm.EngineActivationCoordinator
 import com.textmorph.app.llm.LiteRtLmEngine
 import com.textmorph.app.llm.LiteRtLmEngineManager
 import com.textmorph.app.llm.LlamaCppEngine
@@ -124,22 +125,13 @@ fun ModelHubContent(
                 if (registered != null) {
                     val isGguf = registered.modelFileType == ModelFileType.GGUF || registered.name.endsWith(".gguf", ignoreCase = true)
                     val targetEngine = if (isGguf) EngineType.ON_DEVICE_LLAMA_CPP else EngineType.ON_DEVICE_LITERT
-                    settingsRepository.setActiveModel(registered.name, registered.path, registered.uriString, targetEngine)
-                    if (isGguf) {
-                        settingsRepository.setActiveMmproj(registered.mmprojName, registered.mmprojPath, registered.mmprojUriString)
-                        llamaCppEngine.initialize(
-                            modelPath = registered.path,
-                            modelName = registered.name,
-                            modelUri = uri,
-                            mmprojPath = registered.mmprojPath,
-                            mmprojUri = registered.mmprojUriString?.let { Uri.parse(it) },
-                            preferredAccelerator = settings.preferredAccelerator,
-                            probeTimeoutMs = settings.probeTimeoutMs
-                        )
-                    } else {
-                        liteRtEngine.initialize(registered.path, registered.name, uri, settings.preferredAccelerator, settings.probeTimeoutMs)
+                    val coordinator = EngineActivationCoordinator.getInstance(context)
+                    val res = coordinator.activateEngine(targetEngine = targetEngine, targetModel = registered)
+                    res.onSuccess {
+                        Toast.makeText(context, "Activating: ${registered.name}...", Toast.LENGTH_SHORT).show()
+                    }.onFailure { err ->
+                        Toast.makeText(context, "Activation failed: ${err.message}", Toast.LENGTH_LONG).show()
                     }
-                    Toast.makeText(context, "Loading: ${registered.name}", Toast.LENGTH_SHORT).show()
                 }
             }
         }
@@ -234,32 +226,20 @@ fun ModelHubContent(
                     isLoadingEngine = isLoadingThis,
                     onActivate = {
                         scope.launch {
-                            val uri = model.uriString?.let { Uri.parse(it) }
-                            val mmprojUri = model.mmprojUriString?.let { Uri.parse(it) }
                             val targetEngine = if (isGguf) EngineType.ON_DEVICE_LLAMA_CPP else EngineType.ON_DEVICE_LITERT
-                            settingsRepository.setActiveModel(model.name, model.path, model.uriString, targetEngine)
-                            if (isGguf) {
-                                settingsRepository.setActiveMmproj(model.mmprojName, model.mmprojPath, model.mmprojUriString)
-                                llamaCppEngine.initialize(
-                                    modelPath = model.path,
-                                    modelName = model.name,
-                                    modelUri = uri,
-                                    mmprojPath = model.mmprojPath,
-                                    mmprojUri = mmprojUri,
-                                    preferredAccelerator = settings.preferredAccelerator,
-                                    probeTimeoutMs = settings.probeTimeoutMs
-                                )
-                            } else {
-                                liteRtEngine.initialize(model.path, model.name, uri, settings.preferredAccelerator, settings.probeTimeoutMs)
+                            val coordinator = EngineActivationCoordinator.getInstance(context)
+                            val res = coordinator.activateEngine(targetEngine = targetEngine, targetModel = model)
+                            res.onSuccess {
+                                Toast.makeText(context, "Activating: ${model.name}...", Toast.LENGTH_SHORT).show()
+                            }.onFailure { err ->
+                                Toast.makeText(context, "Activation failed: ${err.message}", Toast.LENGTH_LONG).show()
                             }
-                            Toast.makeText(context, "Loading: ${model.name}...", Toast.LENGTH_SHORT).show()
                         }
                     },
                     onOffload = {
                         scope.launch {
-                            liteRtEngine.unload()
-                            llamaCppEngine.unload()
-                            settingsRepository.setActiveModel("No Model Loaded", null, null, settings.selectedEngine)
+                            val coordinator = EngineActivationCoordinator.getInstance(context)
+                            coordinator.offloadAll()
                             Toast.makeText(context, "Model session offloaded from memory.", Toast.LENGTH_SHORT).show()
                         }
                     },

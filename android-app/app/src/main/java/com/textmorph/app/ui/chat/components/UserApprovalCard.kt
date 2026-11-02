@@ -28,6 +28,19 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.input.ImeAction
+
 /**
  * Human-in-the-Loop Confirmation card styled in Charcoal Slate design language.
  * Strictly adheres to Primary Rule 5 (Anti-Squish Contract): wraps option buttons
@@ -41,6 +54,8 @@ fun UserApprovalCard(
     onSelectOption: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    var customInput by remember { mutableStateOf("") }
+
     Surface(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
@@ -115,6 +130,60 @@ fun UserApprovalCard(
                             color = Color(0xFFF3F4F6)
                         )
                     }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Custom Write-In Option Row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                OutlinedTextField(
+                    value = customInput,
+                    onValueChange = { customInput = it },
+                    placeholder = {
+                        Text(
+                            text = "Or write your own choice / details…",
+                            color = Color(0xFF9CA3AF),
+                            fontSize = 12.5.sp
+                        )
+                    },
+                    textStyle = TextStyle(color = Color.White, fontSize = 13.sp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = Color(0xFF3B82F6),
+                        unfocusedBorderColor = Color(0xFF374151),
+                        focusedContainerColor = Color(0xFF1F2937),
+                        unfocusedContainerColor = Color(0xFF1F2937)
+                    ),
+                    shape = RoundedCornerShape(8.dp),
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                    keyboardActions = KeyboardActions(onSend = {
+                        if (customInput.isNotBlank()) {
+                            onSelectOption(customInput.trim())
+                            customInput = ""
+                        }
+                    }),
+                    modifier = Modifier.weight(1f)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                IconButton(
+                    onClick = {
+                        if (customInput.isNotBlank()) {
+                            onSelectOption(customInput.trim())
+                            customInput = ""
+                        }
+                    },
+                    enabled = customInput.isNotBlank(),
+                    modifier = Modifier.size(40.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.Send,
+                        contentDescription = "Send Custom Choice",
+                        tint = if (customInput.isNotBlank()) Color(0xFF3B82F6) else Color(0xFF4B5563)
+                    )
                 }
             }
         }

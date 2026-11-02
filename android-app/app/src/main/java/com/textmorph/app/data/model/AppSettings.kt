@@ -58,6 +58,22 @@ data class AppSettings(
     val defaultSystemPrompt: String = "You are a helpful, concise AI writing assistant. Transform or complete text according to user instructions. Return ONLY the final output without preamble or explanations.",
     val agentSystemPrompt: String = com.textmorph.app.agent.prompts.AgentPrompts.AGENT_SYSTEM_PROMPT_CODE_ACTION,
     val fuseChatAndAgent: Boolean = true,
-    val voiceTtsSpeed: Float = 1.5f
+    val voiceTtsSpeed: Float = 1.5f,
+    val apiPresets: List<CloudApiPreset> = listOf(
+        CloudApiPreset(id = "openrouter", name = "OpenRouter", baseUrl = "https://openrouter.ai/api/v1", defaultModelId = "anthropic/claude-3.5-sonnet"),
+        CloudApiPreset(id = "openai", name = "OpenAI", baseUrl = "https://api.openai.com/v1", defaultModelId = "gpt-4o-mini"),
+        CloudApiPreset(id = "groq", name = "Groq", baseUrl = "https://api.groq.com/openai/v1", defaultModelId = "llama-3.3-70b-versatile"),
+        CloudApiPreset(id = "ollama", name = "Ollama Local", baseUrl = "http://127.0.0.1:11434/v1", defaultModelId = "llama3.2"),
+        CloudApiPreset(id = "lmstudio", name = "LM Studio", baseUrl = "http://127.0.0.1:1234/v1", defaultModelId = "local-model")
+    )
+)
+
+@Serializable
+data class CloudApiPreset(
+    val id: String = java.util.UUID.randomUUID().toString(),
+    val name: String,
+    val baseUrl: String,
+    val apiKey: String = "",
+    val defaultModelId: String = ""
 )
 

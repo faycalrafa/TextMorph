@@ -25,15 +25,19 @@ import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material.icons.filled.VolumeOff
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import com.textmorph.app.agent.voice.VoiceChatController
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -162,6 +166,44 @@ fun AssistantActionRow(
                     text = "Share",
                     fontSize = 11.5.sp,
                     color = Color(0xFF9CA3AF),
+                    fontWeight = FontWeight.Medium
+                )
+            }
+        }
+
+        // 3. Read Aloud Action (TTS)
+        val voiceController = remember { VoiceChatController.getInstance(context) }
+        val isReadingAloud by voiceController.isReadingAloud.collectAsState()
+        val readingMsgId by voiceController.readingAloudMessageId.collectAsState()
+        val isThisReading = isReadingAloud && readingMsgId == message.id
+
+        Surface(
+            shape = RoundedCornerShape(6.dp),
+            color = if (isThisReading) Color(0x33EF4444) else Color(0xFF1F2937),
+            border = BorderStroke(1.dp, if (isThisReading) Color(0xFFEF4444) else Color(0xFF374151)),
+            modifier = Modifier.clickable {
+                if (isThisReading) {
+                    voiceController.stopSpeaking()
+                } else {
+                    voiceController.speakText(message.content, message.id)
+                }
+            }
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = if (isThisReading) Icons.Default.VolumeOff else Icons.Default.VolumeUp,
+                    contentDescription = if (isThisReading) "Stop Reading" else "Read Aloud",
+                    tint = if (isThisReading) Color(0xFFEF4444) else Color(0xFF9CA3AF),
+                    modifier = Modifier.size(13.dp)
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(
+                    text = if (isThisReading) "Stop" else "Read",
+                    fontSize = 11.5.sp,
+                    color = if (isThisReading) Color(0xFFFCA5A5) else Color(0xFF9CA3AF),
                     fontWeight = FontWeight.Medium
                 )
             }

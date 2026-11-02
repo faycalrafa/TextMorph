@@ -2,6 +2,7 @@ package com.textmorph.app.ui.chat.components
 
 import android.content.Context
 import com.textmorph.app.agent.orchestration.DeepPlanEngine
+import com.textmorph.app.agent.orchestration.DeepSearchCoordinator
 import com.textmorph.app.data.model.AgentStepTrace
 import com.textmorph.app.data.model.ChatMessageEntity
 import com.textmorph.app.data.repository.ChatSessionRepository
@@ -66,23 +67,50 @@ object AiChatPlanExecutionHandler {
             )
 
             try {
-                val planEngine = DeepPlanEngine(context, engine)
-                val result = planEngine.execute(
-                    goal = goal.ifBlank { userPrompt },
-                    sessionId = sessionId,
-                    workerOverride = workerCount,
-                    onProgress = { statusMsg ->
-                        scope.launch(Dispatchers.Main) {
-                            chatRepository.setGenerationStatus(statusMsg)
-                            handlePlanProgress(statusMsg, traces)
-                            chatRepository.updateLastAssistantMessage(
-                                sessionId = sessionId,
-                                content = "",
-                                stepTracesJson = ChatMessageEntity.serializeStepTraces(traces)
-                            )
-                        }
+                val targetGoal = goal.ifBlank { userPrompt }
+
+                // HITL Clarification Check for underspecified / ambiguous deep search queries
+                if (!isPlan && DeepSearchCoordinator.isAmbiguousQuery(targetGoal)) {
+                    val approvalCall = DeepSearchCoordinator.buildClarificationApprovalCall(targetGoal)
+                    chatRepository.setGenerationStatus(null)
+                    chatRepository.updateLastAssistantMessage(
+                        sessionId = sessionId,
+                        content = approvalCall,
+                        stepTracesJson = ChatMessageEntity.serializeStepTraces(traces)
+                    )
+                    return@launch
+                }
+
+                val onProgressCallback: (String) -> Unit = { statusMsg ->
+                    scope.launch(Dispatchers.Main) {
+                        chatRepository.setGenerationStatus(statusMsg)
+                        handlePlanProgress(statusMsg, traces)
+                        chatRepository.updateLastAssistantMessage(
+                            sessionId = sessionId,
+                            content = "",
+                            stepTracesJson = ChatMessageEntity.serializeStepTraces(traces)
+                        )
                     }
-                )
+                }
+
+                val result = if (isPlan) {
+                    val planEngine = DeepPlanEngine(context, engine)
+                    planEngine.execute(
+                        goal = targetGoal,
+                        sessionId = sessionId,
+                        workerOverride = workerCount,
+                        onProgress = onProgressCallback
+                    )
+                } else {
+                    DeepSearchCoordinator.execute(
+                        goal = targetGoal,
+                        sessionId = sessionId,
+                        engine = engine,
+                        context = context,
+                        workerCount = workerCount,
+                        onProgress = onProgressCallback
+                    )
+                }
 
                 // Complete any open traces
                 for (trace in traces) {

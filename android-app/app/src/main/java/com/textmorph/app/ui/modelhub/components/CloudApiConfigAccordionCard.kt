@@ -49,6 +49,7 @@ import androidx.compose.ui.unit.sp
 import com.textmorph.app.data.model.AppSettings
 import com.textmorph.app.data.model.EngineType
 import com.textmorph.app.data.repository.SettingsRepository
+import com.textmorph.app.llm.EngineActivationCoordinator
 import com.textmorph.app.llm.LiteRtLmEngine
 import com.textmorph.app.llm.LlamaCppEngine
 import com.textmorph.app.llm.OpenAiCloudEngine
@@ -242,12 +243,17 @@ fun CloudApiConfigAccordionCard(
                             OutlinedButton(
                                 onClick = {
                                     scope.launch {
-                                        liteRtEngine.unload()
-                                        llamaCppEngine.unload()
                                         settingsRepository.setCloudConfig(cloudUrl, cloudKey, cloudModel)
-                                        settingsRepository.setEngine(EngineType.CLOUD_OPENAI)
-                                        settingsRepository.setActiveModel("No Model Loaded", null, null, EngineType.CLOUD_OPENAI)
-                                        Toast.makeText(context, "Cloud engine activated. Local models offloaded.", Toast.LENGTH_SHORT).show()
+                                        val coordinator = EngineActivationCoordinator.getInstance(context)
+                                        val res = coordinator.activateEngine(
+                                            targetEngine = EngineType.CLOUD_OPENAI,
+                                            targetCloudModelId = cloudModel
+                                        )
+                                        res.onSuccess {
+                                            Toast.makeText(context, "Cloud engine activated. Local models offloaded.", Toast.LENGTH_SHORT).show()
+                                        }.onFailure { err ->
+                                            Toast.makeText(context, "Cloud activation failed: ${err.message}", Toast.LENGTH_LONG).show()
+                                        }
                                     }
                                 },
                                 shape = RoundedCornerShape(10.dp)
