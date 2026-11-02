@@ -80,6 +80,27 @@ class DeepPlanEngine(
                 if (statusMsg.startsWith("Completed")) {
                     val done = completedCount.incrementAndGet()
                     onProgress("[$done/${sections.size}] Completed '$title'")
+                    if (context != null) {
+                        try {
+                            val eventStore = com.textmorph.app.agent.events.AgentEventStore.getInstance(context)
+                            val subEvt = com.textmorph.app.agent.events.SubagentCompletedEvent(
+                                parentSessionId = sessionId,
+                                childSessionId = "${sessionId}_sub_$index",
+                                sectionIndex = index,
+                                sectionTitle = title,
+                                summary = statusMsg
+                            )
+                            kotlinx.coroutines.runBlocking {
+                                eventStore.appendEvent(
+                                    sessionId,
+                                    subEvt.eventType,
+                                    kotlinx.serialization.json.Json.encodeToString(subEvt)
+                                )
+                            }
+                        } catch (t: Throwable) {
+                            AppLogger.w(TAG, "Failed logging subagent event: ${t.message}")
+                        }
+                    }
                 } else {
                     onProgress(statusMsg)
                 }

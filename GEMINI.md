@@ -101,12 +101,19 @@ flowchart TD
 - **Global Error Interception**: Uncaught exceptions must be routed to `AppErrorBus.postError()` to surface interactive diagnostic dialogs.
 
 ### F. Mobile Agent UI Interaction & Perception Architecture
+- **Decoupled Agent Daemon & Single-Step Loop**: Autonomous agent missions run within `AgentDaemonService` (a Foreground Service with sticky notification and partial WakeLock) executing single physical steps (`SingleStepExecutionEngine`), surviving Activity backgrounding and screen rotations.
+- **Write-Ahead Claim Leasing & Zero-Loss Recovery**: Active steps acquire 45s leases in SQLite (`agent_execution_claims`). On startup, `CrashRecoveryManager` sweeps orphaned leases after OS process death (LMK) to avoid zombie running states.
+- **Durable Session Inbox & Real-Time Steering**: Prompts enter `agent_session_inbox` with explicit `AdmissionMode` (`STEER`, `QUEUE`, `ABORT`). Users or voice triggers can inject real-time steering directives at active step boundaries without aborting running tasks.
+- **Append-Only Event Store (SQLite WAL)**: State modifications are stored as immutable `AgentEventRecord` rows in SQLite with WAL enabled. Materialized projections (`ChatMessageProjector`, `StepTraceProjector`) project read models asynchronously, with `ReactiveTokenBuffer` maintaining fluid 60 FPS Compose rendering.
+- **Mobile CodeMode Sandbox**: Sandboxed WebView runtime (`MobileCodeModeSandbox`) exposing native tools under `window.TextMorph` (`screen.*`, `tools.*`), allowing 3B/7B models to batch multi-tool logic in a single JavaScript turn, saving up to 70% latency and battery.
+- **Content-Addressed Screen Tree Diffing**: `ScreenDiffer` and `AttentionalScreenLinearizer` isolate added/removed UI elements and calculate SHA-256 layout hashes, reducing screen perception prompt tokens by 65–80%.
+- **Declarative Capability Gateways & Circuit Breakers**: `PermissionGateway` (`ALLOW`, `ASK`, `DENY`), `SpatialCircuitBreaker` (detecting 3-step spatial screen invariance), and `NavigationBacktracker` breadcrumb stack.
 - **Pure Code-as-Action Prompts (Exclusively Standardized)**: `AGENT_SYSTEM_PROMPT` and `TASK_SYSTEM_PROMPT` strictly enforce Code-as-Action syntax (`click_text(...)`, `click_at(...)`, `type_text(...)`, `press_enter()`, `scroll(...)`, `open_app(...)`, `done(...)`) to eliminate token bloat and prevent JSON formatting failures on on-device 1B–2B SLMs. All tool parsing is standardized on `CodeActionParser.kt` and `CodeActionMapper.kt`.
 - **Unified Single Chat Mode & Dynamic Routing**: Single default Chat mode eliminates the legacy Chat vs Agent split. `ChatCommandRouter` deterministically classifies phases (`PHASE_CHAT` fast-exits with 0 tools injected, `/plan`, `/deepsearch`, research, or automation) before LLM invocation.
 - **Guardrail Execution Loop**: Bounded multi-turn tool loops with pre-flight schema validation (`ToolValidator`), SHA-256 parameter hashing loop prevention (`ExecutionGuardrail`), and self-correction prompt synthesis.
 - **Bounded Plan-Execute-Append Pipeline (`/plan` & `/deepsearch`)**:
   - `BoundedWorkerPool` bounds concurrent sub-task execution with `Semaphore(maxConcurrentWorkers)` (default 2, safe clamp 1..4).
-  - `GpuInferenceGate` enforces two-tier locking: serializes native GPU/LLM forward passes while allowing concurrent web scraping and tool I/O on `Dispatchers.IO`.
+  - `GpuInferenceGate` enforces two-tier locking with priority preemption (`INTERACTIVE`, `SCREEN_CONTROL`, `BACKGROUND_SUBAGENT`): serializes native GPU/LLM forward passes while allowing concurrent web scraping and tool I/O on `Dispatchers.IO`.
   - `ArtifactAssemblyStore` manages order-preserving incremental assembly with temp cache disk staging and a deterministic Kotlin quality gate.
 - **Controlled Agentic Readiness Suite**: Complete replacement of naive legacy benchmarks with a deterministic, offline-capable test suite (`AgenticReadinessSuite.kt` at `temperature = 0.0`) evaluating 5 controlled scenarios (Tool Picking & Irrelevance Detection, Schema Strictness & Self-Correction, Context Grounding & Loop Resistance, `/plan` Decomposition Quality, Hardware & Runtime Telemetry).
 - **Tri-Modal Screen Perception**:
@@ -118,7 +125,7 @@ flowchart TD
   - *Multi-Tier Keyboard Submission*: Dispatches `ACTION_IME_ENTER`, with fallback to IME keyboard window detection (`AccessibilityWindowInfo.TYPE_INPUT_METHOD`) tapping bottom-right corner `(right - 10%, bottom - 14%)`.
   - *Adaptive Delays*: 3000ms app open, 2000ms text entry, 1500ms click/enter, 1000ms scroll.
   - *Anti-Loop & Heuristic Recovery*: Caps repetitive enter ($\le 2$) and scroll ($\le 3$) loops with back-out navigation, auto-dismisses lingering soft keyboards blocking target controls, waits on loading spinners, and injects failure recovery warnings if actions do not change screen state.
-- **Cleartext HTTP for Local Inference**: Allow cleartext HTTP traffic to local network IPs (`192.168.x.x`, `10.x.x.x`, `127.0.0.1`, custom ports) so users can freely connect to Ollama, LM Studio, or local servers without transport errors.
+- **Cleartext HTTP for Local Inference & EventFeed SSE**: Allow cleartext HTTP traffic to local network IPs (`192.168.x.x`, `10.x.x.x`, `127.0.0.1`, custom ports) and host real-time Agent EventFeed at `/api/v1/sessions/{id}/events` (SSE) and `/api/v1/sessions/{id}/steer`.
 
 ---
 

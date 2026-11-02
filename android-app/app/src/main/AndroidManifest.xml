@@ -156,6 +156,16 @@
             android:exported="false"
             android:foregroundServiceType="microphone" />
 
+        <!-- Autonomous Agent Daemon Foreground Service for Persistent State Machine Execution -->
+        <service
+            android:name=".agent.core.AgentDaemonService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Autonomous mobile agent task coordination, state machine execution, and accessibility automation." />
+        </service>
+
         <!-- Native Hardware Acceleration Libraries (OpenCL, Hexagon CDSP, EdgeTPU) -->
         <uses-native-library android:name="libvndksupport.so" android:required="false"/>
         <uses-native-library android:name="libOpenCL.so" android:required="false"/>

@@ -75,7 +75,8 @@ class LlmForegroundService : Service() {
                         llmEngine = activeEngine,
                         port = settings.localServerPort,
                         bearerToken = settings.localServerBearerToken,
-                        activeModelName = settings.activeModelName
+                        activeModelName = settings.activeModelName,
+                        context = applicationContext
                     ).also { it.start() }
                     updateNotification("Engine Active • Localhost :${settings.localServerPort}")
                 }

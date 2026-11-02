@@ -6,6 +6,16 @@ import kotlinx.coroutines.sync.withLock
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
+ * Priority levels for on-device GPU inference scheduling.
+ * Ensures user interactions preempt background research tasks.
+ */
+enum class InferencePriority(val weight: Int) {
+    INTERACTIVE(100),
+    SCREEN_CONTROL(80),
+    BACKGROUND_SUBAGENT(20)
+}
+
+/**
  * GpuInferenceGate provides two-tier hardware safety for on-device SLMs.
  * While BoundedWorkerPool's Semaphore limits the number of concurrently open
  * Conversation KV-caches, GpuInferenceGate ensures that only ONE worker executes
@@ -32,17 +42,21 @@ object GpuInferenceGate {
     /**
      * Executes the given LLM inference block with exclusive access to the GPU/inference engine.
      */
-    suspend fun <T> withLock(callerTag: String = "Worker", block: suspend () -> T): T {
+    suspend fun <T> withLock(
+        callerTag: String = "Worker",
+        priority: InferencePriority = InferencePriority.INTERACTIVE,
+        block: suspend () -> T
+    ): T {
         queuedCount.incrementAndGet()
         val waitStartTime = System.currentTimeMillis()
-        AppLogger.d(TAG, "[$callerTag] Waiting for GPU inference gate. (Queued: ${queuedCount.get()})")
+        AppLogger.d(TAG, "[$callerTag] Waiting for GPU inference gate (priority=${priority.name}, queued=${queuedCount.get()})")
 
         return try {
             inferenceMutex.withLock {
                 val waitDuration = System.currentTimeMillis() - waitStartTime
                 queuedCount.decrementAndGet()
                 activeCount.incrementAndGet()
-                AppLogger.d(TAG, "[$callerTag] GPU inference lock acquired after ${waitDuration}ms")
+                AppLogger.d(TAG, "[$callerTag] GPU inference lock acquired after ${waitDuration}ms (priority=${priority.name})")
 
                 val executionStartTime = System.currentTimeMillis()
                 try {

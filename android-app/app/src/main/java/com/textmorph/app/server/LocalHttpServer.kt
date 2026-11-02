@@ -40,7 +40,8 @@ class LocalHttpServer(
     private val llmEngine: LlmEngine,
     private val port: Int = 8080,
     private val bearerToken: String = "",
-    private val activeModelName: String = "gemma-4-E2B-it.litertlm"
+    private val activeModelName: String = "gemma-4-E2B-it.litertlm",
+    private val context: android.content.Context? = null
 ) {
 
     private val TAG = "LocalHttpServer"
@@ -213,6 +214,68 @@ class LocalHttpServer(
                     }
                     call.respondText(responseJson.toString(), ContentType.Application.Json)
                 }
+            }
+
+            // Real-Time Agent EventFeed SSE Multicast Endpoint
+            get("/api/v1/sessions/{id}/events") {
+                val sessionId = call.parameters["id"].orEmpty()
+                val ctx = context
+                if (ctx == null) {
+                    call.respond(HttpStatusCode.ServiceUnavailable, "Context not initialized")
+                    return@get
+                }
+
+                call.response.header("Content-Type", "text/event-stream")
+                call.response.header("Cache-Control", "no-cache")
+                call.response.header("Connection", "keep-alive")
+
+                call.respondTextWriter(ContentType.Text.EventStream) {
+                    val eventStore = com.textmorph.app.agent.events.AgentEventStore.getInstance(ctx)
+                    val pastEvents = eventStore.getEventsForSession(sessionId)
+                    for (evt in pastEvents) {
+                        write("event: ${evt.eventType.lowercase()}\n")
+                        write("data: ${evt.payloadJson}\n\n")
+                        flush()
+                    }
+
+                    eventStore.eventFlow.collect { rec ->
+                        if (rec.sessionId == sessionId) {
+                            write("event: ${rec.eventType.lowercase()}\n")
+                            write("data: ${rec.payloadJson}\n\n")
+                            flush()
+                        }
+                    }
+                }
+            }
+
+            // Remote Agent Steering Endpoint
+            post("/api/v1/sessions/{id}/steer") {
+                val sessionId = call.parameters["id"].orEmpty()
+                val ctx = context
+                if (ctx == null) {
+                    call.respond(HttpStatusCode.ServiceUnavailable, "Context not initialized")
+                    return@post
+                }
+                val body = call.receiveText()
+                val obj = try { json.parseToJsonElement(body).jsonObject } catch (e: Exception) { null }
+                val instruction = obj?.get("instruction")?.jsonPrimitive?.content.orEmpty()
+                if (instruction.isBlank()) {
+                    call.respond(HttpStatusCode.BadRequest, "Field 'instruction' is required.")
+                    return@post
+                }
+
+                val admission = com.textmorph.app.agent.inbox.PromptAdmissionController.getInstance(ctx)
+                val item = admission.submitPrompt(
+                    sessionId = sessionId,
+                    prompt = instruction,
+                    mode = com.textmorph.app.agent.inbox.AdmissionMode.STEER
+                )
+                val resp = buildJsonObject {
+                    put("status", if (item != null) "admitted" else "failed")
+                    put("inboxId", item?.inboxId ?: -1L)
+                    put("mode", "STEER")
+                }
+                call.respondText(resp.toString(), ContentType.Application.Json)
             }
         }
     }
