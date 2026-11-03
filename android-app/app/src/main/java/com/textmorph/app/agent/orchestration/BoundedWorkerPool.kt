@@ -117,15 +117,17 @@ class BoundedWorkerPool(
                 // Parse action
                 val action = CodeActionParser.parse(llmOutput)
                 if (action == null) {
-                    // If output has substantial markdown without code actions, accept as drafted content unless it contains refusal
-                    if (llmOutput.length >= 100) {
-                        val lower = llmOutput.lowercase()
+                    val sanitized = sanitizeSectionContent(llmOutput)
+                    if (sanitized.length >= 60) {
+                        val lower = sanitized.lowercase()
                         val hasRefusal = listOf("please provide", "what is the subject", "once you provide", "looking forward", "awaiting search").any { lower.contains(it) }
                         if (!hasRefusal) {
-                            store.writeSection(section.index, llmOutput)
+                            store.writeSection(section.index, sanitized)
                         } else if (sectionFacts.isNotBlank()) {
                             store.writeSection(section.index, "## ${section.title}\n\n$sectionFacts")
                         }
+                    } else if (sectionFacts.isNotBlank()) {
+                        store.writeSection(section.index, "## ${section.title}\n\n$sectionFacts")
                     }
                     break
                 }
@@ -139,14 +141,14 @@ class BoundedWorkerPool(
                 when (action.action) {
                     "write_section" -> {
                         val content = (action.params["markdown"] ?: action.params["content"] ?: "").toString()
-                        store.writeSection(section.index, content)
+                        store.writeSection(section.index, sanitizeSectionContent(content))
                         store.updateStatus(section.index, SectionStatus.DRAFTING)
                         onProgress(section.index, "Drafting '${section.title}'…")
                     }
 
                     "append_to_section" -> {
                         val content = (action.params["markdown"] ?: action.params["content"] ?: "").toString()
-                        store.appendSection(section.index, content)
+                        store.appendSection(section.index, sanitizeSectionContent(content))
                         store.updateStatus(section.index, SectionStatus.DRAFTING)
                         onProgress(section.index, "Expanding '${section.title}'…")
                     }
@@ -192,12 +194,13 @@ class BoundedWorkerPool(
                 val retryAction = CodeActionParser.parse(retryOutput)
                 if (retryAction != null && (retryAction.action == "write_section" || retryAction.action == "append_to_section")) {
                     val markdown = (retryAction.params["markdown"] ?: retryAction.params["content"] ?: "").toString()
-                    store.writeSection(section.index, markdown)
-                } else if (retryOutput.length >= 100) {
-                    val lower = retryOutput.lowercase()
+                    store.writeSection(section.index, sanitizeSectionContent(markdown))
+                } else if (retryOutput.length >= 60) {
+                    val sanitized = sanitizeSectionContent(retryOutput)
+                    val lower = sanitized.lowercase()
                     val hasRefusal = listOf("please provide", "what is the subject", "once you provide", "looking forward", "awaiting search").any { lower.contains(it) }
                     if (!hasRefusal) {
-                        store.writeSection(section.index, retryOutput)
+                        store.writeSection(section.index, sanitized)
                     } else if (sectionFacts.isNotBlank()) {
                         store.writeSection(section.index, "## ${section.title}\n\n$sectionFacts")
                     }
@@ -215,9 +218,45 @@ class BoundedWorkerPool(
             store.updateStatus(section.index, SectionStatus.FAILED)
             throw ce
         } catch (t: Throwable) {
-            AppLogger.e(TAG, "[$workerTag] Sub-task worker failed: ${t.message}", t)
-            store.updateStatus(section.index, SectionStatus.FAILED)
+            AppLogger.e(TAG, "[$workerTag] Sub-task worker encountered error: ${t.message}", t)
+            // Ensure no raw socket stack traces pollute the user artifact
+            if (sectionFacts.isNotBlank()) {
+                store.writeSection(section.index, "## ${section.title}\n\n$sectionFacts")
+                store.updateStatus(section.index, SectionStatus.DONE)
+            } else {
+                store.writeSection(section.index, "## ${section.title}\n\n${section.rationale.ifBlank { section.queryOrGoal }}")
+                store.updateStatus(section.index, SectionStatus.DONE)
+            }
         }
+    }
+
+    /**
+     * Sanitizes section content, stripping leaked <think> blocks, tool call wrappers,
+     * and network connection errors before committing to the assembly store.
+     */
+    fun sanitizeSectionContent(raw: String): String {
+        var clean = raw
+        clean = clean.replace(Regex("(?s)<think>.*?</think>"), "")
+        clean = clean.replace("<think>", "").replace("</think>", "")
+        clean = clean.replace(Regex("(?s)</?execute_tool>"), "")
+        clean = clean.replace(Regex("(?s)</?execute_action>"), "")
+
+        // Extract raw markdown if model emitted write_section(...) as plaintext
+        val writeSecRegex = Regex("""(?s)write_section\s*\(\s*index\s*=\s*\d+\s*,\s*(?:markdown|content)\s*=\s*"(.*)"\s*\)""")
+        writeSecRegex.find(clean)?.let { match ->
+            clean = match.groupValues[1].replace("\\\"", "\"").replace("\\n", "\n")
+        }
+
+        // Clean out socket/network connection error dumps
+        if (clean.contains("Connection error:", ignoreCase = true) || clean.contains("failed to connect to", ignoreCase = true)) {
+            clean = clean.lines().filterNot { line ->
+                line.contains("Connection error:", ignoreCase = true) ||
+                line.contains("failed to connect to", ignoreCase = true) ||
+                line.contains("after 15000ms", ignoreCase = true)
+            }.joinToString("\n")
+        }
+
+        return clean.trim()
     }
 
     private fun buildWorkerPrompt(planGoal: String, section: PlanSection, sectionFacts: String = ""): String {

@@ -29,7 +29,9 @@ data class PlanSection(
     val queryOrGoal: String,
     var status: SectionStatus = SectionStatus.PENDING,
     var content: String = "",
-    var retryCount: Int = 0
+    var retryCount: Int = 0,
+    val role: String = "Worker",
+    val rationale: String = ""
 )
 
 /**
@@ -278,6 +280,8 @@ class ArtifactAssemblyStore(
                 obj.put("status", sec.status.name)
                 obj.put("content", sec.content)
                 obj.put("retryCount", sec.retryCount)
+                obj.put("role", sec.role)
+                obj.put("rationale", sec.rationale)
                 array.put(obj)
             }
             root.put("sections", array)

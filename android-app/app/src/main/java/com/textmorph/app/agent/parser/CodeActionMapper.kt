@@ -354,18 +354,19 @@ object CodeActionMapper {
             }
 
             else -> {
+                if (funcName in CodeActionParser.KEYWORD_BLACKLIST) return null
                 val toolDef = AgentToolRegistry.findTool(funcName)
                 val paramsMap = mutableMapOf<String, String>()
+                named.forEach { (k, v) -> paramsMap[k] = v }
+                positional.forEachIndexed { idx, v ->
+                    paramsMap["arg$idx"] = v
+                }
                 if (toolDef != null) {
                     toolDef.parameters.forEachIndexed { idx, param ->
                         val value = getArg(idx, param.name, default = param.defaultValue)
                         if (value.isNotBlank()) paramsMap[param.name] = value
                     }
                 } else {
-                    named.forEach { (k, v) -> paramsMap[k] = v }
-                    positional.forEachIndexed { idx, v ->
-                        paramsMap["arg$idx"] = v
-                    }
                     if (positional.isNotEmpty()) {
                         if (!paramsMap.containsKey("query")) paramsMap["query"] = positional[0]
                         if (!paramsMap.containsKey("location")) paramsMap["location"] = positional[0]

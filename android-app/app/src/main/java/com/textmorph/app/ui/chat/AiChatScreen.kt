@@ -386,7 +386,8 @@ fun AiChatContent(
             onSelectOption = { handleSend(it) },
             onSelectSuggestion = { handleSend(it) },
             onViewArtifact = { viewingArtifact = it },
-            onExecutePlan = { handleSend(it) },
+            onExecutePlan = { handleSend("/plan --execute $it") },
+            onEditPlan = { handleSend("/plan --edit $it") },
             modifier = Modifier.weight(1f)
         )
 

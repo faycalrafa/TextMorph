@@ -62,13 +62,11 @@ fun ThinkingAccordionCard(
 ) {
     if (thoughtContent.isBlank() && !isThinking) return
 
-    var isExpanded by remember { mutableStateOf(false) }
+    var isExpanded by remember { mutableStateOf(isThinking) }
 
-    // Auto-collapse when thinking finishes
+    // Auto-expand during live thinking, auto-collapse when thinking finishes
     LaunchedEffect(isThinking) {
-        if (!isThinking) {
-            isExpanded = false
-        }
+        isExpanded = isThinking
     }
 
     val infiniteTransition = rememberInfiniteTransition(label = "ThinkingSpin")

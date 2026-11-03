@@ -293,11 +293,16 @@ object AgentToolRegistry {
 
     fun getInAppTools(): List<AgentToolDefinition> = builtInTools
 
-    fun getJsTools(context: android.content.Context): List<AgentToolDefinition> {
+    fun getJsTools(context: android.content.Context? = null): List<AgentToolDefinition> {
         return try {
-            com.textmorph.app.agent.tools.js.JsToolRepository.getInstance(context)
-                .getEnabledTools()
-                .map { it.toAgentToolDefinition() }
+            if (context != null) {
+                com.textmorph.app.agent.tools.js.JsToolRepository.getInstance(context)
+                    .getEnabledTools()
+                    .map { it.toAgentToolDefinition() }
+            } else {
+                com.textmorph.app.agent.tools.js.JsToolRepository.getShowcaseTools()
+                    .map { it.toAgentToolDefinition() }
+            }
         } catch (t: Throwable) {
             AppLogger.w("AgentToolRegistry", "Failed reading enabled JS tools: ${t.message}", t)
             emptyList()
@@ -305,7 +310,7 @@ object AgentToolRegistry {
     }
 
     fun getAllTools(context: android.content.Context? = null): List<AgentToolDefinition> {
-        val jsTools = context?.let { getJsTools(it) } ?: emptyList()
+        val jsTools = getJsTools(context)
         return builtInTools + jsTools
     }
 

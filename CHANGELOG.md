@@ -4,6 +4,31 @@ All notable changes to **TextMorph** are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.6.0] - 2026-11-03
+
+### Added
+- **Two-Stage Plan-and-Execute Engine (`/plan`)**:
+  - Implemented decoupled Stage 1 (Decomposition & Review) and Stage 2 (Multi-Agent Parallel Execution).
+  - Decomposes user goals into discrete, modular steps assigning specialized worker roles (`Asset Harvester`, `Research Scout`, `Logic Engineer`, `QA Validator`) with explicit rationales detailing *what* will be done and *why*.
+- **Interactive Plan Review & In-Place Edit Card**:
+  - Upgraded `PlanExecutionActionCard` with primary **[Execute Plan]** and secondary **[Edit Plan]** actions in responsive `FlowRow` styling.
+  - Added an in-place revision expansion input allowing users to describe desired plan additions, modifications, or pruning without abandoning the active session.
+  - Connected `revisePlan` in `DeepPlanEngine` to dynamically update target steps and bump plan versions (`v1`, `v2`, etc.) while preserving unchanged work units.
+- **Two-Stage DeepSearch Pipeline (`/deepsearch`)**:
+  - Decomposed research queries into orthogonal investigation angles for user inspection before launching web discovery.
+  - Integrated research plan review and editing directly into `AiChatDeepSearchHandler`, with parallel web crawling, grounded fact staging, and source citation compilation upon execution.
+- **Robust Worker Output Sanitization**:
+  - Added `sanitizeSectionContent` in `BoundedWorkerPool` to strip model scratchpads (`<think>...</think>`), pseudo-tool tags (`write_section(...)`, `<execute_tool>`), and raw network/socket error dumps.
+  - Added resilient fallback on network timeouts and socket drops, preventing connection crashes from corrupting synthesized markdown deliverables.
+
+### Changed
+- **Decomposed Handlers Architecture**:
+  - Split plan and deep search orchestration into dedicated `< 500 lines` modules: `AiChatPlanExecutionHandler` and `AiChatDeepSearchHandler`.
+- **Enhanced Code-as-Action Parsing**:
+  - Added thinking block removal and `<execute_tool>` tag stripping in `CodeActionParser.stripControlTokens` to prevent internal scratchpads from being parsed as executable actions.
+
+---
+
 ## [5.5.0] - 2026-11-02
 
 ### Added

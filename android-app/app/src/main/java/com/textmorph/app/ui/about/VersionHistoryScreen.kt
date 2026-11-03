@@ -58,9 +58,21 @@ fun VersionHistoryScreen(
 
     val releaseLog = listOf(
         ReleaseItem(
-            version = "v5.5.0",
+            version = "v5.6.0",
             tag = "Latest Release",
             isLatest = true,
+            changes = listOf(
+                "Two-Stage Plan-and-Execute Engine: Decoupled task planning from multi-agent worker execution across /plan and /deepsearch.",
+                "Modular Task Decomposition: Automatic role assignment (Asset Harvester, Research Scout, Logic Engineer, QA Validator) with clear what-and-why rationales.",
+                "Interactive Plan Review & In-Place Edit Card: Direct [Execute Plan] and [Edit Plan] controls with responsive inline modification input.",
+                "Zero Token & Scratchpad Leaks: Strict stripping of <think> reasoning blocks, pseudo-tool calls, and raw network stack traces.",
+                "Two-Stage DeepSearch: Multi-angle research planning with parallel web discovery, grounded fact staging, and citation synthesis."
+            )
+        ),
+        ReleaseItem(
+            version = "v5.5.0",
+            tag = "Previous Release",
+            isLatest = false,
             changes = listOf(
                 "Icon-Only Engine Toggle: Compact 32×32dp rounded Start/Stop button in Model Hub top navigation bar.",
                 "Chat Navbar Overflow Menu: Engine Start/Stop toggle integrated into 3-dots dropdown menu with dynamic state colors.",

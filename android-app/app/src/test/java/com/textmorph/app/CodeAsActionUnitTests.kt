@@ -211,4 +211,50 @@ class CodeAsActionUnitTests {
         assertEquals("click_text", parsedAction?.action)
         assertEquals("Submit", parsedAction?.getStringParam("text"))
     }
+
+    @Test
+    fun testHtmlAndProgrammingCodeBlocksNeverTreatedAsToolCalls() {
+        val htmlOutput = """
+            Here is the swimming fish animation:
+            ```html
+            <!DOCTYPE html>
+            <html>
+            <head>
+            <style>
+            .fish {
+                transform: rotate(45deg);
+                background: rgb(255, 0, 0);
+            }
+            </style>
+            </head>
+            <body>
+            <script>
+            function animateFish() {
+                window.requestAnimationFrame(animateFish);
+            }
+            </script>
+            </body>
+            </html>
+            ```
+            Enjoy the animation!
+        """.trimIndent()
+
+        val parsed = CodeActionParser.parse(htmlOutput)
+        assertNull("Code inside ```html block should never be parsed as tool call", parsed)
+        assertFalse(CodeActionParser.hasCompleteAction(htmlOutput))
+
+        // Also test rust, php, go
+        val phpOutput = "Here is php:\n```php\n<?php rotate(45); ?>\n```"
+        assertNull(CodeActionParser.parse(phpOutput))
+
+        val goOutput = "Here is go:\n```go\nfunc rotate(deg int) {}\n```"
+        assertNull(CodeActionParser.parse(goOutput))
+
+        val rustOutput = "Here is rust:\n```rust\nfn rotate(deg: f32) {}\n```"
+        assertNull(CodeActionParser.parse(rustOutput))
+
+        // Direct CSS transform should be blacklisted even outside code fences
+        assertNull(CodeActionParser.parse("transform: rotate(45deg);"))
+        assertNull(CodeActionParser.parse("rotate(45deg)"))
+    }
 }

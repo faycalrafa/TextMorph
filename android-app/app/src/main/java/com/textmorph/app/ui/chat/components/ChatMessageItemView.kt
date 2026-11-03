@@ -78,6 +78,7 @@ fun ChatMessageItemView(
     onSelectSuggestion: ((String) -> Unit)? = null,
     onViewArtifact: ((com.textmorph.app.data.model.ArtifactMetadata) -> Unit)? = null,
     onExecutePlan: ((String) -> Unit)? = null,
+    onEditPlan: ((String) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -179,7 +180,10 @@ fun ChatMessageItemView(
                         AiChatInferenceUtils.extractThought(message.content)
                     }
                 }
-                val isStreamingThought = isGenerating && message.content.contains("<think>") && !message.content.contains("</think>")
+                val isStreamingThought = isGenerating && (
+                    (message.content.contains("<think>") && !message.content.contains("</think>")) ||
+                    (!message.thoughtContent.isNullOrBlank() && message.content.isBlank())
+                )
                 val hasThinking = !extractedThought.isNullOrBlank() || isStreamingThought
 
                 val isPlaceholder = isGenerating && message.content.isBlank() && !hasThinking
@@ -218,10 +222,11 @@ fun ChatMessageItemView(
                     )
                     Spacer(modifier = Modifier.height(8.dp))
 
-                    if (artifact.type == "plan" && onExecutePlan != null) {
+                    if ((artifact.type == "plan" || artifact.type == "execution_plan" || artifact.type == "search_plan") && onExecutePlan != null) {
                         PlanExecutionActionCard(
                             planSummary = artifact.summary,
-                            onExecutePlan = { onExecutePlan(artifact.content) }
+                            onExecutePlan = { onExecutePlan(artifact.title.ifBlank { artifact.summary }) },
+                            onEditPlan = { feedback -> onEditPlan?.invoke(feedback) }
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                     }

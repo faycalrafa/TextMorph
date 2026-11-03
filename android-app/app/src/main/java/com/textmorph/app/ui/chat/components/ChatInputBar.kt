@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -91,6 +92,7 @@ fun ChatInputBar(
     modifier: Modifier = Modifier
 ) {
     val showSlashAutocomplete = activeCommand == null && inputText.startsWith("/") && !inputText.contains(" ")
+    val showToolAutocomplete = activeCommand == null && inputText.startsWith("@") && !inputText.contains(" ")
     val hasImages = attachments.any { it.isImage }
 
     val handleTextChange: (String) -> Unit = { newText ->
@@ -99,6 +101,18 @@ fun ChatInputBar(
             if (matchingCmd != null) {
                 onActiveCommandChanged(matchingCmd.command)
                 onInputTextChanged(newText.removePrefix("${matchingCmd.command} "))
+            } else {
+                onInputTextChanged(newText)
+            }
+        } else if (activeCommand == null && newText.startsWith("@")) {
+            val availableTools = getAvailableToolMentions(null)
+            val matchingTool = availableTools.firstOrNull {
+                newText.startsWith("${it.alias} ") || newText.startsWith("@${it.id} ")
+            }
+            if (matchingTool != null) {
+                val prefix = if (newText.startsWith("${matchingTool.alias} ")) "${matchingTool.alias} " else "@${matchingTool.id} "
+                onActiveCommandChanged(matchingTool.alias)
+                onInputTextChanged(newText.removePrefix(prefix))
             } else {
                 onInputTextChanged(newText)
             }
@@ -123,6 +137,23 @@ fun ChatInputBar(
                     filterText = inputText,
                     onSelectCommand = { cmd ->
                         onActiveCommandChanged(cmd.command)
+                        onInputTextChanged("")
+                    }
+                )
+            }
+        }
+
+        // Tool Mention Autocomplete Popup
+        AnimatedVisibility(
+            visible = showToolAutocomplete,
+            enter = fadeIn(),
+            exit = fadeOut()
+        ) {
+            Box(modifier = Modifier.padding(bottom = 8.dp)) {
+                ToolAutocompleteCard(
+                    filterText = inputText,
+                    onSelectTool = { tool ->
+                        onActiveCommandChanged(tool.alias)
                         onInputTextChanged("")
                     }
                 )
@@ -224,7 +255,9 @@ fun ChatInputBar(
             color = Color(0xF21F2937), // Elevated Charcoal Slate
             border = BorderStroke(1.dp, Color(0xFF374151)),
             shadowElevation = 4.dp,
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 52.dp)
         ) {
             Column(modifier = Modifier.fillMaxWidth()) {
                 // Discrete capacity progress bar along top curve of card
@@ -276,13 +309,18 @@ fun ChatInputBar(
 
                     Spacer(modifier = Modifier.width(8.dp))
 
-                    // Active Slash Command Chip (e.g. [/plan ▾ | ✕])
+                    // Active Slash / Tool Command Chip (e.g. [/plan ▾ | ✕] or [@weather ▾ | ✕])
                     if (activeCommand != null) {
                         var showCommandDropdown by remember { mutableStateOf(false) }
+                        val isTool = activeCommand.startsWith("@")
+                        val chipBg = if (isTool) Color(0xFF0F766E).copy(alpha = 0.5f) else Color(0xFF1E3A8A).copy(alpha = 0.5f)
+                        val chipBorder = if (isTool) Color(0xFF14B8A6) else Color(0xFF3B82F6)
+                        val chipText = if (isTool) Color(0xFF5EEAD4) else Color(0xFF93C5FD)
+
                         Surface(
                             shape = RoundedCornerShape(16.dp),
-                            color = Color(0xFF1E3A8A).copy(alpha = 0.5f),
-                            border = BorderStroke(1.dp, Color(0xFF3B82F6)),
+                            color = chipBg,
+                            border = BorderStroke(1.dp, chipBorder),
                             modifier = Modifier.padding(end = 6.dp)
                         ) {
                             Row(
@@ -299,12 +337,12 @@ fun ChatInputBar(
                                             fontFamily = FontFamily.Monospace,
                                             fontSize = 12.sp,
                                             fontWeight = FontWeight.Bold,
-                                            color = Color(0xFF93C5FD)
+                                            color = chipText
                                         )
                                         Icon(
                                             imageVector = Icons.Default.ArrowDropDown,
                                             contentDescription = "Switch command",
-                                            tint = Color(0xFF93C5FD),
+                                            tint = chipText,
                                             modifier = Modifier.size(16.dp)
                                         )
                                     }
@@ -314,20 +352,38 @@ fun ChatInputBar(
                                         onDismissRequest = { showCommandDropdown = false },
                                         modifier = Modifier.background(Color(0xFF1F2937))
                                     ) {
-                                        AVAILABLE_SLASH_COMMANDS.forEach { cmd ->
-                                            DropdownMenuItem(
-                                                text = {
-                                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                                        Text(cmd.command, fontWeight = FontWeight.Bold, color = Color(0xFF60A5FA), fontFamily = FontFamily.Monospace, fontSize = 12.sp)
-                                                        Spacer(modifier = Modifier.width(6.dp))
-                                                        Text(cmd.description, color = Color(0xFF9CA3AF), fontSize = 11.sp)
+                                        if (isTool) {
+                                            getAvailableToolMentions(null).forEach { tool ->
+                                                DropdownMenuItem(
+                                                    text = {
+                                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                                            Text(tool.alias, fontWeight = FontWeight.Bold, color = tool.tint, fontFamily = FontFamily.Monospace, fontSize = 12.sp)
+                                                            Spacer(modifier = Modifier.width(6.dp))
+                                                            Text(tool.name, color = Color(0xFF9CA3AF), fontSize = 11.sp)
+                                                        }
+                                                    },
+                                                    onClick = {
+                                                        onActiveCommandChanged(tool.alias)
+                                                        showCommandDropdown = false
                                                     }
-                                                },
-                                                onClick = {
-                                                    onActiveCommandChanged(cmd.command)
-                                                    showCommandDropdown = false
-                                                }
-                                            )
+                                                )
+                                            }
+                                        } else {
+                                            AVAILABLE_SLASH_COMMANDS.forEach { cmd ->
+                                                DropdownMenuItem(
+                                                    text = {
+                                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                                            Text(cmd.command, fontWeight = FontWeight.Bold, color = Color(0xFF60A5FA), fontFamily = FontFamily.Monospace, fontSize = 12.sp)
+                                                            Spacer(modifier = Modifier.width(6.dp))
+                                                            Text(cmd.description, color = Color(0xFF9CA3AF), fontSize = 11.sp)
+                                                        }
+                                                    },
+                                                    onClick = {
+                                                        onActiveCommandChanged(cmd.command)
+                                                        showCommandDropdown = false
+                                                    }
+                                                )
+                                            }
                                         }
                                     }
                                 }
@@ -362,7 +418,10 @@ fun ChatInputBar(
                     ) {
                         if (inputText.isEmpty()) {
                             Text(
-                                text = if (isListening) "Listening…" else if (activeCommand != null) "Describe objective…" else "Ask TextMorph…",
+                                text = if (isListening) "Listening…"
+                                    else if (activeCommand != null && activeCommand.startsWith("@")) "Ask with $activeCommand…"
+                                    else if (activeCommand != null) "Describe objective…"
+                                    else "Ask TextMorph…",
                                 fontSize = 15.sp,
                                 color = if (isListening) Color(0xFFFBBF24) else Color(0xFF9CA3AF)
                             )

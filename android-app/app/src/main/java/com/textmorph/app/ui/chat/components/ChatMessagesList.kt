@@ -37,6 +37,7 @@ fun ChatMessagesList(
     onSelectSuggestion: (String) -> Unit,
     onViewArtifact: (ArtifactMetadata) -> Unit,
     onExecutePlan: (String) -> Unit,
+    onEditPlan: ((String) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val scope = rememberCoroutineScope()
@@ -66,7 +67,8 @@ fun ChatMessagesList(
                         onSelectOption = onSelectOption,
                         onSelectSuggestion = onSelectSuggestion,
                         onViewArtifact = onViewArtifact,
-                        onExecutePlan = onExecutePlan
+                        onExecutePlan = onExecutePlan,
+                        onEditPlan = onEditPlan
                     )
                 }
             }

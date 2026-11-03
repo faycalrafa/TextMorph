@@ -1,6 +1,7 @@
 package com.textmorph.app.agent.parser
 
 import com.textmorph.app.agent.model.AgentAction
+import com.textmorph.app.agent.tools.registry.AgentToolRegistry
 import com.textmorph.app.util.AppLogger
 
 /**
@@ -13,9 +14,24 @@ object CodeActionParser {
 
     private const val TAG = "CodeActionParser"
 
-    private val KEYWORD_BLACKLIST = setOf(
+    val KEYWORD_BLACKLIST = setOf(
         "if", "for", "while", "return", "val", "var", "def",
-        "println", "print", "console", "log", "import", "package", "class", "interface", "fun"
+        "println", "print", "console", "log", "import", "package", "class", "interface", "fun",
+        // CSS functions
+        "rotate", "rotatex", "rotatey", "rotatez", "rotate3d",
+        "scale", "scalex", "scaley", "scalez", "scale3d",
+        "translate", "translatex", "translatey", "translatez", "translate3d",
+        "skew", "skewx", "skewy", "matrix", "matrix3d",
+        "calc", "min", "max", "clamp", "rgb", "rgba", "hsl", "hsla", "url", "attr",
+        "linear-gradient", "radial-gradient", "conic-gradient", "drop-shadow", "blur",
+        "polygon", "circle", "ellipse", "rect", "path",
+        // JS DOM and built-ins
+        "alert", "prompt", "confirm", "fetch", "eval", "require",
+        "settimeout", "setinterval", "cleartimeout", "clearinterval",
+        "addeventlistener", "removeeventlistener",
+        "queryselector", "queryselectorall", "getelementbyid", "getelementsbyclassname",
+        "createelement", "appendchild", "removechild", "setattribute", "getattribute",
+        "preventdefault", "stoppropagation", "requestanimationframe"
     )
 
     private val QUESTION_TRIGGERS = listOf(
@@ -28,12 +44,62 @@ object CodeActionParser {
         "try running", "such as", "syntax:", "example:", "command:"
     )
 
+    val EXCLUDED_CODE_LANGUAGES = setOf(
+        "html", "htm", "xml", "xhtml", "svg",
+        "css", "scss", "sass", "less",
+        "js", "javascript", "ts", "typescript", "jsx", "tsx",
+        "php", "php3", "php4", "php5", "phtml",
+        "go", "golang",
+        "rust", "rs",
+        "python", "py",
+        "kotlin", "kt", "kts",
+        "java",
+        "c", "cpp", "cxx", "cc", "h", "hpp",
+        "csharp", "cs",
+        "ruby", "rb",
+        "swift",
+        "dart",
+        "scala",
+        "lua",
+        "perl", "pl",
+        "r",
+        "sql", "mysql", "pgsql", "sqlite",
+        "sh", "bash", "zsh", "shell", "powershell", "ps1", "bat", "cmd",
+        "json", "json5", "yaml", "yml", "toml", "ini", "diff", "markdown", "md"
+    )
+
+    private val FENCED_BLOCK_REGEX = Regex("""```([a-zA-Z0-9_\-\+#]*)[ \t]*\r?\n?([\s\S]*?)```""")
+
+    fun stripExcludedCodeFences(text: String): String {
+        return FENCED_BLOCK_REGEX.replace(text) { match ->
+            val lang = match.groupValues[1].trim().lowercase()
+            val isExplicitToolFence = lang in setOf("tool", "action", "call", "cmd", "command")
+            if (isExplicitToolFence) {
+                match.value
+            } else if (lang in EXCLUDED_CODE_LANGUAGES || lang.isNotEmpty()) {
+                // Strips code blocks belonging to programming/markup languages (HTML, JS, PHP, etc.)
+                "\n"
+            } else {
+                val inner = match.groupValues[2].trim()
+                if (inner.startsWith("<!DOCTYPE") || inner.startsWith("<html") || inner.startsWith("<?php") ||
+                    inner.contains("\nfunction ") || inner.contains("\nfn ") || inner.contains("\ndef ")
+                ) {
+                    "\n"
+                } else {
+                    match.value
+                }
+            }
+        }
+    }
+
     fun stripControlTokens(text: String): String {
         var clean = text
         clean = clean.replace(Regex("""<\|tool_call>call:\s*"""), "")
         clean = clean.replace(Regex("""<\|tool_call>\s*"""), "")
         clean = clean.replace(Regex("""<\|tool_call_end>\s*"""), "")
         clean = clean.replace(Regex("""</?tool_call>\s*"""), "")
+        clean = clean.replace(Regex("""</?execute_tool>\s*"""), "")
+        clean = clean.replace(Regex("""</?execute_action>\s*"""), "")
         clean = clean.replace(Regex("""<\|im_start\|>\s*(?:assistant|model|tool)?\s*"""), "")
         clean = clean.replace(Regex("""<\|im_end\|>\s*"""), "")
         clean = clean.replace(Regex("""<\|end_of_turn\|>\s*"""), "")
@@ -51,17 +117,32 @@ object CodeActionParser {
         val trimmed = stripControlTokens(rawText)
         if (trimmed.isBlank()) return null
 
-        // 1. Direct Code-as-Action parse
-        val codeAction = parseCodeAction(trimmed, originalFullText = trimmed)
+        val withoutThinking = trimmed
+            .replace(Regex("""(?s)<think>.*?</think>"""), "")
+            .replace("<think>", "")
+            .replace("</think>", "")
+            .trim()
+        if (withoutThinking.isBlank()) return null
+
+        // Strip non-tool programming and markup fences (html, css, js, php, go, rust, etc.)
+        val sanitized = stripExcludedCodeFences(withoutThinking)
+
+        // 1. Direct Code-as-Action parse on sanitized text
+        val codeAction = parseCodeAction(sanitized, originalFullText = trimmed)
         if (codeAction != null) {
             return codeAction
         }
 
-        // 2. Unnest markdown code fence if present
+        // 2. Unnest markdown code fence if explicitly a tool fence or valid unlabelled tool call
         if (trimmed.contains("```")) {
-            val fenceContent = trimmed.substringAfter("```").substringBefore("```")
-            val embeddedCode = parseCodeAction(stripControlTokens(fenceContent), originalFullText = trimmed)
-            if (embeddedCode != null) return embeddedCode
+            for (match in FENCED_BLOCK_REGEX.findAll(trimmed)) {
+                val lang = match.groupValues[1].trim().lowercase()
+                if (lang !in EXCLUDED_CODE_LANGUAGES) {
+                    val fenceContent = match.groupValues[2].trim()
+                    val embeddedCode = parseCodeAction(stripControlTokens(fenceContent), originalFullText = trimmed)
+                    if (embeddedCode != null) return embeddedCode
+                }
+            }
         }
 
         return null
@@ -215,23 +296,31 @@ object CodeActionParser {
         val trimmed = stripControlTokens(text).trim()
         if (trimmed.isBlank()) return false
 
-        // If a code fence is present, it must be closed
-        if (trimmed.contains("```")) {
-            val firstFence = trimmed.indexOf("```")
-            val secondFence = trimmed.indexOf("```", firstFence + 3)
+        val sanitized = stripExcludedCodeFences(trimmed)
+        if (sanitized.isBlank()) return false
+
+        // If an explicit tool code fence is present, it must be closed
+        if (sanitized.contains("```")) {
+            val firstFence = sanitized.indexOf("```")
+            val secondFence = sanitized.indexOf("```", firstFence + 3)
             if (secondFence == -1) return false
-            val fencedBlock = trimmed.substring(firstFence, secondFence + 3)
-            return findFunctionCall(stripControlTokens(fencedBlock)) != null
+            val fencedBlock = sanitized.substring(firstFence, secondFence + 3)
+            val call = findFunctionCall(stripControlTokens(fencedBlock)) ?: return false
+            val func = call.first.lowercase().trim()
+            if (func in KEYWORD_BLACKLIST) return false
+            return AgentToolRegistry.findTool(func) != null || CodeActionMapper.mapToCanonicalAction(func, emptyList()) != null
         }
 
-        val call = findFunctionCall(trimmed) ?: return false
+        val call = findFunctionCall(sanitized) ?: return false
         val func = call.first.lowercase().trim()
-        return func !in KEYWORD_BLACKLIST
+        if (func in KEYWORD_BLACKLIST) return false
+        return AgentToolRegistry.findTool(func) != null || CodeActionMapper.mapToCanonicalAction(func, emptyList()) != null
     }
 
     fun stripActionPayload(rawText: String): String {
         val cleaned = stripControlTokens(rawText)
-        val call = findFunctionCall(cleaned)
+        val sanitized = stripExcludedCodeFences(cleaned)
+        val call = findFunctionCall(sanitized)
         if (call != null && !cleaned.contains("\n\n")) {
             return stripControlTokens(cleaned.replace(call.third, "")).trim('`', ' ', '\n')
         }

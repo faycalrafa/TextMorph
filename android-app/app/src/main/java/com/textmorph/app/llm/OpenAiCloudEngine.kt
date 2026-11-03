@@ -153,12 +153,7 @@ class OpenAiCloudEngine(
         }
 
         val effectiveTemp = temperature?.toDouble() ?: if (
-            systemInstruction?.contains("Code-as-Action", ignoreCase = true) == true ||
-            systemInstruction?.contains("Benchmark", ignoreCase = true) == true ||
-            systemInstruction?.contains("autonomous", ignoreCase = true) == true ||
-            systemInstruction?.contains("automation", ignoreCase = true) == true ||
-            systemInstruction?.contains("planner", ignoreCase = true) == true ||
-            prompt.contains("Code-as-Action", ignoreCase = true)
+            systemInstruction?.contains("Benchmark", ignoreCase = true) == true
         ) 0.0 else 0.7
 
         val isThinking = thinkingMode != com.textmorph.app.data.model.ThinkingMode.LOW

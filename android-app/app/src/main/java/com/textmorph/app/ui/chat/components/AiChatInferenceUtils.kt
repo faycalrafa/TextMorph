@@ -1,10 +1,19 @@
 package com.textmorph.app.ui.chat.components
 
+import android.content.Context
+import com.textmorph.app.data.model.InteractionTriggerSource
+import com.textmorph.app.data.repository.ChatSessionRepository
+import com.textmorph.app.data.repository.LlmInteractionRepository
 import com.textmorph.app.llm.LiteRtLmEngine
 import com.textmorph.app.llm.LlamaCppEngine
 import com.textmorph.app.llm.LlmEngine
 import com.textmorph.app.llm.OpenAiCloudEngine
+import com.textmorph.app.util.AppLogger
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.launch
 
 /**
  * Utility functions for thought extraction, engine streaming delegation,
@@ -193,5 +202,57 @@ object AiChatInferenceUtils {
 
     fun calculateTps(tokens: Int, durationMs: Long): Float {
         return if (tokens > 0 && durationMs > 0) (tokens / (durationMs / 1000f)).coerceAtLeast(0.1f) else 0f
+    }
+
+    fun recordInteractionAndCompact(
+        context: Context?,
+        prompt: String,
+        systemPrompt: String,
+        finalOutput: String,
+        effectiveFinalContent: String,
+        thought: String?,
+        finalTps: Float,
+        finalTokens: Int,
+        finalDuration: Long,
+        chatRepository: ChatSessionRepository,
+        sessionId: String,
+        engine: LlmEngine,
+        activeSession: com.textmorph.app.data.model.ChatSessionEntity?
+    ) {
+        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+            if (context != null) {
+                try {
+                    LlmInteractionRepository.getInstance(context).recordInteraction(
+                        source = InteractionTriggerSource.CHAT_CONVERSATION,
+                        title = "Chat Turn",
+                        userPrompt = prompt,
+                        systemPrompt = systemPrompt,
+                        rawOutput = finalOutput,
+                        cleanOutput = effectiveFinalContent,
+                        thoughtContent = thought,
+                        tokensPerSecond = finalTps,
+                        totalTokens = finalTokens,
+                        durationMs = finalDuration
+                    )
+                } catch (logEx: Exception) {
+                    AppLogger.w("AiChatInferenceUtils", "Failed logging chat turn interaction: ${logEx.message}")
+                }
+            }
+
+            // Rolling summarization
+            val allMessages = chatRepository.currentMessages.value
+            if (allMessages.size >= com.textmorph.app.llm.context.ChatCompactor.SUMMARY_TRIGGER_MESSAGE_COUNT) {
+                try {
+                    val (older, _) = com.textmorph.app.llm.context.ChatCompactor.partitionWindow(allMessages)
+                    if (older.isNotEmpty()) {
+                        val newSummary = com.textmorph.app.llm.context.ChatCompactor.summarizeTurns(engine, activeSession?.summary, older)
+                        val updatedFacts = com.textmorph.app.llm.context.ChatCompactor.extractSessionFacts(engine, activeSession?.sessionState, allMessages)
+                        chatRepository.updateSessionCompactionState(sessionId, newSummary, updatedFacts)
+                    }
+                } catch (t: Throwable) {
+                    AppLogger.e("AiChatInferenceUtils", "Background compaction failed: ${t.message}", t)
+                }
+            }
+        }
     }
 }

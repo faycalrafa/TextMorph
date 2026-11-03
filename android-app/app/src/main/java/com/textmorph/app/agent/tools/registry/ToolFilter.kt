@@ -19,7 +19,7 @@ object ToolFilter {
      */
     fun getToolsForPhase(phase: AgentPhase, context: Context? = null): List<AgentToolDefinition> {
         val allBuiltIns = AgentToolRegistry.getInAppTools()
-        val jsTools = context?.let { AgentToolRegistry.getJsTools(it) } ?: emptyList()
+        val jsTools = AgentToolRegistry.getJsTools(context)
 
         return when (phase) {
             AgentPhase.PHASE_CHAT -> {

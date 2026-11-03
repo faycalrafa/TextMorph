@@ -7,10 +7,13 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ListAlt
 import androidx.compose.material.icons.filled.AutoAwesome
@@ -80,9 +83,15 @@ fun SlashCommandAutocompleteCard(
         color = Color(0xFF1F2937), // Dark slate
         border = BorderStroke(1.dp, Color(0xFF374151)),
         shadowElevation = 8.dp,
-        modifier = modifier.fillMaxWidth()
+        modifier = modifier
+            .fillMaxWidth()
+            .heightIn(max = 160.dp)
     ) {
-        Column(modifier = Modifier.padding(vertical = 6.dp)) {
+        Column(
+            modifier = Modifier
+                .padding(vertical = 4.dp)
+                .verticalScroll(rememberScrollState())
+        ) {
             matches.forEach { cmd ->
                 Row(
                     modifier = Modifier

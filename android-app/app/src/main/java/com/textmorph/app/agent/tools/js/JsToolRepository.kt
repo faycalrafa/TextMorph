@@ -158,80 +158,6 @@ class JsToolRepository private constructor(private val context: Context) {
         }
     }
 
-    private fun getShowcaseTools(): List<JsToolEntity> {
-        return listOf(
-            JsToolEntity(
-                id = "get_weather",
-                name = "Live Weather Forecast",
-                description = "Checks current weather conditions, temperature, humidity, and wind for any specified city or place.",
-                codeSignature = "get_weather(location=\"Paris\")",
-                script = """
-                    /**
-                     * @tool get_weather
-                     * @name Live Weather Forecast
-                     * @description Checks current weather conditions, temperature, humidity, and wind for any specified city or place.
-                     * @signature get_weather(location="Paris")
-                     * @param {string} location Name of the city or place (e.g. "Tokyo", "London", "New York")
-                     */
-                    async function run(params) {
-                      const loc = encodeURIComponent(String(params.location || params.city || params.place || 'Paris').trim());
-                      const url = `https://wttr.in/${'$'}{loc}?format=%l:+%C+%t+(feels+like+%f),+Wind:+%w,+Humidity:+%h`;
-                      if (typeof TextMorphHost !== 'undefined' && typeof TextMorphHost.httpGet === 'function') {
-                        return TextMorphHost.httpGet(url);
-                      }
-                      const res = await fetch(url);
-                      return await res.text();
-                    }
-                """.trimIndent(),
-                isEnabled = true,
-                isPreinstalled = true
-            ),
-            JsToolEntity(
-                id = "unit_converter",
-                name = "Accurate Unit Converter",
-                description = "Converts between metric and imperial units (temperature, distance, weight).",
-                codeSignature = "unit_converter(value=100, from_unit=\"c\", to_unit=\"f\")",
-                script = """
-                    /**
-                     * @tool unit_converter
-                     * @name Accurate Unit Converter
-                     * @description Converts between metric and imperial units (temperature, distance, weight).
-                     * @signature unit_converter(value=100, from_unit="c", to_unit="f")
-                     * @param {number} value Numerical amount to convert
-                     * @param {string} from_unit Source unit (c, f, km, mi, kg, lb)
-                     * @param {string} to_unit Target unit (c, f, km, mi, kg, lb)
-                     */
-                    function run(params) {
-                      const v = parseFloat(params.value) || 0;
-                      const from = String(params.from_unit || '').toLowerCase().trim();
-                      const to = String(params.to_unit || '').toLowerCase().trim();
-                      if ((from === 'c' || from === 'celsius') && (to === 'f' || to === 'fahrenheit')) {
-                        return `${'$'}{v}°C = ${'$'}{((v * 9/5) + 32).toFixed(2)}°F`;
-                      }
-                      if ((from === 'f' || from === 'fahrenheit') && (to === 'c' || to === 'celsius')) {
-                        return `${'$'}{v}°F = ${'$'}{(((v - 32) * 5/9)).toFixed(2)}°C`;
-                      }
-                      if ((from === 'km' || from === 'kilometers') && (to === 'mi' || to === 'miles')) {
-                        return `${'$'}{v} km = ${'$'}{(v * 0.621371).toFixed(2)} miles`;
-                      }
-                      if ((from === 'mi' || from === 'miles') && (to === 'km' || to === 'kilometers')) {
-                        return `${'$'}{v} miles = ${'$'}{(v / 0.621371).toFixed(2)} km`;
-                      }
-                      if ((from === 'kg' || from === 'kilograms') && (to === 'lb' || to === 'pounds')) {
-                        return `${'$'}{v} kg = ${'$'}{(v * 2.20462).toFixed(2)} lbs`;
-                      }
-                      if ((from === 'lb' || from === 'pounds') && (to === 'kg' || to === 'kilograms')) {
-                        return `${'$'}{v} lbs = ${'$'}{(v / 2.20462).toFixed(2)} kg`;
-                      }
-                      return `Unsupported conversion from '${'$'}{from}' to '${'$'}{to}'. Supported: c/f, km/mi, kg/lb.`;
-                    }
-                """.trimIndent(),
-                isEnabled = true,
-                isPreinstalled = true
-            )
-        )
-    }
-
     companion object {
         @Volatile
         private var instance: JsToolRepository? = null
@@ -240,6 +166,80 @@ class JsToolRepository private constructor(private val context: Context) {
             return instance ?: synchronized(this) {
                 instance ?: JsToolRepository(context.applicationContext).also { instance = it }
             }
+        }
+
+        fun getShowcaseTools(): List<JsToolEntity> {
+            return listOf(
+                JsToolEntity(
+                    id = "get_weather",
+                    name = "Live Weather Forecast",
+                    description = "Checks current weather conditions, temperature, humidity, and wind for any specified city or place.",
+                    codeSignature = "get_weather(location=\"Paris\")",
+                    script = """
+                        /**
+                         * @tool get_weather
+                         * @name Live Weather Forecast
+                         * @description Checks current weather conditions, temperature, humidity, and wind for any specified city or place.
+                         * @signature get_weather(location="Paris")
+                         * @param {string} location Name of the city or place (e.g. "Tokyo", "London", "New York")
+                         */
+                        async function run(params) {
+                          const loc = encodeURIComponent(String(params.location || params.city || params.place || 'Paris').trim());
+                          const url = `https://wttr.in/${'$'}{loc}?format=%l:+%C+%t+(feels+like+%f),+Wind:+%w,+Humidity:+%h`;
+                          if (typeof TextMorphHost !== 'undefined' && typeof TextMorphHost.httpGet === 'function') {
+                            return TextMorphHost.httpGet(url);
+                          }
+                          const res = await fetch(url);
+                          return await res.text();
+                        }
+                    """.trimIndent(),
+                    isEnabled = true,
+                    isPreinstalled = true
+                ),
+                JsToolEntity(
+                    id = "unit_converter",
+                    name = "Accurate Unit Converter",
+                    description = "Converts between metric and imperial units (temperature, distance, weight).",
+                    codeSignature = "unit_converter(value=100, from_unit=\"c\", to_unit=\"f\")",
+                    script = """
+                        /**
+                         * @tool unit_converter
+                         * @name Accurate Unit Converter
+                         * @description Converts between metric and imperial units (temperature, distance, weight).
+                         * @signature unit_converter(value=100, from_unit="c", to_unit="f")
+                         * @param {number} value Numerical amount to convert
+                         * @param {string} from_unit Source unit (c, f, km, mi, kg, lb)
+                         * @param {string} to_unit Target unit (c, f, km, mi, kg, lb)
+                         */
+                        function run(params) {
+                          const v = parseFloat(params.value) || 0;
+                          const from = String(params.from_unit || '').toLowerCase().trim();
+                          const to = String(params.to_unit || '').toLowerCase().trim();
+                          if ((from === 'c' || from === 'celsius') && (to === 'f' || to === 'fahrenheit')) {
+                            return `${'$'}{v}°C = ${'$'}{((v * 9/5) + 32).toFixed(2)}°F`;
+                          }
+                          if ((from === 'f' || from === 'fahrenheit') && (to === 'c' || to === 'celsius')) {
+                            return `${'$'}{v}°F = ${'$'}{(((v - 32) * 5/9)).toFixed(2)}°C`;
+                          }
+                          if ((from === 'km' || from === 'kilometers') && (to === 'mi' || to === 'miles')) {
+                            return `${'$'}{v} km = ${'$'}{(v * 0.621371).toFixed(2)} miles`;
+                          }
+                          if ((from === 'mi' || from === 'miles') && (to === 'km' || to === 'kilometers')) {
+                            return `${'$'}{v} miles = ${'$'}{(v / 0.621371).toFixed(2)} km`;
+                          }
+                          if ((from === 'kg' || from === 'kilograms') && (to === 'lb' || to === 'pounds')) {
+                            return `${'$'}{v} kg = ${'$'}{(v * 2.20462).toFixed(2)} lbs`;
+                          }
+                          if ((from === 'lb' || from === 'pounds') && (to === 'kg' || to === 'kilograms')) {
+                            return `${'$'}{v} lbs = ${'$'}{(v / 2.20462).toFixed(2)} kg`;
+                          }
+                          return `Unsupported conversion from '${'$'}{from}' to '${'$'}{to}'. Supported: c/f, km/mi, kg/lb.`;
+                        }
+                    """.trimIndent(),
+                    isEnabled = true,
+                    isPreinstalled = true
+                )
+            )
         }
     }
 }

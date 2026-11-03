@@ -42,6 +42,10 @@ object ChatToolExecutionHandler {
                 if (jsTool != null && jsTool.isEnabled) {
                     return parsed
                 }
+            } else {
+                if (JsToolRepository.getShowcaseTools().any { it.id == parsed.action && it.isEnabled }) {
+                    return parsed
+                }
             }
         }
 
@@ -172,6 +176,8 @@ object ChatToolExecutionHandler {
         if (context != null) {
             val jsTool = JsToolRepository.getInstance(context).getToolById(action.action)
             if (jsTool != null && jsTool.isEnabled) return true
+        } else {
+            if (JsToolRepository.getShowcaseTools().any { it.id == action.action && it.isEnabled }) return true
         }
         return false
     }

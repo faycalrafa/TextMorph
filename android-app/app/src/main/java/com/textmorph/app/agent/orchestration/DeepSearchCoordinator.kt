@@ -119,11 +119,60 @@ object DeepSearchCoordinator {
     }
 
     /**
-     * Executes the grounded DeepSearch workflow:
-     * Plan Decomposition -> Pre-Fetch Web Research -> Bounded Worker Drafting -> Artifact Compilation.
+     * Decomposes a research topic into 3–5 distinct research angles for DeepSearch.
      */
-    suspend fun execute(
+    suspend fun generateSearchPlan(
+        query: String,
+        engine: LlmEngine,
+        context: Context? = null
+    ): List<PlanSection> {
+        val planEngine = DeepPlanEngine(context, engine)
+        val sections = planEngine.generateExecutionPlan(query)
+        // Ensure all DeepSearch sections are typed as Research Scout
+        return sections.map { sec ->
+            sec.copy(role = "Research Scout")
+        }
+    }
+
+    /**
+     * Formats planned research angles into Markdown.
+     */
+    fun formatSearchPlanMarkdown(query: String, sections: List<PlanSection>, version: Int = 1): String {
+        val sb = StringBuilder()
+        sb.append("### 🔍 Proposed Deep Search Plan (v").append(version).append(")\n")
+        sb.append("**Research Topic:** ").append(query).append("\n\n")
+        sb.append("| Angle | Research Domain | Worker Role | Investigation Focus |\n")
+        sb.append("| :--- | :--- | :--- | :--- |\n")
+        for (sec in sections) {
+            val paddedIdx = if (sec.index < 10) "0${sec.index}" else "${sec.index}"
+            val desc = sec.rationale.ifBlank { sec.queryOrGoal }
+            sb.append("| **").append(paddedIdx).append("** | ").append(sec.title).append(" | `Research Scout` | ").append(desc).append(" |\n")
+        }
+        sb.append("\n> Review the proposed research plan above. Click **Execute Research** to launch concurrent research agents across the web, or **Edit Plan** to refine the search angles.")
+        return sb.toString()
+    }
+
+    /**
+     * Revises search angles based on user feedback.
+     */
+    suspend fun reviseSearchPlan(
+        query: String,
+        currentSections: List<PlanSection>,
+        userFeedback: String,
+        engine: LlmEngine,
+        context: Context? = null
+    ): List<PlanSection> {
+        val planEngine = DeepPlanEngine(context, engine)
+        val revised = planEngine.revisePlan(query, currentSections, userFeedback)
+        return revised.map { sec -> sec.copy(role = "Research Scout") }
+    }
+
+    /**
+     * Executes the grounded DeepSearch workflow with already approved research sections.
+     */
+    suspend fun executeApprovedSearch(
         goal: String,
+        sections: List<PlanSection>,
         sessionId: String,
         engine: LlmEngine,
         context: Context?,
@@ -131,22 +180,18 @@ object DeepSearchCoordinator {
         onProgress: (statusMessage: String) -> Unit
     ): DeepPlanResult = withContext(Dispatchers.IO) {
         val startTime = System.currentTimeMillis()
-        val planEngine = DeepPlanEngine(context, engine)
         val effectiveWorkers = (workerCount ?: BoundedWorkerPool.DEFAULT_CONCURRENT_WORKERS).coerceIn(
             BoundedWorkerPool.MIN_WORKERS,
             BoundedWorkerPool.MAX_WORKERS
         )
 
-        onProgress("Decomposing deep search plan…")
-        val sections = planEngine.decomposeIntoPlan(goal)
-        AppLogger.i(TAG, "[$sessionId] Decomposed '$goal' into ${sections.size} sections.")
-
+        AppLogger.i(TAG, "[$sessionId] Executing approved deep search for: '$goal' across ${sections.size} angles (workers: $effectiveWorkers)")
         val cacheDir = context?.cacheDir ?: File(System.getProperty("java.io.tmpdir") ?: "/tmp")
         val store = ArtifactAssemblyStore(cacheDir, sessionId)
         store.initSession(goal, sections)
 
         // Pre-fetch research on Dispatchers.IO
-        onProgress("Gathering live web sources and factual context…")
+        onProgress("Gathering live web sources and factual context across angles…")
         val factsMap = preFetchResearch(goal, sections, cacheDir, sessionId, onProgress)
 
         // Execute workers with grounded facts
@@ -186,5 +231,20 @@ object DeepSearchCoordinator {
             workerCount = effectiveWorkers,
             durationMs = duration
         )
+    }
+
+    /**
+     * Legacy one-pass workflow.
+     */
+    suspend fun execute(
+        goal: String,
+        sessionId: String,
+        engine: LlmEngine,
+        context: Context?,
+        workerCount: Int? = null,
+        onProgress: (statusMessage: String) -> Unit
+    ): DeepPlanResult {
+        val sections = generateSearchPlan(goal, engine, context)
+        return executeApprovedSearch(goal, sections, sessionId, engine, context, workerCount, onProgress)
     }
 }

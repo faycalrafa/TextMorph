@@ -13,9 +13,7 @@ import com.textmorph.app.agent.tools.registry.AgentToolRegistry
 import com.textmorph.app.agent.tools.registry.ToolFilter
 import com.textmorph.app.data.model.ChatAttachment
 import com.textmorph.app.data.model.ChatMessageEntity
-import com.textmorph.app.data.model.InteractionTriggerSource
 import com.textmorph.app.data.repository.ChatSessionRepository
-import com.textmorph.app.data.repository.LlmInteractionRepository
 import com.textmorph.app.llm.LiteRtLmEngine
 import com.textmorph.app.llm.LlamaCppEngine
 import com.textmorph.app.llm.LlmEngine
@@ -61,60 +59,36 @@ object AiChatInferenceExecutor {
         when (commandResult) {
             is CommandRouteResult.SetWorkersCommand -> {
                 scope.launch(Dispatchers.Main) {
-                    val userMsg = ChatMessageEntity(sessionId = sessionId, role = "user", content = prompt)
-                    val reply = ChatMessageEntity(
-                        sessionId = sessionId,
-                        role = "assistant",
-                        content = commandResult.message
-                    )
-                    chatRepository.appendMessage(userMsg)
-                    chatRepository.appendMessage(reply)
+                    chatRepository.appendMessage(ChatMessageEntity(sessionId = sessionId, role = "user", content = prompt))
+                    chatRepository.appendMessage(ChatMessageEntity(sessionId = sessionId, role = "assistant", content = commandResult.message))
                     onComplete()
                 }
                 return
             }
             is CommandRouteResult.BenchmarkCommand -> {
                 scope.launch(Dispatchers.Main) {
-                    val userMsg = ChatMessageEntity(sessionId = sessionId, role = "user", content = prompt)
-                    val reply = ChatMessageEntity(
-                        sessionId = sessionId,
-                        role = "assistant",
-                        content = "To run the Agentic Readiness Suite, open the Benchmark screen from the sidebar or Model Hub."
-                    )
-                    chatRepository.appendMessage(userMsg)
-                    chatRepository.appendMessage(reply)
+                    chatRepository.appendMessage(ChatMessageEntity(sessionId = sessionId, role = "user", content = prompt))
+                    chatRepository.appendMessage(ChatMessageEntity(sessionId = sessionId, role = "assistant", content = "To run the Agentic Readiness Suite, open the Benchmark screen from the sidebar or Model Hub."))
                     onComplete()
                 }
                 return
             }
             is CommandRouteResult.PlanCommand -> {
                 if (context != null) {
-                    AiChatPlanExecutionHandler.executePlanOrDeepSearch(
-                        scope = scope,
-                        sessionId = sessionId,
-                        goal = commandResult.goal,
-                        workerCount = commandResult.workersOverride,
-                        userPrompt = prompt,
-                        engine = engine,
-                        chatRepository = chatRepository,
-                        context = context,
-                        onComplete = onComplete
+                    AiChatPlanExecutionHandler.handlePlanCommand(
+                        scope = scope, sessionId = sessionId, command = commandResult,
+                        userPrompt = prompt, engine = engine, chatRepository = chatRepository,
+                        context = context, onComplete = onComplete
                     )
                     return
                 }
             }
             is CommandRouteResult.DeepSearchCommand -> {
                 if (context != null) {
-                    AiChatPlanExecutionHandler.executePlanOrDeepSearch(
-                        scope = scope,
-                        sessionId = sessionId,
-                        goal = commandResult.query,
-                        workerCount = commandResult.workersOverride,
-                        userPrompt = prompt,
-                        engine = engine,
-                        chatRepository = chatRepository,
-                        context = context,
-                        onComplete = onComplete
+                    AiChatDeepSearchHandler.handleDeepSearchCommand(
+                        scope = scope, sessionId = sessionId, command = commandResult,
+                        userPrompt = prompt, engine = engine, chatRepository = chatRepository,
+                        context = context, onComplete = onComplete
                     )
                     return
                 }
@@ -122,33 +96,43 @@ object AiChatInferenceExecutor {
             is CommandRouteResult.GoalCommand -> {
                 if (context != null) {
                     val coordinator = com.textmorph.app.agent.orchestration.GoalExecutionCoordinator(
-                        context = context,
-                        engine = engine,
-                        chatRepository = chatRepository,
-                        agentEngine = agentEngine
+                        context = context, engine = engine, chatRepository = chatRepository, agentEngine = agentEngine
                     )
-                    coordinator.executeGoal(
-                        scope = scope,
-                        sessionId = sessionId,
-                        goal = commandResult.goal,
-                        userPrompt = prompt,
-                        onComplete = onComplete
-                    )
+                    coordinator.executeGoal(scope = scope, sessionId = sessionId, goal = commandResult.goal, userPrompt = prompt, onComplete = onComplete)
                     return
                 }
             }
             else -> {}
         }
 
-        val phase = if (commandResult is CommandRouteResult.StandardTurn) commandResult.phase else ChatCommandRouter.classifyPhase(prompt)
-        val allowedTools = ToolFilter.getToolsForPhase(phase, context)
+        val standardTurn = commandResult as? CommandRouteResult.StandardTurn
+        val phase = standardTurn?.phase ?: ChatCommandRouter.classifyPhase(prompt)
+        val forcedTool = standardTurn?.forcedTool
+
+        val phaseTools = ToolFilter.getToolsForPhase(phase, context).toMutableList()
+        if (forcedTool != null && phaseTools.none { it.id == forcedTool }) {
+            val candidate = (AgentToolRegistry.getInAppTools() + AgentToolRegistry.getJsTools(context))
+                .firstOrNull { it.id == forcedTool }
+            if (candidate != null) {
+                phaseTools.add(0, candidate)
+            }
+        }
+        val allowedTools = phaseTools
 
         val activeSession = chatRepository.getActiveSession()
         val priorMessages = chatRepository.currentMessages.value
 
         val baseSystemPrompt = effectiveSettings.defaultSystemPrompt.takeIf { !it.isNullOrBlank() }
             ?: AgentPrompts.CHAT_SYSTEM_PROMPT
-        val systemPrompt = AgentPrompts.resolvePhaseSystemPrompt(baseSystemPrompt, phase, context)
+        var systemPrompt = AgentPrompts.resolvePhaseSystemPrompt(baseSystemPrompt, phase, context)
+        if (forcedTool != null) {
+            val forcedDef = allowedTools.firstOrNull { it.id == forcedTool }
+            val sigNote = if (forcedDef != null) "\nRequired Tool Signature: ${forcedDef.codeSignature}" else ""
+            systemPrompt = "MANDATORY IMMEDIATE ACTION: The user explicitly invoked @$forcedTool. You MUST execute this tool on your first step to satisfy the user request.$sigNote Do not answer directly without calling this tool.\n\n" + systemPrompt
+        }
+        if (effectiveSettings.isThinkingActive) {
+            systemPrompt = "Think carefully step-by-step before answering. Place your entire internal reasoning process between <think> and </think> tags.\n\n" + systemPrompt
+        }
 
         val assembledPrompt = ChatCompactor.assembleInferencePrompt(
             systemPrompt = systemPrompt,
@@ -210,7 +194,7 @@ object AiChatInferenceExecutor {
                         engine = engine,
                         prompt = currentPromptForInference,
                         imageBytes = currentImagePayload,
-                        temperature = if (hop > 0) 0.0f else null
+                        temperature = if (hop > 0) 0.0f else effectiveSettings.temperature
                     ) {
                         lastMetrics = it
                     }
@@ -251,6 +235,26 @@ object AiChatInferenceExecutor {
                     // Check if output contains a Code-as-Action call
                     val action = CodeActionParser.parse(effectiveFinalContent)
                     if (action == null || AiChatInferenceUtils.isPresentationOrFollowUpAction(effectiveFinalContent, action)) {
+                        if (hop == 0 && forcedTool != null && executedActionName == null) {
+                            AppLogger.w(TAG, "Forced tool @$forcedTool was not executed on first hop. Enforcing tool invocation.")
+                            val forcedDef = allowedTools.firstOrNull { it.id == forcedTool }
+                            val exampleCall = forcedDef?.codeSignature ?: "$forcedTool(...)"
+                            val enforcementPrompt = "CRITICAL DIRECTIVE: You failed to execute the required tool '@$forcedTool'. You MUST invoke the tool now before answering. Example: ```tool\n$exampleCall\n```"
+                            chatRepository.setGenerationStatus("Invoking required tool @$forcedTool…")
+                            currentPromptForInference = AiChatInferenceUtils.assembleNextHopPrompt(
+                                systemPrompt = systemPrompt,
+                                activeSession = activeSession,
+                                priorMessages = priorMessages,
+                                turnHistory = turnHistory,
+                                sessionId = sessionId,
+                                effectiveContent = effectiveFinalContent,
+                                nextPrompt = enforcementPrompt,
+                                maxContextTokens = engine.maxContextTokens
+                            )
+                            currentImagePayload = null
+                            hop++
+                            continue
+                        }
                         // Pure conversational output or follow-up presentation; tool loop terminates cleanly
                         break
                     }
@@ -426,41 +430,21 @@ object AiChatInferenceExecutor {
                 )
                 AppLogger.d(TAG, "Completed chat turn for session=$sessionId: length=${finalOutput.length}, speed=$finalTps tok/s")
 
-                if (context != null) {
-                    try {
-                        LlmInteractionRepository.getInstance(context).recordInteraction(
-                            source = InteractionTriggerSource.CHAT_CONVERSATION,
-                            title = "Chat Turn",
-                            userPrompt = prompt,
-                            systemPrompt = systemPrompt,
-                            rawOutput = finalOutput,
-                            cleanOutput = effectiveFinalContent,
-                            thoughtContent = thought,
-                            tokensPerSecond = finalTps,
-                            totalTokens = finalTokens,
-                            durationMs = finalDuration
-                        )
-                    } catch (logEx: Exception) {
-                        AppLogger.w(TAG, "Failed logging chat turn interaction: ${logEx.message}")
-                    }
-                }
-
-                // Rolling summarization
-                val allMessages = chatRepository.currentMessages.value
-                if (allMessages.size >= ChatCompactor.SUMMARY_TRIGGER_MESSAGE_COUNT) {
-                    CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
-                        try {
-                            val (older, _) = ChatCompactor.partitionWindow(allMessages)
-                            if (older.isNotEmpty()) {
-                                val newSummary = ChatCompactor.summarizeTurns(engine, activeSession?.summary, older)
-                                val updatedFacts = ChatCompactor.extractSessionFacts(engine, activeSession?.sessionState, allMessages)
-                                chatRepository.updateSessionCompactionState(sessionId, newSummary, updatedFacts)
-                            }
-                        } catch (t: Throwable) {
-                            AppLogger.e(TAG, "Background compaction failed: ${t.message}", t)
-                        }
-                    }
-                }
+                AiChatInferenceUtils.recordInteractionAndCompact(
+                    context = context,
+                    prompt = prompt,
+                    systemPrompt = systemPrompt,
+                    finalOutput = finalOutput,
+                    effectiveFinalContent = effectiveFinalContent,
+                    thought = thought,
+                    finalTps = finalTps,
+                    finalTokens = finalTokens,
+                    finalDuration = finalDuration,
+                    chatRepository = chatRepository,
+                    sessionId = sessionId,
+                    engine = engine,
+                    activeSession = activeSession
+                )
             } catch (ce: kotlinx.coroutines.CancellationException) {
                 AppLogger.i(TAG, "Chat turn cancelled: ${ce.message}")
                 com.textmorph.app.agent.coordinator.TaskExecutionCoordinator.interrupt()
