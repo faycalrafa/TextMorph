@@ -4,6 +4,31 @@ All notable changes to **TextMorph** are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.7.0] - 2026-11-03
+
+### Added
+- **Iterative `/builder` Mode & Loopback State Machine**:
+  - Implemented `/builder` slash command for step-by-step code synthesis, application creation, and incremental file modifications.
+  - Step-by-step execution loop with scratchpad thinking (`<think>...</think>`), live file mutation, and self-correction retries.
+  - Emits real-time code updates into `HtmlSandboxPreviewCard` for instant live preview and testing of HTML/JS/CSS applications.
+- **Tiny-LLM File Editing Engine (`FileEditingEngine` & `ProgressiveMatcher`)**:
+  - Designed specifically for 1.5B–4B on-device models with a zero-JSON Plain-Text Block Protocol (`<read ...>`, `WRITE`, `EDIT`).
+  - **4-Tier Progressive Matching Engine**: Tier 1 (Exact Substring), Tier 2 (Trimmed Line ignoring trailing whitespace), Tier 3 (Indentation-Insensitive with relative base indentation recalculation), and Tier 4 (Fuzzy Anchor Match with sliding window similarity $\ge 0.88$).
+  - **Actionable Error Feedback**: Returns closest fuzzy candidate line snippets on 0-matches and requests additional context on ambiguous multi-matches.
+  - **Lazy Placeholder Comment Guardrails**: Detects and rejects abbreviations (`// ... existing code ...`, `# rest of code here`, etc.).
+  - **In-Memory Syntax Validation & Rollback**: Validates bracket/tag balancing and JSON formatting before saving, reverting memory and providing compiler diagnostics on error.
+- **Interactive Step Details Full Dialog (`StepDetailsDialog`)**:
+  - Tapping any step item in `StepTraceAccordion` (tool call, search scout, plan worker, builder step, or device automation) opens a full-screen Charcoal Slate dialog.
+  - Displays the complete LLM command/input, reasoning thought trace, complete untruncated output, diagnostic failure traces, and execution telemetry with one-tap copy actions.
+- **Interactive `[Build Project]` Action in Plan Cards**:
+  - Upgraded `PlanExecutionActionCard` with a primary `[Build Project]` action button in responsive `FlowRow` anti-squish styling.
+
+### Changed
+- **Modularized Architecture**:
+  - Decomposed builder matching into `FileEditingEngine.kt` and `ProgressiveMatcher.kt`, keeping all source files strictly under 500 lines of code.
+
+---
+
 ## [5.6.0] - 2026-11-03
 
 ### Added

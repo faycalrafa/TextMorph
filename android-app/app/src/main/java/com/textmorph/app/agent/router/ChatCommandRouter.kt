@@ -40,6 +40,14 @@ sealed class CommandRouteResult {
         val goal: String
     ) : CommandRouteResult()
 
+    data class BuilderCommand(
+        val goal: String,
+        val targetFile: String? = null,
+        val isExecute: Boolean = false,
+        val isEdit: Boolean = false,
+        val editFeedback: String? = null
+    ) : CommandRouteResult()
+
     data class SetWorkersCommand(
         val workerCount: Int,
         val message: String
@@ -147,6 +155,17 @@ object ChatCommandRouter {
                     "/goal" -> {
                         AppLogger.i(TAG, "Routed /goal: goal='$remainder'")
                         return CommandRouteResult.GoalCommand(remainder)
+                    }
+
+                    "/builder", "/build" -> {
+                        val flags = extractPlanCommandFlags(remainder)
+                        AppLogger.i(TAG, "Routed /builder: goal='${flags.goal}', isExec=${flags.isExecute}")
+                        return CommandRouteResult.BuilderCommand(
+                            goal = flags.goal,
+                            isExecute = flags.isExecute,
+                            isEdit = flags.isEdit,
+                            editFeedback = flags.editFeedback
+                        )
                     }
                 }
             }

@@ -58,9 +58,21 @@ fun VersionHistoryScreen(
 
     val releaseLog = listOf(
         ReleaseItem(
-            version = "v5.6.0",
+            version = "v5.7.0",
             tag = "Latest Release",
             isLatest = true,
+            changes = listOf(
+                "Iterative /builder Mode: Step-by-step code synthesis and file modification engine with loopback thinking and self-correction retries.",
+                "Live Sandbox Previews: Real-time application updates streamed into HtmlSandboxPreviewCard with GIF recording and code export.",
+                "Tiny-LLM File Editing Engine: Zero-JSON Plain-Text Block Protocol (<read>, WRITE, EDIT) designed specifically for 1.5B–4B on-device models.",
+                "4-Tier Progressive Matching: Exact, Trimmed Line, Indentation-Insensitive, and Fuzzy Anchor matcher (>= 0.88) with syntax rollback.",
+                "Interactive Step Details Dialog: Tap any step in chat (tool calls, searches, plans, builder) to inspect full commands and untruncated outputs."
+            )
+        ),
+        ReleaseItem(
+            version = "v5.6.0",
+            tag = "Previous Release",
+            isLatest = false,
             changes = listOf(
                 "Two-Stage Plan-and-Execute Engine: Decoupled task planning from multi-agent worker execution across /plan and /deepsearch.",
                 "Modular Task Decomposition: Automatic role assignment (Asset Harvester, Research Scout, Logic Engineer, QA Validator) with clear what-and-why rationales.",

@@ -106,6 +106,15 @@ fun StepTraceAccordion(
         label = "PulseAlpha"
     )
 
+    var inspectedStep by remember { mutableStateOf<AgentStepTrace?>(null) }
+
+    inspectedStep?.let { step ->
+        StepDetailsDialog(
+            step = step,
+            onDismiss = { inspectedStep = null }
+        )
+    }
+
     Surface(
         shape = RoundedCornerShape(12.dp),
         color = Color(0xFF111827), // Charcoal Slate midnight
@@ -228,7 +237,8 @@ fun StepTraceAccordion(
                         StepItemRow(
                             step = step,
                             isRunning = isRunning && step == traces.lastOrNull() && step.status == "running",
-                            pulseAlpha = pulseAlpha
+                            pulseAlpha = pulseAlpha,
+                            onClick = { inspectedStep = step }
                         )
                     }
                     Spacer(modifier = Modifier.height(2.dp))
@@ -242,7 +252,8 @@ fun StepTraceAccordion(
 private fun StepItemRow(
     step: AgentStepTrace,
     isRunning: Boolean,
-    pulseAlpha: Float
+    pulseAlpha: Float,
+    onClick: () -> Unit
 ) {
     val (icon, tint) = resolveToolIconAndTint(step.toolName)
 
@@ -250,7 +261,9 @@ private fun StepItemRow(
         shape = RoundedCornerShape(8.dp),
         color = Color(0xFF1F2937),
         border = BorderStroke(1.dp, if (step.status == "failed") Color(0xFFEF4444).copy(alpha = 0.5f) else Color(0xFF374151)),
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
     ) {
         Column(
             modifier = Modifier

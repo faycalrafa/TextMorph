@@ -47,6 +47,7 @@ import androidx.compose.ui.unit.sp
 fun PlanExecutionActionCard(
     planSummary: String,
     onExecutePlan: () -> Unit,
+    onBuildPlan: (() -> Unit)? = null,
     onEditPlan: ((feedback: String) -> Unit)? = null,
     onDismiss: (() -> Unit)? = null,
     modifier: Modifier = Modifier
@@ -96,11 +97,30 @@ fun PlanExecutionActionCard(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
+                    if (onBuildPlan != null) {
+                        Button(
+                            onClick = onBuildPlan,
+                            shape = RoundedCornerShape(8.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFF2563EB),
+                                contentColor = Color.White
+                            )
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.AutoAwesome,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Build Project", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
                     Button(
                         onClick = onExecutePlan,
                         shape = RoundedCornerShape(8.dp),
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFF2563EB),
+                            containerColor = if (onBuildPlan != null) Color(0xFF1E3A8A) else Color(0xFF2563EB),
                             contentColor = Color.White
                         )
                     ) {
@@ -110,7 +130,7 @@ fun PlanExecutionActionCard(
                             modifier = Modifier.size(16.dp)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Execute Plan", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        Text(if (onBuildPlan != null) "Generate Report" else "Execute Plan", fontSize = 13.sp, fontWeight = FontWeight.Bold)
                     }
 
                     if (onEditPlan != null) {

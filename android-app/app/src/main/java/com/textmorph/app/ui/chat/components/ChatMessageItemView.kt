@@ -78,6 +78,7 @@ fun ChatMessageItemView(
     onSelectSuggestion: ((String) -> Unit)? = null,
     onViewArtifact: ((com.textmorph.app.data.model.ArtifactMetadata) -> Unit)? = null,
     onExecutePlan: ((String) -> Unit)? = null,
+    onBuildPlan: ((String) -> Unit)? = null,
     onEditPlan: ((String) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
@@ -226,6 +227,7 @@ fun ChatMessageItemView(
                         PlanExecutionActionCard(
                             planSummary = artifact.summary,
                             onExecutePlan = { onExecutePlan(artifact.title.ifBlank { artifact.summary }) },
+                            onBuildPlan = onBuildPlan?.let { cb -> { cb(artifact.title.ifBlank { artifact.summary }) } },
                             onEditPlan = { feedback -> onEditPlan?.invoke(feedback) }
                         )
                         Spacer(modifier = Modifier.height(8.dp))

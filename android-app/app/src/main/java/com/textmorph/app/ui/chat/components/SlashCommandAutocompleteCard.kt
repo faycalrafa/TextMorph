@@ -58,6 +58,12 @@ val AVAILABLE_SLASH_COMMANDS = listOf(
         description = "Iterative deep research with multi-source synthesis (supports --workers <1..4>)",
         syntax = "/deepsearch [--workers N] <topic>",
         icon = Icons.Default.AutoAwesome
+    ),
+    SlashCommandInfo(
+        command = "/builder",
+        description = "Step-by-step code builder with loopback thinking and live sandbox preview",
+        syntax = "/builder <app or code objective>",
+        icon = Icons.Default.AutoAwesome
     )
 )
 

@@ -102,6 +102,16 @@ object AiChatInferenceExecutor {
                     return
                 }
             }
+            is CommandRouteResult.BuilderCommand -> {
+                if (context != null) {
+                    com.textmorph.app.agent.builder.AiChatBuilderHandler.handleBuilderCommand(
+                        scope = scope, sessionId = sessionId, command = commandResult,
+                        userPrompt = prompt, engine = engine, chatRepository = chatRepository,
+                        context = context, onComplete = onComplete
+                    )
+                    return
+                }
+            }
             else -> {}
         }
 

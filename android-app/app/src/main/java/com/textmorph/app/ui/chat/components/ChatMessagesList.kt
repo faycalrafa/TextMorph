@@ -37,6 +37,7 @@ fun ChatMessagesList(
     onSelectSuggestion: (String) -> Unit,
     onViewArtifact: (ArtifactMetadata) -> Unit,
     onExecutePlan: (String) -> Unit,
+    onBuildPlan: ((String) -> Unit)? = null,
     onEditPlan: ((String) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
@@ -68,6 +69,7 @@ fun ChatMessagesList(
                         onSelectSuggestion = onSelectSuggestion,
                         onViewArtifact = onViewArtifact,
                         onExecutePlan = onExecutePlan,
+                        onBuildPlan = onBuildPlan,
                         onEditPlan = onEditPlan
                     )
                 }
